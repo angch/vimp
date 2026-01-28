@@ -1,5 +1,5 @@
 ## Codebase Patterns
-- None yet.
+- GIMP Core Objects: `GimpItem` inherits from `GimpFilter`, indicating a graph-node based architecture.
 
 ## 2026-01-28T19:53+08:00 - US-001
 - Verified `ref/gimp` exists and is a git repo
@@ -16,4 +16,16 @@
 - **Learnings for future iterations:**
   - GIMP's core logic is deep in `app/`, splitting models (`core/`) from UI (`gui/`, `dialogs/`).
   - Build system is Meson; `meson.build` files are the source of truth for dependencies.
+---
+
+## 2026-01-28T20:03+08:00 - US-003
+- Documented core data structures (Image, Layer, Item, Drawable) in `doc/gimp-analysis.md`.
+- Created `doc/AGENTS.md` with GIMP-specific analysis instructions.
+- Files changed:
+  - `doc/gimp-analysis.md`
+  - `doc/AGENTS.md`
+- **Learnings for future iterations:**
+  - `GimpItem` inherits from `GimpFilter`, which is unexpected but crucial.
+  - Core logic is in `app/core/`.
+  - Headers `gimpimage.h` and `gimplayer.h` are the source of truth for struct definitions.
 ---
