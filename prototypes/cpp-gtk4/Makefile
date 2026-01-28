@@ -24,4 +24,7 @@ $(TARGET): $(SRCS)
 clean:
 	rm -f $(TARGET)
 
-.PHONY: all clean
+
+build: all
+
+.PHONY: all clean build

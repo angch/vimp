@@ -11,3 +11,9 @@
   - GIMP's move to GTK4 is delayed, suggesting a rewrite strategy is better than a direct port if we want GTK4 now.
   - C++ compile times and boilerplate are high even for hello world.
 ---
+## Wed Jan 28 23:24:55 +08 2026 - US-001 (Fix)
+- Addressed build failure in C++ GTK4 prototype
+- Added missing `#include <iostream>` to main.cpp
+- Added `build` target to prototypes/cpp-gtk4/Makefile
+- Verified build succeeds
+---
