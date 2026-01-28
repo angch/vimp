@@ -29,7 +29,7 @@
                 "Typecheck passes"
             ],
             "priority": 2,
-            "passes": false,
+            "passes": true,
             "notes": ""
         },
         {
@@ -42,8 +42,8 @@
                 "Typecheck passes"
             ],
             "priority": 3,
-            "passes": false,
-            "notes": ""
+            "passes": true,
+            "notes": "Implemented in Rust. Cold build ~38s, Warm ~0.5s."
         },
         {
             "id": "US-004",

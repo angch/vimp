@@ -3,3 +3,8 @@
 ## Build Requirements
 - Run `make install-deps` in the project root to install necessary libraries (gtk4, gtkmm-4.0) before attempting to build prototypes.
 - Most prototypes use a simple `Makefile`.
+
+## Rust Prototypes
+- Located in `prototypes/rust-gtk4`.
+- Use `cargo run` to build and run.
+- Expect ~40s cold build time for `gtk4` crate; incremental builds are <1s.
