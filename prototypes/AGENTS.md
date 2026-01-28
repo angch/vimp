@@ -7,4 +7,11 @@
 ## Rust Prototypes
 - Located in `prototypes/rust-gtk4`.
 - Use `cargo run` to build and run.
-- Expect ~40s cold build time for `gtk4` crate; incremental builds are <1s.
+
+## Zig Prototypes
+- Located in `prototypes/zig-gtk4`.
+- Use `zig build` or `zig build run` to execute.
+- Links directly to system `gtk4` via `linkSystemLibrary` (uses pkg-config).
+- Uses direct C import (`@cImport`). All GTK types are raw C pointers (often `[*c]T` or `?*T`), requiring explicit `callconv(.c)` for callbacks and manual pointer handling.
+- Build times are very fast: Cold ~3s, Warm ~0.1s.
+
