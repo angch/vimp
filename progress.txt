@@ -1,0 +1,10 @@
+## Codebase Patterns
+- None yet.
+
+## 2026-01-28T19:53+08:00 - US-001
+- Verified `ref/gimp` exists and is a git repo
+- Verified `ref/` is ignored in `.gitignore`
+- **Learnings for future iterations:**
+  - `ref/gimp` is already populated, likely from previous runs or manual setup.
+  - `ref/` was already in `.gitignore`.
+---
