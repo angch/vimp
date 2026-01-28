@@ -1,0 +1,48 @@
+{
+    "project": "Vimp",
+    "branchName": "ralph/gimp-core-analysis",
+    "description": "GIMP Core Analysis for Vimp Port - Analyze GIMP codebase structure and patterns",
+    "userStories": [
+        {
+            "id": "US-001",
+            "title": "Setup Reference Environment",
+            "description": "As a developer, I want the GIMP source code available locally in a `ref` directory so I can grep/read it, but I don't want it polluting my `git status`.",
+            "acceptanceCriteria": [
+                "ref/gimp contains GIMP source code",
+                "ref/ is added to .gitignore",
+                "git status in Vimp root does not show ref/",
+                "Typecheck passes"
+            ],
+            "priority": 1,
+            "passes": true,
+            "notes": ""
+        },
+        {
+            "id": "US-002",
+            "title": "Analyze Application Structure",
+            "description": "As a developer, I want to know the high-level directory structure of GIMP so I know where to look for specific features.",
+            "acceptanceCriteria": [
+                "doc/gimp-analysis.md created",
+                "Section on 'Directory Structure' describing key folders (app, libgimp, etc.)",
+                "Section on 'Build System' (briefly)",
+                "Typecheck passes"
+            ],
+            "priority": 2,
+            "passes": true,
+            "notes": "Completed. Analysis document created at doc/gimp-analysis.md"
+        },
+        {
+            "id": "US-003",
+            "title": "Identify Core Data Structures",
+            "description": "As a developer, I want to understand how GIMP represents an image and layers so I can design Vimp's model.",
+            "acceptanceCriteria": [
+                "doc/gimp-analysis.md contains 'Core Models' section",
+                "specific references to C files/structs defining GimpImage, GimpLayer, etc.",
+                "Typecheck passes"
+            ],
+            "priority": 3,
+            "passes": true,
+            "notes": ""
+        }
+    ]
+}
