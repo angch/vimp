@@ -35,3 +35,49 @@ GIMP uses **Meson** as its primary build system.
 - **`meson_options.txt`**: Defines build configuration options (features to enable/disable).
 
 To understand how a specific module is built or what its dependencies are, looking at the local `meson.build` file is the best approach.
+
+## Core Models
+
+Based on analysis of `app/core/`, here are the fundamental data structures representing an image in GIMP.
+
+### Class Hierarchy
+GIMP uses GObject for its core types. The hierarchy is deeper than expected, with `GimpItem` inheriting from `GimpFilter`.
+
+*   **`GimpObject`**: Base class for most GIMP types.
+    *   **`GimpViewable`**: Base for objects that can be previewed/displayed (Images, items, etc.).
+        *   **`GimpImage`**: The top-level container.
+        *   **`GimpFilter`**: Base for objects that filter/process (graph-node based).
+            *   **`GimpItem`**: Base for items within an image (layers, channels, vectors).
+                *   **`GimpDrawable`**: Base for pixel-based items (things you can draw on).
+                    *   **`GimpLayer`**: A layer in the image stack.
+
+### Key Structures
+
+#### `GimpImage`
+*   **Location**: [`app/core/gimpimage.h`](../ref/gimp/app/core/gimpimage.h)
+*   **Role**: represents an open image document.
+*   **Key Fields** (from structure definition):
+    *   `layers`, `channels`, `vectors` (via `GimpItemTree` or `GimpContainer` accessors in the API).
+    *   `width`, `height`.
+    *   `gimp` (backlink to the global application instance).
+
+#### `GimpLayer`
+*   **Location**: [`app/core/gimplayer.h`](../ref/gimp/app/core/gimplayer.h)
+*   **Role**: A single layer.
+*   **Key Fields**:
+    *   `opacity`, `mode` (blend mode).
+    *   `mask` (Layer mask).
+    *   `lock_alpha`.
+
+#### `GimpDrawable`
+*   **Location**: [`app/core/gimpdrawable.h`](../ref/gimp/app/core/gimpdrawable.h)
+*   **Role**: Abstract base for anything with pixels (Layers, Channels, Masks).
+
+#### `GimpItem`
+*   **Location**: [`app/core/gimpitem.h`](../ref/gimp/app/core/gimpitem.h)
+*   **Role**: Abstract base for structural elements of an image (Layers, Channels, Vectors/Paths).
+*   **Key Responsibilities**:
+    *   Position and dimensions (`offset_x`, `offset_y`, `width`, `height`).
+    *   Transformation methods (scale, rotate, flip).
+    *   Visibility and locking.
+    *   Attaching to a `GimpImage`.
