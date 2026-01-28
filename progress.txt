@@ -8,3 +8,12 @@
   - `ref/gimp` is already populated, likely from previous runs or manual setup.
   - `ref/` was already in `.gitignore`.
 ---
+
+## 2026-01-28T19:59+08:00 - US-002
+- Created `doc/gimp-analysis.md` with directory structure and build system analysis.
+- Files changed:
+  - `doc/gimp-analysis.md`
+- **Learnings for future iterations:**
+  - GIMP's core logic is deep in `app/`, splitting models (`core/`) from UI (`gui/`, `dialogs/`).
+  - Build system is Meson; `meson.build` files are the source of truth for dependencies.
+---
