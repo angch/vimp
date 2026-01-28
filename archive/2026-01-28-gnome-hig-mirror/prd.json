@@ -1,0 +1,38 @@
+{
+    "project": "Vimp",
+    "branchName": "ralph/gnome-hig-mirror",
+    "description": "Gnome HIG Mirror and Analysis - Create a local mirror of the Gnome HIG and analyze content.",
+    "userStories": [
+        {
+            "id": "US-001",
+            "title": "Gnome HIG Mirror Script",
+            "description": "As a developer, I want a script that downloads the Gnome HIG website so that I can reference it offline and ensure we have a fixed version to work from.",
+            "acceptanceCriteria": [
+                "Script named `scripts/mirror-gnome-hig.sh` created",
+                "Script uses `wget` or similar tool to recursively download the site",
+                "Downloads are saved to `ref/gnome-hig`",
+                "Assets (CSS, Images) are included",
+                "Links within the mirror are converted for local viewing",
+                "Typecheck passes"
+            ],
+            "priority": 1,
+            "passes": true,
+            "notes": "Verified script executes and mirrors content."
+        },
+        {
+            "id": "US-002",
+            "title": "Guidelines Analysis Document",
+            "description": "As a developer, I want a structured summary of the HIG relevant to GIMP/Vimp so that I can implement the UI correctly without constantly wading through the full documentation.",
+            "acceptanceCriteria": [
+                "Markdown document created at `doc/gnome-hig-analysis.md`",
+                "Document covers key areas: Application Layout, Navigation, Common Patterns, Visual Style",
+                "Content is tailored to the context of porting GIMP",
+                "Includes references/links to the local mirror",
+                "Typecheck passes"
+            ],
+            "priority": 2,
+            "passes": true,
+            "notes": "Verified document structure and links. Added Accessibility section."
+        }
+    ]
+}

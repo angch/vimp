@@ -1,0 +1,17 @@
+## Codebase Patterns
+
+## 2026-01-28 20:34 - US-001
+- Verified existing script scripts/mirror-gnome-hig.sh
+- Executed script to populate ref/gnome-hig
+- **Learnings for future iterations:**
+  - Existing scripts may need +x permission updates
+---
+
+## 2026-01-28 20:45 - US-002
+- Validated `doc/gnome-hig-analysis.md` relative links against `ref/gnome-hig`
+- Added Accessibility section to analysis
+- **Learnings for future iterations:**
+  - `read_url_content` tool may struggle with local file paths (`file://`); verify file existence with `list_dir` or `view_file` instead.
+  - HIG documentation structure is consistent, `../ref/gnome-hig/hig` works well as relative base.
+---
+

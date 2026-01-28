@@ -1,0 +1,29 @@
+{
+    "app-id": "org.vimp.Hello",
+    "runtime": "org.gnome.Platform",
+    "runtime-version": "46",
+    "sdk": "org.gnome.Sdk",
+    "command": "hello-world",
+    "finish-args": [
+        "--share=network",
+        "--socket=fallback-x11",
+        "--socket=wayland",
+        "--device=dri"
+    ],
+    "modules": [
+        {
+            "name": "hello-world",
+            "buildsystem": "simple",
+            "build-commands": [
+                "make",
+                "install -D hello-world /app/bin/hello-world"
+            ],
+            "sources": [
+                {
+                    "type": "dir",
+                    "path": "."
+                }
+            ]
+        }
+    ]
+}
