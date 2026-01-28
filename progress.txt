@@ -2,6 +2,7 @@
 - Build prerequisites can be installed via `make install-deps` (Ubuntu 24.04).
 - Document architecture decisions in `doc/architecture-analysis/`.
 - For Zig prototypes, use `@cImport` for C libraries and handle pointers as `[*c]T` manually.
+- Cross-platform GTK4 builds require manual dependency management (sysroots/dlls) regardless of language.
 ## Wed Jan 28 23:20:41 +08 2026 - US-001
 - Implemented C++ GTK4 Hello World in `prototypes/cpp-gtk4`
 - Created main Makefile for dependency installation (Ubuntu 24.04)
@@ -51,4 +52,24 @@
   - Build times are significantly faster than Rust (~0.1s vs ~0.5s warm), potentially offering a tighter feedback loop.
   - No high-level safe bindings mean we are effectively writing "Better C" - less safety than Rust but easier C integration for GIMP's legacy codebase.
   - `build.zig` API in 0.15 requires `root_module` struct for executables.
+---
+## Thu Jan 29 00:25:00 +08 2026 - US-005
+- Analyzed cross-compilation and packaging for Rust and Zig
+- Created doc/architecture-analysis/packaging_evaluation.md
+- Updated doc/AGENTS.md with cross-platform insights
+- **Learnings for future iterations:**
+  - Compiler support (Zig) != Library support (GTK).
+  - Flatpak is the path of least resistance for Linux distribution.
+  - Windows cross-compilation is possible but "high friction" for both; shipping a Windows-native build CI (Github Actions windows runner) instead of cross-compiling from Linux might be smarter.
+---
+
+## Thu Jan 29 00:25:53 +08 2026 - US-006
+- Verified Native Performance for Rust and Zig prototypes (~0.01-0.04s startup).
+- Validated Gnome HIG (LibAdwaita) availability for both languages.
+- Created `doc/architecture-analysis/performance_hig_comparison.md`.
+- Updated `doc/AGENTS.md` with specific LibAdwaita patterns.
+- **Learnings for future iterations:**
+  - Rust's safe wrappers are nice but version conflicts between `gtk4` and `libadwaita` crates are a real friction point.
+  - Zig matches "C" performance perfectly and accesses Adwaita purely via C headers; simple but unsafe.
+  - Performance difference between the two is negligible for this use case; both are "instant".
 ---

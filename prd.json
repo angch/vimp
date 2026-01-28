@@ -69,8 +69,8 @@
                 "Typecheck passes"
             ],
             "priority": 5,
-            "passes": false,
-            "notes": ""
+            "passes": true,
+            "notes": "Verified. Created doc/architecture-analysis/packaging_evaluation.md. Zig/Rust both viable but have different trade-offs."
         },
         {
             "id": "US-006",
@@ -82,8 +82,8 @@
                 "Typecheck passes"
             ],
             "priority": 6,
-            "passes": false,
-            "notes": ""
+            "passes": true,
+            "notes": "Verified. Created doc/architecture-analysis/performance_hig_comparison.md. Rust/Zig both native speed. LibAdwaita available in both."
         },
         {
             "id": "US-007",
