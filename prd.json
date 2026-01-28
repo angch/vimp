@@ -55,8 +55,8 @@
                 "Typecheck passes"
             ],
             "priority": 4,
-            "passes": false,
-            "notes": ""
+            "passes": true,
+            "notes": "Implemented in Zig. Cold build ~2.9s, Warm ~0.1s. Uses direct C GTK4 bindings."
         },
         {
             "id": "US-005",

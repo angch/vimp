@@ -1,6 +1,7 @@
 ## Codebase Patterns
 - Build prerequisites can be installed via `make install-deps` (Ubuntu 24.04).
 - Document architecture decisions in `doc/architecture-analysis/`.
+- For Zig prototypes, use `@cImport` for C libraries and handle pointers as `[*c]T` manually.
 ## Wed Jan 28 23:20:41 +08 2026 - US-001
 - Implemented C++ GTK4 Hello World in `prototypes/cpp-gtk4`
 - Created main Makefile for dependency installation (Ubuntu 24.04)
@@ -38,4 +39,16 @@
   - `gtk4-rs` build times are significant for cold builds but very fast for incremental.
   - Rust development experience is smooth with `cargo`.
   - No extra system dependencies were needed beyond what `US-001` installed (gtk4).
+---
+## Thu Jan 29 00:10:12 +08 2026 - US-004
+- Implemented Zig GTK4 Canvas Prototype in `prototypes/zig-gtk4`.
+- Configured `build.zig` to direct link system `gtk4` using `pkg-config` mechanism.
+- Implemented `src/main.zig` using `@cImport` to access raw C GTK4 API.
+- Implemented `GtkDrawingArea` with Cairo drawing using C ABI callback (`callconv(.c)`).
+- Measured compile times: Cold ~2.9s, Warm ~0.1s.
+- **Learnings for future iterations:**
+  - Zig 0.15 C-interop is extremely fast and capable but requires manual C pointer handling (`[*c]T`, `?*T`).
+  - Build times are significantly faster than Rust (~0.1s vs ~0.5s warm), potentially offering a tighter feedback loop.
+  - No high-level safe bindings mean we are effectively writing "Better C" - less safety than Rust but easier C integration for GIMP's legacy codebase.
+  - `build.zig` API in 0.15 requires `root_module` struct for executables.
 ---
