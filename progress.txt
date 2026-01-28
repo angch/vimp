@@ -3,6 +3,7 @@
 - Document architecture decisions in `doc/architecture-analysis/`.
 - For Zig prototypes, use `@cImport` for C libraries and handle pointers as `[*c]T` manually.
 - Cross-platform GTK4 builds require manual dependency management (sysroots/dlls) regardless of language.
+- Architecture Decision: Use Zig for "GIMP-like" apps to leverage C interop without bindings.
 ## Wed Jan 28 23:20:41 +08 2026 - US-001
 - Implemented C++ GTK4 Hello World in `prototypes/cpp-gtk4`
 - Created main Makefile for dependency installation (Ubuntu 24.04)
@@ -72,4 +73,13 @@
   - Rust's safe wrappers are nice but version conflicts between `gtk4` and `libadwaita` crates are a real friction point.
   - Zig matches "C" performance perfectly and accesses Adwaita purely via C headers; simple but unsafe.
   - Performance difference between the two is negligible for this use case; both are "instant".
+---
+## Thu Jan 29 00:30:00 +08 2026 - US-007
+- Synthesized findings from US-001 to US-006.
+- Created `doc/architecture-analysis/final_recommendation.md` with comparison matrix.
+- Selected Zig + GTK4 as the official stack.
+- Updated `README.md` with the decision.
+- **Learnings for future iterations:**
+  - The "GIMP Port" requirement heavily biases the decision towards C-interop (Zig) over pure safety (Rust).
+  - Writing the recommendation clarified that we are prioritizing "Integration" over "Ecosystem".
 ---

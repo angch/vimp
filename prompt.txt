@@ -1,3 +1,7 @@
 Load the prd skill and create a PRD for
 
 Load the ralph skill and convert tasks/prd-[feature-name].md to prd.json
+
+foo=$(git branch --show-current)
+git switch main
+git merge $foo
