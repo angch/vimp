@@ -17,7 +17,9 @@ pub fn main() !void {
     engine.setupGraph();
 
     // Create the application
-    const app = c.gtk_application_new("org.vimp.app", c.G_APPLICATION_DEFAULT_FLAGS);
+    // Use NON_UNIQUE to avoid dbus complications in dev
+    const flags = c.G_APPLICATION_NON_UNIQUE;
+    const app = c.gtk_application_new("org.vimp.app.dev", flags);
     defer c.g_object_unref(app);
 
     // Connect the activate signal
@@ -47,11 +49,22 @@ fn draw_func(
 
     if (surface == null) {
         surface = c.cairo_image_surface_create(c.CAIRO_FORMAT_ARGB32, width, height);
-        // Clear to white
-        const cr_surf = c.cairo_create(surface);
-        c.cairo_set_source_rgb(cr_surf, 1, 1, 1);
-        c.cairo_paint(cr_surf);
-        c.cairo_destroy(cr_surf);
+    }
+
+    // US-003: Render from GEGL
+    if (surface) |s| {
+        // We render regardless of whether it's new, because GEGL graph might have changed.
+        // In a real app we'd optimize this (damage rects etc), but for now, full redraw.
+
+        c.cairo_surface_flush(s);
+        const data = c.cairo_image_surface_get_data(s);
+        const stride = c.cairo_image_surface_get_stride(s);
+        const s_width = c.cairo_image_surface_get_width(s);
+        const s_height = c.cairo_image_surface_get_height(s);
+
+        engine.blit(s_width, s_height, data, stride);
+
+        c.cairo_surface_mark_dirty(s);
     }
 
     if (surface) |s| {

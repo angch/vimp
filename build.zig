@@ -38,6 +38,10 @@ pub fn build(b: *std.Build) void {
     run_cmd.setEnvironmentVariable("GEGL_PATH", gegl_path);
     run_cmd.setEnvironmentVariable("BABL_PATH", babl_path);
 
+    // Plugins need to find libgegl-0.4.so.0 and libbabl-0.1.so.0
+    const lib_path = b.pathFromRoot("libs/usr/lib/x86_64-linux-gnu");
+    run_cmd.setEnvironmentVariable("LD_LIBRARY_PATH", lib_path);
+
     if (b.args) |args| {
         run_cmd.addArgs(args);
     }

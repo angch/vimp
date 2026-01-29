@@ -31,3 +31,15 @@
   - GEGL plugins require explicit `GEGL_PATH` env var even if libraries are rpath-linked.
   - `b.pathFromRoot` is useful for constructing absolute paths for env vars in `build.zig`.
 ---
+
+## 2026-01-29 - US-003
+- Implemented US-003: Render GEGL Buffer to Canvas.
+- Updated `src/engine.zig` with `output_node` and `blit` method using `gegl_node_blit`.
+- Updated `src/main.zig` to call `engine.blit` in `draw_func`, rendering GEGL output to the Cairo surface.
+- Created `run_local.sh` helper to assume correct environment variables for local testing.
+- **Learnings for future iterations:**
+  - Env vars: `LD_LIBRARY_PATH` is critical for finding vendored libs (.so.0) at runtime.
+  - GEGL Blit: `gegl_node_blit` writes directly to a pointer; Cairo's surface data pointer works if correct format (ARGB32) is used.
+  - GTK4 Headless: Automated visual verification is hard; assume logic correctness if GEGL/Babl calls succeed without crashing.
+  - `run_local.sh` pattern: Good for locally running binaries with complex environment setups.
+---
