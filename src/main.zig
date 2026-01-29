@@ -104,16 +104,8 @@ fn drag_update(
 
     const widget: *c.GtkWidget = @ptrCast(@alignCast(user_data));
 
-    if (surface) |s| {
-        const cr = c.cairo_create(s);
-        c.cairo_set_source_rgb(cr, 0, 0, 0);
-        c.cairo_set_line_width(cr, 2);
-
-        c.cairo_move_to(cr, prev_x, prev_y);
-        c.cairo_line_to(cr, current_x, current_y);
-        c.cairo_stroke(cr);
-        c.cairo_destroy(cr);
-    }
+    // US-004: Paint on the GEGL buffer instead of Cairo surface directly
+    engine.paintStroke(prev_x, prev_y, current_x, current_y);
 
     prev_x = current_x;
     prev_y = current_y;
