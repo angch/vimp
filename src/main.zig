@@ -37,5 +37,33 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     const header_bar = c.gtk_header_bar_new();
     c.gtk_window_set_titlebar(@ptrCast(window), header_bar);
 
+    // Main layout container (Horizontal Box)
+    const main_box = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 0);
+    c.gtk_window_set_child(@ptrCast(window), main_box);
+
+    // Sidebar (Left)
+    const sidebar = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 0);
+    c.gtk_widget_set_size_request(sidebar, 200, -1);
+    c.gtk_widget_add_css_class(sidebar, "sidebar");
+    c.gtk_box_append(@ptrCast(main_box), sidebar);
+
+    // Main Content (Right)
+    const content = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 0);
+    c.gtk_widget_set_hexpand(content, 1);
+    c.gtk_widget_add_css_class(content, "content");
+    c.gtk_box_append(@ptrCast(main_box), content);
+
+    // CSS Styling
+    const css_provider = c.gtk_css_provider_new();
+    const css =
+        \\.sidebar { background-color: #e0e0e0; border-right: 1px solid #c0c0c0; }
+        \\.content { background-color: #ffffff; }
+    ;
+    c.gtk_css_provider_load_from_data(css_provider, css, -1);
+
+    const display = c.gtk_widget_get_display(@ptrCast(window));
+    c.gtk_style_context_add_provider_for_display(display, @ptrCast(css_provider), c.GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    c.g_object_unref(css_provider);
+
     c.gtk_window_present(@ptrCast(window));
 }

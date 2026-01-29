@@ -6,6 +6,7 @@
 - Zig 0.15+: `build.zig.zon` requires correct `.fingerprint` (use compiler suggestion).
 - GTK4: `gtk_init` requires a display connection; expected failure in headless CI/Agent envs.
 - Zig 0.15+: `callconv(.C)` removed; use `callconv(std.builtin.CallingConvention.c)`.
+- GTK4 C-ABI: Use `gtk_css_provider_load_from_data` for CSS loading (safer than `load_from_string` across versions).
 
 ## 2026-01-29 - US-001
 - Implemented: Project setup, `build.zig` with GTK4 linking, `Makefile` for Zig 0.15.2 bootstrapping.
@@ -22,4 +23,12 @@
 - **Learnings for future iterations:**
   - Zig 0.15.2 removed `callconv(.C)` convenience syntax. Must use `std.builtin.CallingConvention.c`.
   - Signal callbacks for GTK must match C ABI exactly.
+---
+
+## 2026-01-29 - US-003
+- Implemented: Sidebar and Main Content area using `GtkBox` and `GtkCssProvider`.
+- Files changed: `src/main.zig`.
+- **Learnings for future iterations:**
+  - `gtk_css_provider_load_from_data` works well for embedding CSS strings in Zig.
+  - `GtkBox` with `add_css_class` provides a clean structure for layout areas.
 ---
