@@ -9,6 +9,8 @@
 - GTK4 C-ABI: Use `gtk_css_provider_load_from_data` for CSS loading (safer than `load_from_string` across versions).
 - GTK4 Callbacks: Ensure function signatures strictly match C headers (e.g. `[*c]` or `?*` vs `*`). Zig 0.15+ is strict about optional vs non-optional pointers in callbacks.
 - Dependencies: Use `tools/setup_libs.sh` to download and extract GEGL/Babl to `./libs` for local development. `build.zig` is configured to look there.
+- Zig 0.15+: Use `pub const c = @cImport(...)` instead of `pub usingnamespace` for C-imports.
+- Runtime: GEGL_PATH/BABL_PATH must be set for plugins. Use `run_cmd.setEnvironmentVariable` in `build.zig`.
 
 ## 2026-01-29 - US-001
 - Implemented US-001 by vendoring GEGL-0.4 and Babl-0.1 via `tools/setup_libs.sh`.
@@ -18,3 +20,14 @@
   - GEGL/Babl binaries are obtained from Ubuntu packages via `apt-get download` and extracted, as standalone static binaries are erratic/unavailable.
   - `build.zig` uses `addIncludePath` and `addLibraryPath` to prioritize vendored libs over system libs.
   - Runtime dependency (rpath) is handled via `exe.addRPath`.
+
+## 2026-01-29 - US-002
+- Implemented US-002: GEGL Initialization & Graph Setup.
+- Created `src/c.zig` and `src/engine.zig`.
+- Updated `src/main.zig` to use `engine`.
+- Configured `build.zig` to set `GEGL_PATH` and `BABL_PATH` for `run` step.
+- **Learnings for future iterations:**
+  - `pub usingnamespace @cImport` failed in Zig 0.15.2; used `pub const c` pattern.
+  - GEGL plugins require explicit `GEGL_PATH` env var even if libraries are rpath-linked.
+  - `b.pathFromRoot` is useful for constructing absolute paths for env vars in `build.zig`.
+---

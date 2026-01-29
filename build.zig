@@ -33,6 +33,11 @@ pub fn build(b: *std.Build) void {
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
 
+    const gegl_path = b.pathFromRoot("libs/usr/lib/x86_64-linux-gnu/gegl-0.4");
+    const babl_path = b.pathFromRoot("libs/usr/lib/x86_64-linux-gnu/babl-0.1");
+    run_cmd.setEnvironmentVariable("GEGL_PATH", gegl_path);
+    run_cmd.setEnvironmentVariable("BABL_PATH", babl_path);
+
     if (b.args) |args| {
         run_cmd.addArgs(args);
     }

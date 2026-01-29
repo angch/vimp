@@ -1,17 +1,21 @@
 const std = @import("std");
 
-const c = @cImport({
-    @cInclude("gtk/gtk.h");
-    @cInclude("gegl.h");
-    @cInclude("babl/babl.h");
-});
+const c = @import("c.zig").c;
+const Engine = @import("engine.zig").Engine;
 
 // Global state for simplicity in this phase
+var engine: Engine = .{};
 var surface: ?*c.cairo_surface_t = null;
 var prev_x: f64 = 0;
 var prev_y: f64 = 0;
 
 pub fn main() !void {
+    engine.init();
+    defer engine.deinit();
+
+    // Construct the graph as per US-002
+    engine.setupGraph();
+
     // Create the application
     const app = c.gtk_application_new("org.vimp.app", c.G_APPLICATION_DEFAULT_FLAGS);
     defer c.g_object_unref(app);
