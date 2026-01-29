@@ -62,6 +62,9 @@ Before committing, check if any edited files have learnings worth preserving in 
 - "This module uses pattern Z for all API calls"
 - "Tests require the dev server running on PORT 3000"
 - "Field names must match the template exactly"
+- "Zig 0.15+ requires `root_module` in `build.zig` instead of `root_source_file`"
+- "Always run `tools/zig build` instead of system zig to ensure consistent version"
+- "Update `build.zig.zon` fingerprint to match compiler suggestions when upgrading deps"
 
 **Do NOT add:**
 - Story-specific implementation details

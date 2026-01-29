@@ -1,103 +1,65 @@
 {
     "project": "Vimp",
-    "branchName": "ralph/architecture-analysis",
-    "description": "Vimp Architecture & Strategy Analysis - Evaluate optimal architectural path and technology stack.",
+    "branchName": "ralph/phase-1-shell",
+    "description": "Implement the initial application shell using Zig and GTK4. This phase establishes the project structure, build system, and basic UI layout.",
     "userStories": [
         {
             "id": "US-001",
-            "title": "Evaluate GIMP Source Upgrade Strategy (C++/GTK4)",
-            "description": "As a developer, I want to assess the feasibility of porting existing GIMP concepts/code to a modern C++/GTK4 stack.",
+            "title": "Project Setup & Linux Build System",
+            "description": "As a developer, I want a reproducible build command so I can compile the application on Linux.",
             "acceptanceCriteria": [
-                "Review GIMP's current usage of GTK3 and codebase complexity",
-                "Implement a minimal 'Hello World' window using C++ and GTK4 to test setup",
-                "Document pros/cons of sticking to C++/GTK4 (legacy compat vs modern maintainability)",
-                "Verify packaging pipeline (Flatpak/Snap) for a C++ GTK4 app",
+                "zig build produces a binary executable",
+                "Project compiles against system GTK4 libraries",
+                "build.zig uses standard configuration patterns",
                 "Typecheck passes"
             ],
             "priority": 1,
             "passes": true,
-            "notes": ""
+            "notes": "Verified build and linking. Runtime fails to open display as expected in headless env, but confirms GTK lib loading."
         },
         {
             "id": "US-002",
-            "title": "Research Alternative Languages and Select Candidates",
-            "description": "As a developer, I want to evaluate modern alternatives to C++ (Zig, Rust, Go, Dart) to select the top 2 for prototyping.",
+            "title": "Main Window with Custom Decorations (CSD)",
+            "description": "As a user, I want a modern-looking window so that the app feels native to the GNOME environment.",
             "acceptanceCriteria": [
-                "Research GTK4 bindings maturity for Zig, Rust, Go, and Dart",
-                "Assess interop costs if using C libraries (GIMP is heavily C)",
-                "Select top 2 promising languages for further prototyping based on research",
+                "Window uses GTK4 Client-Side Decorations (HeaderBar)",
+                "Application title and standard window controls (min, max, close) are visible and functional",
+                "Window is resizable",
+                "Visual verification (Launch app and check window frame)",
                 "Typecheck passes"
             ],
             "priority": 2,
-            "passes": true,
+            "passes": false,
             "notes": ""
         },
         {
             "id": "US-003",
-            "title": "Prototype in First Selected Alternative Language",
-            "description": "As a developer, I want to test the first selected alternative language to verify its viability.",
+            "title": "Static Layout Implementation",
+            "description": "As a user, I want to see a sidebar and a main area so I can distinguish between tools and the workspace.",
             "acceptanceCriteria": [
-                "Create a minimal 'Canvas' prototype in the first selected language",
-                "Measure compile times and feedback loop speed",
+                "Layout contains a Sidebar on the left (fixed width or minimally static)",
+                "Layout contains a Main Content Area on the right",
+                "Areas have distinct visual separation (different background colors or borders)",
+                "Visual verification",
                 "Typecheck passes"
             ],
             "priority": 3,
-            "passes": true,
-            "notes": "Implemented in Rust. Cold build ~38s, Warm ~0.5s."
+            "passes": false,
+            "notes": ""
         },
         {
             "id": "US-004",
-            "title": "Prototype in Second Selected Alternative Language",
-            "description": "As a developer, I want to test the second selected alternative language to verify its viability.",
+            "title": "Basic Canvas Interaction",
+            "description": "As a user, I want to draw on the canvas so I can see that the application is responsive.",
             "acceptanceCriteria": [
-                "Create a minimal 'Canvas' prototype in the second selected language",
-                "Measure compile times and feedback loop speed",
+                "Clicking and dragging on the main canvas area draws pixels (e.g., simplistic single-color line or dots)",
+                "Pointer input events are correctly captured by the view",
+                "No crashes during drawing",
                 "Typecheck passes"
             ],
             "priority": 4,
-            "passes": true,
-            "notes": "Implemented in Zig. Cold build ~2.9s, Warm ~0.1s. Uses direct C GTK4 bindings."
-        },
-        {
-            "id": "US-005",
-            "title": "Assess Multiplatform & Packaging Capabilities",
-            "description": "As a maintainer, I want to ensure the chosen stack can be easily packaged for all major targets.",
-            "acceptanceCriteria": [
-                "Verify cross-compilation support for Windows from Linux for candidates",
-                "Check tooling support for generating Deb, RPM, Flatpak, and Snap",
-                "Identify any 'deal-breaker' platform limitations for each stack",
-                "Typecheck passes"
-            ],
-            "priority": 5,
-            "passes": true,
-            "notes": "Verified. Created doc/architecture-analysis/packaging_evaluation.md. Zig/Rust both viable but have different trade-offs."
-        },
-        {
-            "id": "US-006",
-            "title": "Compare Performance & Gnome HIG Compliance",
-            "description": "As a product owner, I want to ensure the app feels 'native' and looks correct on Gnome.",
-            "acceptanceCriteria": [
-                "Verify 'Native Performance' (startup time, rendering latency) in prototypes",
-                "Confirm access to full Gnome HIG widget set (Adwaita, etc.) in the chosen bindings",
-                "Typecheck passes"
-            ],
-            "priority": 6,
-            "passes": true,
-            "notes": "Verified. Created doc/architecture-analysis/performance_hig_comparison.md. Rust/Zig both native speed. LibAdwaita available in both."
-        },
-        {
-            "id": "US-007",
-            "title": "Produce Final Recommendation",
-            "description": "As the project lead, I want a consolidated report to make the final decision.",
-            "acceptanceCriteria": [
-                "Create a comparison matrix (Language vs Criteria)",
-                "Write a summary recommendation (Stack + Strategy)",
-                "Update README.md with the decision",
-                "Typecheck passes"
-            ],
-            "priority": 7,
-            "passes": true,
-            "notes": "Verified. Created doc/architecture-analysis/final_recommendation.md. Selected Zig."
+            "passes": false,
+            "notes": ""
         }
     ]
 }

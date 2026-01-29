@@ -30,3 +30,25 @@ Things to consider:
 
 - small uncomplicated deployment is a good thing
 ```
+
+```
+Load the prd skill and create a PRD for handling the first phase of tasks mentioned in @final_recommendation.md 
+```
+
+```
+I have analyzed the architectural recommendation for Phase 1 ("The Shell"). To ensure the PRD is perfectly aligned with your expectations, I have a few clarifying questions:
+
+Dock System Complexity: Phase 1 mentions a "dock system". What is the target fidelity for this phase? A. Simple static layout (e.g., fixed sidebar + main area) B. Resizable panes only (splitters) C. Full docking capabilities (drag & drop tabs/panels like GIMP/VS Code) D. Basic placeholder widgets with no layout logic
+Canvas Functionality: What should the "canvas" be capable of in Phase 1? A. Just a colored background/placeholder widget B. Basic pixel drawing capability (click to draw) C. Pan/Zoom support (viewport transforms) D. Loading/displaying a static image
+Window Decorations: A. Standard system title bar B. Custom Client-Side Decorations (CSD) to match modern GNOME style (HeaderBar) C. Minimal window without decorations
+Build System Scope: A. Linux only (focus on current environment) B. Cross-platform ready (definitions for Windows/macOS included now)
+Please reply with your preferences (e.g., "1B, 2A, 3B, 4A").
+```
+1A
+2B
+3B
+4A
+
+```
+Consider bootstrapping a fresh latest version of zig just for this project (but pin it later), installed in this workspace's "tools" directory, instead of relying on the system's zig version which differs from one to enough. Create a Makefile recipe for this.
+```

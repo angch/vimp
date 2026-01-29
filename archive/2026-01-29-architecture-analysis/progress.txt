@@ -1,0 +1,85 @@
+## Codebase Patterns
+- Build prerequisites can be installed via `make install-deps` (Ubuntu 24.04).
+- Document architecture decisions in `doc/architecture-analysis/`.
+- For Zig prototypes, use `@cImport` for C libraries and handle pointers as `[*c]T` manually.
+- Cross-platform GTK4 builds require manual dependency management (sysroots/dlls) regardless of language.
+- Architecture Decision: Use Zig for "GIMP-like" apps to leverage C interop without bindings.
+## Wed Jan 28 23:20:41 +08 2026 - US-001
+- Implemented C++ GTK4 Hello World in `prototypes/cpp-gtk4`
+- Created main Makefile for dependency installation (Ubuntu 24.04)
+- Created `doc/architecture-analysis/gimp_gtk3_review.md` analyzing GIMP's current state
+- Created `doc/architecture-analysis/cpp_gtk4_evaluation.md` documenting Pros/Cons and Packaging
+- Verified Packaging with Flatpak manifest structure
+- **Learnings for future iterations:**
+  - Standard Ubuntu 24.04 repos require `libgtkmm-4.0-dev` which might need universe enabled or specific setup.
+  - GIMP's move to GTK4 is delayed, suggesting a rewrite strategy is better than a direct port if we want GTK4 now.
+  - C++ compile times and boilerplate are high even for hello world.
+---
+## Wed Jan 28 23:24:55 +08 2026 - US-001 (Fix)
+- Addressed build failure in C++ GTK4 prototype
+- Added missing `#include <iostream>` to main.cpp
+- Added `build` target to prototypes/cpp-gtk4/Makefile
+- Verified build succeeds
+---
+## Wed Jan 28 23:40:00 +08 2026 - US-002
+- Researched GTK4 bindings for Zig, Rust, Go, and Dart.
+- Created `doc/architecture-analysis/alternative_languages_review.md` with findings.
+- Selected Rust (Safe/Mature) and Zig (Interop/risk) as top 2 candidates.
+- Disqualified Go (GC/Cgo issues) and Dart (Flutter != Native GTK).
+- Updated `doc/AGENTS.md` with Architecture Analysis section.
+- **Learnings for future iterations:**
+  - Rust's `gtk-rs` is the only truly mature "safe" binding.
+  - Zig has no mature high-level bindings but its "use C directly" feature is a unique strategic advantage for porting GIMP.
+  - Dart is purely Flutter-focused on Desktop; no real "native GTK" ecosystem exists.
+---
+## Thu Jan 29 00:00:30 +08 2026 - US-003
+- Implemented Rust GTK4 Canvas Prototype in `prototypes/rust-gtk4`
+- Created `src/main.rs` with `DrawingArea` and custom drawing function
+- Confirmed build succeeds
+- Measured compile times: Cold ~38s, Warm ~0.5s
+- **Learnings for future iterations:**
+  - `gtk4-rs` build times are significant for cold builds but very fast for incremental.
+  - Rust development experience is smooth with `cargo`.
+  - No extra system dependencies were needed beyond what `US-001` installed (gtk4).
+---
+## Thu Jan 29 00:10:12 +08 2026 - US-004
+- Implemented Zig GTK4 Canvas Prototype in `prototypes/zig-gtk4`.
+- Configured `build.zig` to direct link system `gtk4` using `pkg-config` mechanism.
+- Implemented `src/main.zig` using `@cImport` to access raw C GTK4 API.
+- Implemented `GtkDrawingArea` with Cairo drawing using C ABI callback (`callconv(.c)`).
+- Measured compile times: Cold ~2.9s, Warm ~0.1s.
+- **Learnings for future iterations:**
+  - Zig 0.15 C-interop is extremely fast and capable but requires manual C pointer handling (`[*c]T`, `?*T`).
+  - Build times are significantly faster than Rust (~0.1s vs ~0.5s warm), potentially offering a tighter feedback loop.
+  - No high-level safe bindings mean we are effectively writing "Better C" - less safety than Rust but easier C integration for GIMP's legacy codebase.
+  - `build.zig` API in 0.15 requires `root_module` struct for executables.
+---
+## Thu Jan 29 00:25:00 +08 2026 - US-005
+- Analyzed cross-compilation and packaging for Rust and Zig
+- Created doc/architecture-analysis/packaging_evaluation.md
+- Updated doc/AGENTS.md with cross-platform insights
+- **Learnings for future iterations:**
+  - Compiler support (Zig) != Library support (GTK).
+  - Flatpak is the path of least resistance for Linux distribution.
+  - Windows cross-compilation is possible but "high friction" for both; shipping a Windows-native build CI (Github Actions windows runner) instead of cross-compiling from Linux might be smarter.
+---
+
+## Thu Jan 29 00:25:53 +08 2026 - US-006
+- Verified Native Performance for Rust and Zig prototypes (~0.01-0.04s startup).
+- Validated Gnome HIG (LibAdwaita) availability for both languages.
+- Created `doc/architecture-analysis/performance_hig_comparison.md`.
+- Updated `doc/AGENTS.md` with specific LibAdwaita patterns.
+- **Learnings for future iterations:**
+  - Rust's safe wrappers are nice but version conflicts between `gtk4` and `libadwaita` crates are a real friction point.
+  - Zig matches "C" performance perfectly and accesses Adwaita purely via C headers; simple but unsafe.
+  - Performance difference between the two is negligible for this use case; both are "instant".
+---
+## Thu Jan 29 00:30:00 +08 2026 - US-007
+- Synthesized findings from US-001 to US-006.
+- Created `doc/architecture-analysis/final_recommendation.md` with comparison matrix.
+- Selected Zig + GTK4 as the official stack.
+- Updated `README.md` with the decision.
+- **Learnings for future iterations:**
+  - The "GIMP Port" requirement heavily biases the decision towards C-interop (Zig) over pure safety (Rust).
+  - Writing the recommendation clarified that we are prioritizing "Integration" over "Ecosystem".
+---
