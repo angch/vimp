@@ -1,65 +1,66 @@
 {
     "project": "Vimp",
-    "branchName": "ralph/phase-1-shell",
-    "description": "Implement the initial application shell using Zig and GTK4. This phase establishes the project structure, build system, and basic UI layout.",
+    "branchName": "ralph/phase-2-core",
+    "description": "Integrate the core image processing engine by linking Zig with libgegl and libbabl. This transforms the shell into a basic graphics editor.",
     "userStories": [
         {
             "id": "US-001",
-            "title": "Project Setup & Linux Build System",
-            "description": "As a developer, I want a reproducible build command so I can compile the application on Linux.",
+            "title": "Build System Dependencies (GEGL/Babl)",
+            "description": "As a developer, I need the build system to link against system GEGL and Babl libraries so I can call their functions from Zig.",
             "acceptanceCriteria": [
-                "zig build produces a binary executable",
-                "Project compiles against system GTK4 libraries",
-                "build.zig uses standard configuration patterns",
+                "zig build links libgegl-0.4 (or similar) and libbabl-0.1",
+                "@cImport in Zig successfully finds gegl.h and babl.h",
+                "Application compiles and runs without linker errors",
                 "Typecheck passes"
             ],
             "priority": 1,
             "passes": true,
-            "notes": "Verified build and linking. Runtime fails to open display as expected in headless env, but confirms GTK lib loading."
+            "notes": "Vendored via tools/setup_libs.sh"
         },
         {
             "id": "US-002",
-            "title": "Main Window with Custom Decorations (CSD)",
-            "description": "As a user, I want a modern-looking window so that the app feels native to the GNOME environment.",
+            "title": "GEGL Initialization & Graph Setup",
+            "description": "As a developer, I want the application to initialize the GEGL engine on startup so it is ready for image processing.",
             "acceptanceCriteria": [
-                "Window uses GTK4 Client-Side Decorations (HeaderBar)",
-                "Application title and standard window controls (min, max, close) are visible and functional",
-                "Window is resizable",
-                "Visual verification (Launch app and check window frame)",
+                "Call gegl_init() and babl_init() at application launch",
+                "Construct a basic GEGL graph (e.g., a background color node connected to a write buffer)",
+                "Clean up resources (if applicable) on exit",
+                "No crashes on startup",
                 "Typecheck passes"
             ],
             "priority": 2,
-            "passes": true,
-            "notes": "Implemented GtkApplicationWindow with HeaderBar. Validated via build (C-ABI fix applied)."
+            "passes": false,
+            "notes": ""
         },
         {
             "id": "US-003",
-            "title": "Static Layout Implementation",
-            "description": "As a user, I want to see a sidebar and a main area so I can distinguish between tools and the workspace.",
+            "title": "Render GEGL Buffer to Canvas",
+            "description": "As a user, I want to see the actual image data from GEGL displayed in the window, rather than a placeholder.",
             "acceptanceCriteria": [
-                "Layout contains a Sidebar on the left (fixed width or minimally static)",
-                "Layout contains a Main Content Area on the right",
-                "Areas have distinct visual separation (different background colors or borders)",
+                "Extract pixel data from the GEGL graph/node",
+                "Convert/Blit the data to a format compatible with GtkDrawingArea (e.g., GdkTexture or Cairo surface)",
+                "The canvas displays the visual output of the GEGL graph",
                 "Visual verification",
                 "Typecheck passes"
             ],
             "priority": 3,
-            "passes": true,
-            "notes": "Implemented Sidebar and Content area using GtkBox and CSS styling. Verified compilation."
+            "passes": false,
+            "notes": ""
         },
         {
             "id": "US-004",
-            "title": "Basic Canvas Interaction",
-            "description": "As a user, I want to draw on the canvas so I can see that the application is responsive.",
+            "title": "Interactive Drawing (GEGL Update)",
+            "description": "As a user, when I draw on the canvas, I want the underlying image data to change using GEGL operations.",
             "acceptanceCriteria": [
-                "Clicking and dragging on the main canvas area draws pixels (e.g., simplistic single-color line or dots)",
-                "Pointer input events are correctly captured by the view",
-                "No crashes during drawing",
+                "Mouse/Pointer events on the canvas map to coordinates in the GEGL graph",
+                "Clicking/Dragging applies a GEGL operation (e.g., painting a stroke on a buffer node) or modifies a node property",
+                "The view updates to reflect the change (repaint triggered)",
+                "Visual verification (strokes appear where drawn)",
                 "Typecheck passes"
             ],
             "priority": 4,
-            "passes": true,
-            "notes": "Implemented GtkDrawingArea with cairo surface backing. Added GtkGestureDrag for drawing black lines. Confirmed build passed."
+            "passes": false,
+            "notes": ""
         }
     ]
 }

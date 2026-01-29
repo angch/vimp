@@ -8,37 +8,13 @@
 - Zig 0.15+: `callconv(.C)` removed; use `callconv(std.builtin.CallingConvention.c)`.
 - GTK4 C-ABI: Use `gtk_css_provider_load_from_data` for CSS loading (safer than `load_from_string` across versions).
 - GTK4 Callbacks: Ensure function signatures strictly match C headers (e.g. `[*c]` or `?*` vs `*`). Zig 0.15+ is strict about optional vs non-optional pointers in callbacks.
+- Dependencies: Use `tools/setup_libs.sh` to download and extract GEGL/Babl to `./libs` for local development. `build.zig` is configured to look there.
 
 ## 2026-01-29 - US-001
-- Implemented: Project setup, `build.zig` with GTK4 linking, `Makefile` for Zig 0.15.2 bootstrapping.
-- Files changed: `build.zig`, `build.zig.zon`, `src/main.zig`, `Makefile`, `.gitignore`.
+- Implemented US-001 by vendoring GEGL-0.4 and Babl-0.1 via `tools/setup_libs.sh`.
+- Modified `build.zig` to link against libraries in `./libs` and set RPATH.
+- Updated `src/main.zig` to include GEGL and Babl headers.
 - **Learnings for future iterations:**
-  - Zig 0.15.2 introduced breaking changes in `build.zig` API (`root_module` vs `root_source_file`).
-  - `build.zig.zon` fingerprinting is strict; let the compiler suggest the hash.
-  - Headless environments will fail `gtk_init`; this acts as a confirmation that GTK is linking/loading, even if it crashes.
----
-
-## 2026-01-29 - US-002
-- Implemented: `GtkApplication` setup, `activate` signal handler, Main Window with HeaderBar (CSD).
-- Files changed: `src/main.zig`.
-- **Learnings for future iterations:**
-  - Zig 0.15.2 removed `callconv(.C)` convenience syntax. Must use `std.builtin.CallingConvention.c`.
-  - Signal callbacks for GTK must match C ABI exactly.
----
-
-## 2026-01-29 - US-003
-- Implemented: Sidebar and Main Content area using `GtkBox` and `GtkCssProvider`.
-- Files changed: `src/main.zig`.
-- **Learnings for future iterations:**
-  - `gtk_css_provider_load_from_data` works well for embedding CSS strings in Zig.
-  - `GtkBox` with `add_css_class` provides a clean structure for layout areas.
----
-
-## 2026-01-29 - US-004
-- Implemented: Basic canvas interaction using `GtkDrawingArea`, `GtkGestureDrag`, and cairo.
-- Files changed: `src/main.zig`.
-- **Learnings for future iterations:**
-  - `GtkDrawingArea` doesn't handle input events directly; use `GtkGesture` (e.g. `GtkGestureDrag`) attached via `gtk_widget_add_controller`.
-  - `GtkGestureDrag` accumulates offsets; for pixel-drawing (keeping track of position), manage `prev_x/y` state manually.
-  - `draw_func` signature must strictly match C-ABI (e.g. `?*anyopaque`, `[*c]GtkDrawingArea`) or `zig build` fails with type errors.
----
+  - GEGL/Babl binaries are obtained from Ubuntu packages via `apt-get download` and extracted, as standalone static binaries are erratic/unavailable.
+  - `build.zig` uses `addIncludePath` and `addLibraryPath` to prioritize vendored libs over system libs.
+  - Runtime dependency (rpath) is handled via `exe.addRPath`.

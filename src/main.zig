@@ -2,6 +2,8 @@ const std = @import("std");
 
 const c = @cImport({
     @cInclude("gtk/gtk.h");
+    @cInclude("gegl.h");
+    @cInclude("babl/babl.h");
 });
 
 // Global state for simplicity in this phase

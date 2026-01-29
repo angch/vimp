@@ -17,6 +17,14 @@ pub fn build(b: *std.Build) void {
     // Link against system libraries
     exe.linkLibC();
     exe.linkSystemLibrary("gtk4");
+    exe.linkSystemLibrary("gegl-0.4");
+    exe.linkSystemLibrary("babl-0.1");
+
+    // Vendored paths from tools/setup_libs.sh (User Request: Download libs)
+    exe.addIncludePath(b.path("libs/usr/include/gegl-0.4"));
+    exe.addIncludePath(b.path("libs/usr/include/babl-0.1"));
+    exe.addLibraryPath(b.path("libs/usr/lib/x86_64-linux-gnu"));
+    exe.addRPath(b.path("libs/usr/lib/x86_64-linux-gnu"));
 
     // Install the artifact
     b.installArtifact(exe);
