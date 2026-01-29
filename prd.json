@@ -29,8 +29,8 @@
                 "Typecheck passes"
             ],
             "priority": 2,
-            "passes": false,
-            "notes": ""
+            "passes": true,
+            "notes": "Implemented GtkApplicationWindow with HeaderBar. Validated via build (C-ABI fix applied)."
         },
         {
             "id": "US-003",

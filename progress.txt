@@ -5,6 +5,7 @@
 - Zig 0.15+: Use `root_module` in `b.addExecutable` instead of `root_source_file`.
 - Zig 0.15+: `build.zig.zon` requires correct `.fingerprint` (use compiler suggestion).
 - GTK4: `gtk_init` requires a display connection; expected failure in headless CI/Agent envs.
+- Zig 0.15+: `callconv(.C)` removed; use `callconv(std.builtin.CallingConvention.c)`.
 
 ## 2026-01-29 - US-001
 - Implemented: Project setup, `build.zig` with GTK4 linking, `Makefile` for Zig 0.15.2 bootstrapping.
@@ -13,4 +14,12 @@
   - Zig 0.15.2 introduced breaking changes in `build.zig` API (`root_module` vs `root_source_file`).
   - `build.zig.zon` fingerprinting is strict; let the compiler suggest the hash.
   - Headless environments will fail `gtk_init`; this acts as a confirmation that GTK is linking/loading, even if it crashes.
+---
+
+## 2026-01-29 - US-002
+- Implemented: `GtkApplication` setup, `activate` signal handler, Main Window with HeaderBar (CSD).
+- Files changed: `src/main.zig`.
+- **Learnings for future iterations:**
+  - Zig 0.15.2 removed `callconv(.C)` convenience syntax. Must use `std.builtin.CallingConvention.c`.
+  - Signal callbacks for GTK must match C ABI exactly.
 ---
