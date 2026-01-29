@@ -7,6 +7,7 @@
 - GTK4: `gtk_init` requires a display connection; expected failure in headless CI/Agent envs.
 - Zig 0.15+: `callconv(.C)` removed; use `callconv(std.builtin.CallingConvention.c)`.
 - GTK4 C-ABI: Use `gtk_css_provider_load_from_data` for CSS loading (safer than `load_from_string` across versions).
+- GTK4 Callbacks: Ensure function signatures strictly match C headers (e.g. `[*c]` or `?*` vs `*`). Zig 0.15+ is strict about optional vs non-optional pointers in callbacks.
 
 ## 2026-01-29 - US-001
 - Implemented: Project setup, `build.zig` with GTK4 linking, `Makefile` for Zig 0.15.2 bootstrapping.
@@ -31,4 +32,13 @@
 - **Learnings for future iterations:**
   - `gtk_css_provider_load_from_data` works well for embedding CSS strings in Zig.
   - `GtkBox` with `add_css_class` provides a clean structure for layout areas.
+---
+
+## 2026-01-29 - US-004
+- Implemented: Basic canvas interaction using `GtkDrawingArea`, `GtkGestureDrag`, and cairo.
+- Files changed: `src/main.zig`.
+- **Learnings for future iterations:**
+  - `GtkDrawingArea` doesn't handle input events directly; use `GtkGesture` (e.g. `GtkGestureDrag`) attached via `gtk_widget_add_controller`.
+  - `GtkGestureDrag` accumulates offsets; for pixel-drawing (keeping track of position), manage `prev_x/y` state manually.
+  - `draw_func` signature must strictly match C-ABI (e.g. `?*anyopaque`, `[*c]GtkDrawingArea`) or `zig build` fails with type errors.
 ---

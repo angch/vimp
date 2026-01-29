@@ -58,8 +58,8 @@
                 "Typecheck passes"
             ],
             "priority": 4,
-            "passes": false,
-            "notes": ""
+            "passes": true,
+            "notes": "Implemented GtkDrawingArea with cairo surface backing. Added GtkGestureDrag for drawing black lines. Confirmed build passed."
         }
     ]
 }
