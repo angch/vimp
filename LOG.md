@@ -2,6 +2,8 @@ Human written:
 
 We're running this in antigravity, planning, gemini 3 pro (high)
 
+Stream of consciousness, might edit later.
+
 The initial PRD is:
 
 ```
@@ -52,3 +54,34 @@ Please reply with your preferences (e.g., "1B, 2A, 3B, 4A").
 ```
 Consider bootstrapping a fresh latest version of zig just for this project (but pin it later), installed in this workspace's "tools" directory, instead of relying on the system's zig version which differs from one to enough. Create a Makefile recipe for this.
 ```
+
+```
+I've analyzed the final_recommendation.md and the existing PRD. To ensure "Phase 2: The Core (Interop)" is scoped correctly, please clarify the following:
+
+Visualization Scope: Should the GEGL output be rendered to the GTK4 window aimed in Phase 1? A. Yes, render the GEGL buffer to the GTK widget (End-to-end integration). B. No, keep it headless/console-only for now (Focus on build/interop).
+Interactivity: Should the drawing interaction from Phase 1 be connected to update the GEGL graph? A. Yes, mouse clicks should trigger GEGL updates (e.g., paint strokes). B. No, just display a static or procedurally generated GEGL graph for now.
+Dependency Scope: The specific text mentions libgegl and libbabl. Should libgimp (GIMP Core) be included in Phase 2? A. No, just gegl and babl as specified. B. Yes, include libgimp linking now to prepare for Phase 3.
+```
+1A
+2A
+3A
+
+The tooling, like how we download a version of zig for this project, should download a version of the external libraries for us to link to it, and potentially statically link to it to reduce dependencies when packaging into flatpak or snap.
+
+angch: One interesting thing this loop sets up is that every iteration saves
+the knowledge and state of the project, so another model can actually take
+over and continue the work. Very much like that Gordon Ramsay Hell's Kitchen Relay race cooking. The system we set up here ensures that we don't
+rely on a single user story or context being overly long and "overwork" it.
+This ralph loop system ensures that the process includes communicating the
+knowledge and state of a project, and focus the iteration to something
+that fits and runs well within a single iteration. The job of human is
+to guide it so these stepping stones are possible, and moves the project
+forward, so we don't need overly long user stories or contexts.
+
+---
+
+```
+Setup a script to get a new machine (Ubuntu 24.04 Desktop amd64) to this current state to continue development.
+```
+
+Document this as well as how the agent prompts have been running to README.md
