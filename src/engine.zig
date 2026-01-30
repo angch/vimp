@@ -319,17 +319,17 @@ pub const Engine = struct {
         const dist = @sqrt(dx * dx + dy * dy);
         const steps: usize = @max(1, @as(usize, @intFromFloat(dist)));
 
+        // Paint a small brush
+        const half = @divFloor(brush_size, 2);
+        const radius_sq = if (self.brush_type == .circle)
+            std.math.pow(f64, @as(f64, @floatFromInt(brush_size)) / 2.0, 2.0)
+        else
+            0;
+
         for (0..steps + 1) |i| {
             const t: f64 = if (steps == 0) 0.0 else @as(f64, @floatFromInt(i)) / @as(f64, @floatFromInt(steps));
             const x: c_int = @intFromFloat(x0 + dx * t);
             const y: c_int = @intFromFloat(y0 + dy * t);
-
-            // Paint a small brush
-            const half = @divFloor(brush_size, 2);
-            const radius_sq = if (self.brush_type == .circle)
-                std.math.pow(f64, @as(f64, @floatFromInt(brush_size)) / 2.0, 2.0)
-            else
-                0;
 
             var by: c_int = -half;
             while (by <= half) : (by += 1) {
