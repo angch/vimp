@@ -576,7 +576,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.gtk_box_append(@ptrCast(sidebar), tools_box);
 
     const createToolButton = struct {
-        fn func(tool_val: *Tool, icon_path: [:0]const u8, group: ?*c.GtkToggleButton, is_icon_name: bool) *c.GtkWidget {
+        fn func(tool_val: *Tool, icon_path: [:0]const u8, tooltip: [:0]const u8, group: ?*c.GtkToggleButton, is_icon_name: bool) *c.GtkWidget {
             const btn = if (group) |_| c.gtk_toggle_button_new() else c.gtk_toggle_button_new();
             if (group) |g| c.gtk_toggle_button_set_group(@ptrCast(btn), g);
 
@@ -587,6 +587,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
 
             c.gtk_widget_set_size_request(img, 24, 24);
             c.gtk_button_set_child(@ptrCast(btn), img);
+            c.gtk_widget_set_tooltip_text(btn, tooltip);
 
             _ = c.g_signal_connect_data(btn, "toggled", @ptrCast(&tool_toggled), tool_val, null, 0);
             return btn;
@@ -594,34 +595,32 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     }.func;
 
     // Brush
-    const brush_btn = createToolButton(&brush_tool, "assets/brush.png", null, false);
+    const brush_btn = createToolButton(&brush_tool, "assets/brush.png", "Brush", null, false);
     c.gtk_box_append(@ptrCast(tools_box), brush_btn);
     c.gtk_toggle_button_set_active(@ptrCast(brush_btn), 1);
 
     // Pencil
-    const pencil_btn = createToolButton(&pencil_tool, "assets/pencil.png", @ptrCast(brush_btn), false);
+    const pencil_btn = createToolButton(&pencil_tool, "assets/pencil.png", "Pencil", @ptrCast(brush_btn), false);
     c.gtk_box_append(@ptrCast(tools_box), pencil_btn);
 
     // Airbrush
-    const airbrush_btn = createToolButton(&airbrush_tool, "assets/airbrush.png", @ptrCast(brush_btn), false);
+    const airbrush_btn = createToolButton(&airbrush_tool, "assets/airbrush.png", "Airbrush", @ptrCast(brush_btn), false);
     c.gtk_box_append(@ptrCast(tools_box), airbrush_btn);
 
     // Eraser
-    const eraser_btn = createToolButton(&eraser_tool, "assets/eraser.png", @ptrCast(brush_btn), false);
+    const eraser_btn = createToolButton(&eraser_tool, "assets/eraser.png", "Eraser", @ptrCast(brush_btn), false);
     c.gtk_box_append(@ptrCast(tools_box), eraser_btn);
 
     // Bucket Fill
-    const fill_btn = createToolButton(&bucket_fill_tool, "assets/bucket.png", @ptrCast(brush_btn), false);
+    const fill_btn = createToolButton(&bucket_fill_tool, "assets/bucket.png", "Bucket Fill", @ptrCast(brush_btn), false);
     c.gtk_box_append(@ptrCast(tools_box), fill_btn);
 
     // Rect Select
-    const select_btn = createToolButton(&rect_select_tool, "edit-select-symbolic", @ptrCast(brush_btn), true);
-    c.gtk_widget_set_tooltip_text(select_btn, "Rectangle Select");
+    const select_btn = createToolButton(&rect_select_tool, "edit-select-symbolic", "Rectangle Select", @ptrCast(brush_btn), true);
     c.gtk_box_append(@ptrCast(tools_box), select_btn);
 
     // Ellipse Select
-    const ellipse_btn = createToolButton(&ellipse_select_tool, "media-record-symbolic", @ptrCast(brush_btn), true);
-    c.gtk_widget_set_tooltip_text(ellipse_btn, "Ellipse Select");
+    const ellipse_btn = createToolButton(&ellipse_select_tool, "media-record-symbolic", "Ellipse Select", @ptrCast(brush_btn), true);
     c.gtk_box_append(@ptrCast(tools_box), ellipse_btn);
 
     // Separator
