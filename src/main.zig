@@ -7,6 +7,7 @@ const Engine = @import("engine.zig").Engine;
 const Tool = enum {
     brush,
     pencil,
+    airbrush,
     eraser,
     bucket_fill,
     // pencil, // Reorder if desired, but append is safer for diffs usually
@@ -93,6 +94,10 @@ fn tool_toggled(
                 engine.setMode(.paint);
                 engine.setBrushType(.square);
             },
+            .airbrush => {
+                engine.setMode(.airbrush);
+                engine.setBrushType(.circle);
+            },
             .eraser => {
                 engine.setMode(.erase);
                 // Eraser shape? Usually square or round. Let's default to circle for now or keep previous behavior.
@@ -109,6 +114,7 @@ fn tool_toggled(
 // Keep these alive
 var brush_tool = Tool.brush;
 var pencil_tool = Tool.pencil;
+var airbrush_tool = Tool.airbrush;
 var eraser_tool = Tool.eraser;
 var bucket_fill_tool = Tool.bucket_fill;
 
@@ -279,7 +285,8 @@ fn drag_update(
         const c_curr_x = (view_x + current_x) / view_scale;
         const c_curr_y = (view_y + current_y) / view_scale;
 
-        engine.paintStroke(c_prev_x, c_prev_y, c_curr_x, c_curr_y);
+        // Default pressure 1.0 for now
+        engine.paintStroke(c_prev_x, c_prev_y, c_curr_x, c_curr_y, 1.0);
         c.gtk_widget_queue_draw(widget);
     }
 
@@ -512,6 +519,10 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     // Pencil
     const pencil_btn = createToolButton(&pencil_tool, "assets/pencil.png", @ptrCast(brush_btn));
     c.gtk_box_append(@ptrCast(tools_box), pencil_btn);
+
+    // Airbrush
+    const airbrush_btn = createToolButton(&airbrush_tool, "assets/airbrush.png", @ptrCast(brush_btn));
+    c.gtk_box_append(@ptrCast(tools_box), airbrush_btn);
 
     // Eraser
     const eraser_btn = createToolButton(&eraser_tool, "assets/eraser.png", @ptrCast(brush_btn));

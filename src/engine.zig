@@ -6,6 +6,7 @@ pub const Engine = struct {
         paint,
         erase,
         fill,
+        airbrush,
     };
 
     pub const BrushType = enum {
@@ -78,7 +79,7 @@ pub const Engine = struct {
         self.output_node = over_node;
     }
 
-    pub fn paintStroke(self: *Engine, x0: f64, y0: f64, x1: f64, y1: f64) void {
+    pub fn paintStroke(self: *Engine, x0: f64, y0: f64, x1: f64, y1: f64, pressure: f64) void {
         if (self.paint_buffer == null) return;
 
         const buf = self.paint_buffer.?;
@@ -94,6 +95,13 @@ pub const Engine = struct {
             pixel = .{ 0, 0, 0, 0 };
         } else {
             pixel = self.fg_color;
+            if (self.mode == .airbrush) {
+                // Modulate alpha by pressure
+                // pixel[3] is u8 (0-255)
+                const alpha: f64 = @as(f64, @floatFromInt(pixel[3]));
+                const new_alpha: u8 = @intFromFloat(alpha * pressure);
+                pixel[3] = new_alpha;
+            }
         }
 
         // Simple line drawing using interpolation
@@ -257,7 +265,7 @@ test "Engine paint color" {
     engine.setFgColor(255, 0, 0, 255);
 
     // Draw a single point/small line at 100,100
-    engine.paintStroke(100, 100, 100, 100);
+    engine.paintStroke(100, 100, 100, 100, 1.0);
 
     // Read back pixel
     if (engine.paint_buffer) |buf| {
@@ -288,7 +296,7 @@ test "Engine blit view" {
 
     // Paint a pixel at 50,50
     engine.setFgColor(255, 0, 0, 255);
-    engine.paintStroke(50, 50, 50, 50);
+    engine.paintStroke(50, 50, 50, 50, 1.0);
 
     // Helper to check pixel in a fake buffer
     const checkPixel = struct {
@@ -384,7 +392,7 @@ test "Engine brush size" {
 
     // 1. Large Brush (Size 5)
     engine.setBrushSize(5);
-    engine.paintStroke(100, 100, 100, 100);
+    engine.paintStroke(100, 100, 100, 100, 1.0);
 
     // Center is 100,100.
     // Half is 2. Range: 98..102.
@@ -399,7 +407,7 @@ test "Engine brush size" {
 
     // 2. Small Brush (Size 1)
     engine.setBrushSize(1);
-    engine.paintStroke(200, 200, 200, 200);
+    engine.paintStroke(200, 200, 200, 200, 1.0);
 
     // Center 200,200.
     // Half 0. Range: 200..200.
@@ -423,7 +431,7 @@ test "Engine eraser" {
     engine.setFgColor(255, 0, 0, 255); // Red
 
     // 1. Paint Red at 50,50
-    engine.paintStroke(50, 50, 50, 50);
+    engine.paintStroke(50, 50, 50, 50, 1.0);
 
     // Verify it's red
     if (engine.paint_buffer) |buf| {
@@ -439,7 +447,7 @@ test "Engine eraser" {
     engine.setMode(.erase);
 
     // 3. Erase at 50,50
-    engine.paintStroke(50, 50, 50, 50);
+    engine.paintStroke(50, 50, 50, 50, 1.0);
 
     // Verify it's transparent (0,0,0,0)
     if (engine.paint_buffer) |buf| {
@@ -466,13 +474,13 @@ test "Engine bucket fill" {
     // Box 10,10 to 30,30
     engine.setBrushSize(1);
     // Top
-    engine.paintStroke(10, 10, 30, 10);
+    engine.paintStroke(10, 10, 30, 10, 1.0);
     // Bottom
-    engine.paintStroke(10, 30, 30, 30);
+    engine.paintStroke(10, 30, 30, 30, 1.0);
     // Left
-    engine.paintStroke(10, 10, 10, 30);
+    engine.paintStroke(10, 10, 10, 30, 1.0);
     // Right
-    engine.paintStroke(30, 10, 30, 30);
+    engine.paintStroke(30, 10, 30, 30, 1.0);
 
     // 2. Fill inside with BLUE
     engine.setFgColor(0, 0, 255, 255);
@@ -513,7 +521,7 @@ test "Engine brush shapes" {
 
     // 1. Square (Default)
     // engine.setBrushType(.square); // Already default
-    engine.paintStroke(100, 100, 100, 100);
+    engine.paintStroke(100, 100, 100, 100, 1.0);
 
     if (engine.paint_buffer) |buf| {
         var pixel: [4]u8 = .{ 0, 0, 0, 0 };
@@ -528,7 +536,7 @@ test "Engine brush shapes" {
     // 2. Circle
     engine.setBrushType(.circle);
     // Paint at new location 200, 200
-    engine.paintStroke(200, 200, 200, 200);
+    engine.paintStroke(200, 200, 200, 200, 1.0);
 
     if (engine.paint_buffer) |buf| {
         // Check corner (202, 202). Relative 2,2. DistSq 8. RadiusSq 6.25. Should be skipped.
@@ -543,5 +551,36 @@ test "Engine brush shapes" {
         rect.y = 201;
         c.gegl_buffer_get(buf, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
         try std.testing.expectEqual(pixel[0], 255);
+    }
+}
+
+test "Engine airbrush pressure" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+    engine.setFgColor(255, 0, 0, 255); // Red
+
+    engine.setMode(.airbrush);
+
+    // 1. Full pressure (1.0) -> Alpha 255
+    engine.paintStroke(10, 10, 10, 10, 1.0);
+    if (engine.paint_buffer) |buf| {
+        var pixel: [4]u8 = .{ 0, 0, 0, 0 };
+        const rect = c.GeglRectangle{ .x = 10, .y = 10, .width = 1, .height = 1 };
+        const format = c.babl_format("R'G'B'A u8");
+        c.gegl_buffer_get(buf, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+        try std.testing.expectEqual(pixel[3], 255);
+    }
+
+    // 2. Half pressure (0.5) -> Alpha ~127
+    engine.paintStroke(20, 20, 20, 20, 0.5);
+    if (engine.paint_buffer) |buf| {
+        var pixel: [4]u8 = .{ 0, 0, 0, 0 };
+        const rect = c.GeglRectangle{ .x = 20, .y = 20, .width = 1, .height = 1 };
+        const format = c.babl_format("R'G'B'A u8");
+        c.gegl_buffer_get(buf, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+        // int(255 * 0.5) = 127
+        try std.testing.expectEqual(pixel[3], 127);
     }
 }

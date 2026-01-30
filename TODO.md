@@ -41,7 +41,7 @@
 
 ### Paint Tools
 - [x] Implement Pencil Tool (Hard edge painting)
-- [ ] Implement Airbrush Tool (Variable pressure)
+- [x] Implement Airbrush Tool (Variable pressure)
 - [ ] Implement Bucket Fill Tool
 
 ### Selection Tools
