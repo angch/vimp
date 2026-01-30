@@ -99,10 +99,28 @@ fi
 export PATH="${ZIG_BIN_PATH}:$PATH"
 
 # -----------------------------------------------------------------------------
-# Step 6: Clone project repository (optional)
+# Step 6: Clone Reference GIMP Repository
 # -----------------------------------------------------------------------------
 echo ""
-echo "[6/6] Setting up project repository..."
+echo "[6/7] Setting up reference GIMP repository..."
+
+REF_DIR="${PROJECT_DIR}/ref"
+GIMP_REF_DIR="${REF_DIR}/gimp"
+
+if [ -d "${GIMP_REF_DIR}" ]; then
+    echo "  Reference GIMP directory already exists at ${GIMP_REF_DIR}"
+    echo "  Skipping clone."
+else
+    echo "  Cloning GIMP repository to ${GIMP_REF_DIR}..."
+    mkdir -p "${REF_DIR}"
+    git clone --depth 1 https://github.com/GNOME/gimp.git "${GIMP_REF_DIR}"
+fi
+
+# -----------------------------------------------------------------------------
+# Step 7: Clone project repository (optional)
+# -----------------------------------------------------------------------------
+echo ""
+echo "[7/7] Setting up project repository..."
 
 if [ -d "${PROJECT_DIR}" ]; then
     echo "  Project directory already exists at ${PROJECT_DIR}"

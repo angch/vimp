@@ -85,3 +85,14 @@ Setup a script to get a new machine (Ubuntu 24.04 Desktop amd64) to this current
 ```
 
 Document this as well as how the agent prompts have been running to README.md
+
+---
+
+Load the prd skill and create a PRD for implementing, or investigating or expanding Phase 3 in final_recommendation.md
+Consider that you should do more investigating on gimp's features and code for fine grained approach or alternative approaches.
+
+---
+
+angch: We're not using the dev-browser skill, because this is a desktop app, so
+things will be a bit manual since the agent will be blind to what it built.
+

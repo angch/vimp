@@ -1,0 +1,58 @@
+# Ralph Progress Log
+
+## Codebase Patterns
+- Build: Use `tools/zig build` for consistent environment (bootstrapped via `Makefile`).
+- Zig 0.15+: Use `root_module` in `b.addExecutable` instead of `root_source_file`.
+- Zig 0.15+: `build.zig.zon` requires correct `.fingerprint` (use compiler suggestion).
+- GTK4: `gtk_init` requires a display connection; expected failure in headless CI/Agent envs.
+- Zig 0.15+: `callconv(.C)` removed; use `callconv(std.builtin.CallingConvention.c)`.
+- GTK4 C-ABI: Use `gtk_css_provider_load_from_data` for CSS loading (safer than `load_from_string` across versions).
+- GTK4 Callbacks: Ensure function signatures strictly match C headers (e.g. `[*c]` or `?*` vs `*`). Zig 0.15+ is strict about optional vs non-optional pointers in callbacks.
+- Dependencies: Use `tools/setup_libs.sh` to download and extract GEGL/Babl to `./libs` for local development. `build.zig` is configured to look there.
+- Zig 0.15+: Use `pub const c = @cImport(...)` instead of `pub usingnamespace` for C-imports.
+- Runtime: GEGL_PATH/BABL_PATH must be set for plugins. Use `run_cmd.setEnvironmentVariable` in `build.zig`.
+- GEGL Painting: Use `GeglBuffer` + `gegl:buffer-source` + `gegl:over` for mutable paint layers.
+
+## 2026-01-29 - US-001
+- Implemented US-001 by vendoring GEGL-0.4 and Babl-0.1 via `tools/setup_libs.sh`.
+- Modified `build.zig` to link against libraries in `./libs` and set RPATH.
+- Updated `src/main.zig` to include GEGL and Babl headers.
+- **Learnings for future iterations:**
+  - GEGL/Babl binaries are obtained from Ubuntu packages via `apt-get download` and extracted, as standalone static binaries are erratic/unavailable.
+  - `build.zig` uses `addIncludePath` and `addLibraryPath` to prioritize vendored libs over system libs.
+  - Runtime dependency (rpath) is handled via `exe.addRPath`.
+
+## 2026-01-29 - US-002
+- Implemented US-002: GEGL Initialization & Graph Setup.
+- Created `src/c.zig` and `src/engine.zig`.
+- Updated `src/main.zig` to use `engine`.
+- Configured `build.zig` to set `GEGL_PATH` and `BABL_PATH` for `run` step.
+- **Learnings for future iterations:**
+  - `pub usingnamespace @cImport` failed in Zig 0.15.2; used `pub const c` pattern.
+  - GEGL plugins require explicit `GEGL_PATH` env var even if libraries are rpath-linked.
+  - `b.pathFromRoot` is useful for constructing absolute paths for env vars in `build.zig`.
+---
+
+## 2026-01-29 - US-003
+- Implemented US-003: Render GEGL Buffer to Canvas.
+- Updated `src/engine.zig` with `output_node` and `blit` method using `gegl_node_blit`.
+- Updated `src/main.zig` to call `engine.blit` in `draw_func`, rendering GEGL output to the Cairo surface.
+- Created `run_local.sh` helper to assume correct environment variables for local testing.
+- **Learnings for future iterations:**
+  - Env vars: `LD_LIBRARY_PATH` is critical for finding vendored libs (.so.0) at runtime.
+  - GEGL Blit: `gegl_node_blit` writes directly to a pointer; Cairo's surface data pointer works if correct format (ARGB32) is used.
+  - GTK4 Headless: Automated visual verification is hard; assume logic correctness if GEGL/Babl calls succeed without crashing.
+  - `run_local.sh` pattern: Good for locally running binaries with complex environment setups.
+---
+
+## 2026-01-29 - US-004
+- Implemented US-004: Interactive Drawing (GEGL Update).
+- Added `paint_buffer` and `buffer_node` fields to `Engine` struct in `src/engine.zig`.
+- Implemented `paintStroke()` function that paints on a GEGL buffer using `gegl_buffer_set`.
+- Modified graph to composite paint layer over background using `gegl:over` operation.
+- Updated `src/main.zig` `drag_update` to call `engine.paintStroke()` instead of Cairo-direct drawing.
+- **Learnings for future iterations:**
+  - GEGL Interactive Drawing: Use `gegl:buffer-source` with a writable `GeglBuffer` for mutable paint layers.
+  - GEGL Compositing: Use `gegl_node_connect(over_node, "aux", ...)` to connect auxiliary inputs like paint layers.
+  - Zig 0.15+: Must discard `c_int` return values from functions like `gegl_node_connect` (use `_ = ...`).
+---
