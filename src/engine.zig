@@ -198,8 +198,13 @@ pub const Engine = struct {
 
         try queue.append(allocator, .{ .x = x, .y = y });
 
+        var min_x = x;
+        var max_x = x;
+        var min_y = y;
+        var max_y = y;
+
         while (queue.items.len > 0) {
-            const p = queue.pop().?; // pop returns optional
+            const p = queue.pop().?;
             const px = p.x;
             const py = p.y;
 
@@ -214,6 +219,12 @@ pub const Engine = struct {
             // Fill
             @memcpy(current_pixel, &fill_color);
 
+            // Update dirty bounds
+            if (px < min_x) min_x = px;
+            if (px > max_x) max_x = px;
+            if (py < min_y) min_y = py;
+            if (py > max_y) max_y = py;
+
             // Neighbors
             try queue.append(allocator, .{ .x = px + 1, .y = py });
             try queue.append(allocator, .{ .x = px - 1, .y = py });
@@ -221,8 +232,13 @@ pub const Engine = struct {
             try queue.append(allocator, .{ .x = px, .y = py - 1 });
         }
 
-        // 4. Write back buffer
-        c.gegl_buffer_set(buf, &rect, 0, format, pixels.ptr, rowstride);
+        // 4. Write back buffer (Only dirty rect)
+        const rect_w = max_x - min_x + 1;
+        const rect_h = max_y - min_y + 1;
+        const dirty_rect = c.GeglRectangle{ .x = min_x, .y = min_y, .width = rect_w, .height = rect_h };
+
+        const offset = (@as(usize, @intCast(min_y)) * w + @as(usize, @intCast(min_x))) * 4;
+        c.gegl_buffer_set(buf, &dirty_rect, 0, format, pixels.ptr + offset, rowstride);
     }
 
     pub fn setFgColor(self: *Engine, r: u8, g: u8, b: u8, a: u8) void {
