@@ -308,17 +308,24 @@ fn drag_begin(
             button = c.gtk_gesture_single_get_current_button(@ptrCast(g));
         }
 
-        if (button == 1 and current_tool == .bucket_fill) {
-            const c_x = (view_x + x) / view_scale;
-            const c_y = (view_y + y) / view_scale;
-            engine.bucketFill(c_x, c_y) catch |err| {
-                std.debug.print("Bucket fill failed: {}\n", .{err});
-            };
-            c.gtk_widget_queue_draw(widget);
-        } else if (button == 1 and (current_tool == .rect_select or current_tool == .ellipse_select)) {
-            // Start selection - maybe clear existing?
-            engine.clearSelection();
-            c.gtk_widget_queue_draw(widget);
+        if (button == 1) {
+            if (current_tool == .bucket_fill) {
+                engine.beginTransaction();
+                const c_x = (view_x + x) / view_scale;
+                const c_y = (view_y + y) / view_scale;
+                engine.bucketFill(c_x, c_y) catch |err| {
+                    std.debug.print("Bucket fill failed: {}\n", .{err});
+                };
+                engine.commitTransaction();
+                c.gtk_widget_queue_draw(widget);
+            } else if (current_tool == .rect_select or current_tool == .ellipse_select) {
+                // Start selection - maybe clear existing?
+                engine.clearSelection();
+                c.gtk_widget_queue_draw(widget);
+            } else {
+                // Paint tools
+                engine.beginTransaction();
+            }
         }
     }
 }
@@ -395,6 +402,21 @@ fn drag_update(
 
     prev_x = current_x;
     prev_y = current_y;
+}
+
+fn drag_end(
+    gesture: ?*c.GtkGestureDrag,
+    offset_x: f64,
+    offset_y: f64,
+    user_data: ?*anyopaque,
+) callconv(std.builtin.CallingConvention.c) void {
+    _ = gesture;
+    _ = offset_x;
+    _ = offset_y;
+    _ = user_data;
+
+    // Commit transaction if any (e.g. from paint tools)
+    engine.commitTransaction();
 }
 
 fn new_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
@@ -495,6 +517,16 @@ fn quit_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) 
     // Alternatively: c.g_application_quit(@ptrCast(app));
     // But closing the window is more "Adwaita" friendly if it manages the lifecycle.
     c.g_application_quit(@ptrCast(app));
+}
+
+fn undo_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    engine.undo();
+    queue_draw();
+}
+
+fn redo_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    engine.redo();
+    queue_draw();
 }
 
 fn sidebar_toggled(
@@ -640,6 +672,8 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     add_action(app, "save", @ptrCast(&save_activated), window);
     add_action(app, "about", @ptrCast(&about_activated), null);
     add_action(app, "quit", @ptrCast(&quit_activated), app);
+    add_action(app, "undo", @ptrCast(&undo_activated), null);
+    add_action(app, "redo", @ptrCast(&redo_activated), null);
 
     // Keyboard Shortcuts
     const set_accel = struct {
@@ -652,6 +686,8 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     set_accel(app, "app.new", "<Ctrl>n");
     set_accel(app, "app.open", "<Ctrl>o");
     set_accel(app, "app.save", "<Ctrl>s");
+    set_accel(app, "app.undo", "<Ctrl>z");
+    set_accel(app, "app.redo", "<Ctrl>y");
 
     const toolbar_view = c.adw_toolbar_view_new();
     c.adw_application_window_set_content(@ptrCast(window), toolbar_view);
@@ -686,6 +722,17 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.gtk_actionable_set_action_name(@ptrCast(save_btn), "app.save");
     c.gtk_widget_set_tooltip_text(save_btn, "Save");
     c.adw_header_bar_pack_start(@ptrCast(header_bar), save_btn);
+
+    // Undo/Redo
+    const undo_btn = c.gtk_button_new_from_icon_name("edit-undo-symbolic");
+    c.gtk_actionable_set_action_name(@ptrCast(undo_btn), "app.undo");
+    c.gtk_widget_set_tooltip_text(undo_btn, "Undo");
+    c.adw_header_bar_pack_start(@ptrCast(header_bar), undo_btn);
+
+    const redo_btn = c.gtk_button_new_from_icon_name("edit-redo-symbolic");
+    c.gtk_actionable_set_action_name(@ptrCast(redo_btn), "app.redo");
+    c.gtk_widget_set_tooltip_text(redo_btn, "Redo");
+    c.adw_header_bar_pack_start(@ptrCast(header_bar), redo_btn);
 
     // Hamburger Menu (End)
     const menu = c.g_menu_new();
@@ -846,6 +893,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
 
     _ = c.g_signal_connect_data(drag, "drag-begin", @ptrCast(&drag_begin), @ptrCast(area), null, 0);
     _ = c.g_signal_connect_data(drag, "drag-update", @ptrCast(&drag_update), @ptrCast(area), null, 0);
+    _ = c.g_signal_connect_data(drag, "drag-end", @ptrCast(&drag_end), @ptrCast(area), null, 0);
 
     // Motion Controller (for mouse tracking)
     const motion = c.gtk_event_controller_motion_new();
