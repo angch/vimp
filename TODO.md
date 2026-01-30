@@ -17,6 +17,7 @@
 ### Alignment
 
 - [x] Check and update the TODOs here ensuring that we are on the way towards alignment as described in `doc/gimp_gnome_hig_gap_analysis.md`
+- [ ] Check and update the TODOs here ensuring that we are on the way towards the user stories as described in `doc/gimp-feature-spec-gnome-hig.md`
 
 ### Alignment (GNOME HIG)
 
