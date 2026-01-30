@@ -5,6 +5,7 @@ pub const Engine = struct {
     pub const Mode = enum {
         paint,
         erase,
+        fill,
     };
 
     graph: ?*c.GeglNode = null,
@@ -115,6 +116,73 @@ pub const Engine = struct {
                 }
             }
         }
+    }
+
+    pub fn bucketFill(self: *Engine, start_x: f64, start_y: f64) !void {
+        if (self.paint_buffer == null) return;
+        const buf = self.paint_buffer.?;
+
+        const w: usize = @intCast(self.canvas_width);
+        const h: usize = @intCast(self.canvas_height);
+        const x: c_int = @intFromFloat(start_x);
+        const y: c_int = @intFromFloat(start_y);
+
+        if (x < 0 or x >= self.canvas_width or y < 0 or y >= self.canvas_height) return;
+
+        // 1. Read entire buffer
+        // Allocation: 800 * 600 * 4 = 1.9 MB approx
+        const allocator = std.heap.c_allocator; // Use C allocator for simplicity with large buffer
+        const buffer_size = w * h * 4;
+        const pixels = try allocator.alloc(u8, buffer_size);
+        defer allocator.free(pixels);
+
+        const rect = c.GeglRectangle{ .x = 0, .y = 0, .width = self.canvas_width, .height = self.canvas_height };
+        const format = c.babl_format("R'G'B'A u8");
+        // Rowstride must be correct
+        const rowstride: c_int = self.canvas_width * 4;
+        c.gegl_buffer_get(buf, &rect, 1.0, format, pixels.ptr, rowstride, c.GEGL_ABYSS_NONE);
+
+        // 2. Identify Target Color
+        const idx: usize = (@as(usize, @intCast(y)) * w + @as(usize, @intCast(x))) * 4;
+        const target_color: [4]u8 = pixels[idx..][0..4].*;
+        const fill_color: [4]u8 = self.fg_color;
+
+        // If target matches fill, nothing to do
+        if (std.mem.eql(u8, &target_color, &fill_color)) return;
+
+        // 3. Setup Flood Fill (BFS)
+        // 3. Setup Flood Fill (BFS)
+        const Point = struct { x: c_int, y: c_int };
+        var queue = std.ArrayList(Point).initCapacity(allocator, 64) catch return;
+        defer queue.deinit(allocator);
+
+        try queue.append(allocator, .{ .x = x, .y = y });
+
+        while (queue.items.len > 0) {
+            const p = queue.pop().?; // pop returns optional
+            const px = p.x;
+            const py = p.y;
+
+            if (px < 0 or px >= self.canvas_width or py < 0 or py >= self.canvas_height) continue;
+
+            const p_idx: usize = (@as(usize, @intCast(py)) * w + @as(usize, @intCast(px))) * 4;
+            const current_pixel = pixels[p_idx..][0..4];
+
+            // Check if matches target
+            if (!std.mem.eql(u8, current_pixel, &target_color)) continue;
+
+            // Fill
+            @memcpy(current_pixel, &fill_color);
+
+            // Neighbors
+            try queue.append(allocator, .{ .x = px + 1, .y = py });
+            try queue.append(allocator, .{ .x = px - 1, .y = py });
+            try queue.append(allocator, .{ .x = px, .y = py + 1 });
+            try queue.append(allocator, .{ .x = px, .y = py - 1 });
+        }
+
+        // 4. Write back buffer
+        c.gegl_buffer_set(buf, &rect, 0, format, pixels.ptr, rowstride);
     }
 
     pub fn setFgColor(self: *Engine, r: u8, g: u8, b: u8, a: u8) void {
@@ -347,6 +415,50 @@ test "Engine eraser" {
         try std.testing.expectEqual(pixel[0], 0);
         try std.testing.expectEqual(pixel[1], 0);
         try std.testing.expectEqual(pixel[2], 0);
+        try std.testing.expectEqual(pixel[3], 0);
+    }
+}
+
+test "Engine bucket fill" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+    engine.setFgColor(255, 0, 0, 255); // Red
+
+    // 1. Paint a closed box (using strokes)
+    // Box 10,10 to 30,30
+    engine.setBrushSize(1);
+    // Top
+    engine.paintStroke(10, 10, 30, 10);
+    // Bottom
+    engine.paintStroke(10, 30, 30, 30);
+    // Left
+    engine.paintStroke(10, 10, 10, 30);
+    // Right
+    engine.paintStroke(30, 10, 30, 30);
+
+    // 2. Fill inside with BLUE
+    engine.setFgColor(0, 0, 255, 255);
+    try engine.bucketFill(20, 20);
+
+    if (engine.paint_buffer) |buf| {
+        // Check Center (20,20) - Should be Blue
+        var pixel: [4]u8 = undefined;
+        var rect = c.GeglRectangle{ .x = 20, .y = 20, .width = 1, .height = 1 };
+        const format = c.babl_format("R'G'B'A u8");
+        c.gegl_buffer_get(buf, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+
+        // Assert Blue
+        try std.testing.expectEqual(pixel[0], 0);
+        try std.testing.expectEqual(pixel[1], 0);
+        try std.testing.expectEqual(pixel[2], 255);
+        try std.testing.expectEqual(pixel[3], 255);
+
+        // Check Outside (40,40) - Should be Transparent (0,0,0,0) as it wasn't painted
+        rect.x = 40;
+        rect.y = 40;
+        c.gegl_buffer_get(buf, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
         try std.testing.expectEqual(pixel[3], 0);
     }
 }

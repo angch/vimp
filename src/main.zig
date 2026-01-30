@@ -7,6 +7,7 @@ const Engine = @import("engine.zig").Engine;
 const Tool = enum {
     brush,
     eraser,
+    bucket_fill,
 };
 
 var engine: Engine = .{};
@@ -84,6 +85,7 @@ fn tool_toggled(
         switch (current_tool) {
             .brush => engine.setMode(.paint),
             .eraser => engine.setMode(.erase),
+            .bucket_fill => engine.setMode(.fill),
         }
     }
 }
@@ -91,6 +93,7 @@ fn tool_toggled(
 // Keep these alive
 var brush_tool = Tool.brush;
 var eraser_tool = Tool.eraser;
+var bucket_fill_tool = Tool.bucket_fill;
 
 // View State
 var view_scale: f64 = 1.0;
@@ -186,23 +189,44 @@ fn scroll_func(
 }
 
 fn drag_begin(
-    gesture: *c.GtkGestureDrag,
+    gesture: ?*c.GtkGestureDrag,
     x: f64,
     y: f64,
     user_data: ?*anyopaque,
 ) callconv(std.builtin.CallingConvention.c) void {
-    _ = gesture;
-    _ = user_data;
     prev_x = x;
     prev_y = y;
+
+    if (user_data != null) {
+        const ud = user_data.?;
+        // alignCast might panic if ud is not aligned to *GtkWidget (8 bytes usually)
+        // ud comes from @ptrCast(@alignCast(drawing_area)) which should be aligned.
+        const widget: *c.GtkWidget = @ptrCast(@alignCast(ud));
+
+        // Check button safely
+        var button: c_uint = 0;
+        if (gesture) |g| {
+            button = c.gtk_gesture_single_get_current_button(@ptrCast(g));
+        }
+
+        if (button == 1 and current_tool == .bucket_fill) {
+            const c_x = (view_x + x) / view_scale;
+            const c_y = (view_y + y) / view_scale;
+            engine.bucketFill(c_x, c_y) catch |err| {
+                std.debug.print("Bucket fill failed: {}\n", .{err});
+            };
+            c.gtk_widget_queue_draw(widget);
+        }
+    }
 }
 
 fn drag_update(
-    gesture: *c.GtkGestureDrag,
+    gesture: ?*c.GtkGestureDrag,
     offset_x: f64,
     offset_y: f64,
     user_data: ?*anyopaque,
 ) callconv(std.builtin.CallingConvention.c) void {
+    if (user_data == null) return;
     const widget: *c.GtkWidget = @ptrCast(@alignCast(user_data));
 
     // Check which button is pressed
@@ -228,6 +252,11 @@ fn drag_update(
         c.gtk_widget_queue_draw(widget);
     } else if (button == 1) {
         // Paint (Left Mouse)
+        if (current_tool == .bucket_fill) {
+            // Bucket fill handled in drag_begin, do nothing on drag
+            return;
+        }
+
         const c_prev_x = (view_x + prev_x) / view_scale;
         const c_prev_y = (view_y + prev_y) / view_scale;
         const c_curr_x = (view_x + current_x) / view_scale;
@@ -467,6 +496,10 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     const eraser_btn = createToolButton(&eraser_tool, "assets/eraser.png", @ptrCast(brush_btn));
     c.gtk_box_append(@ptrCast(tools_box), eraser_btn);
 
+    // Bucket Fill
+    const fill_btn = createToolButton(&bucket_fill_tool, "assets/bucket.png", @ptrCast(brush_btn));
+    c.gtk_box_append(@ptrCast(tools_box), fill_btn);
+
     // Separator
     c.gtk_box_append(@ptrCast(sidebar), c.gtk_separator_new(c.GTK_ORIENTATION_HORIZONTAL));
 
@@ -505,8 +538,8 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.gtk_gesture_single_set_button(@ptrCast(drag), 0); // 0 = all buttons
     c.gtk_widget_add_controller(drawing_area, @ptrCast(drag));
 
-    _ = c.g_signal_connect_data(drag, "drag-begin", @ptrCast(&drag_begin), null, null, 0);
-    _ = c.g_signal_connect_data(drag, "drag-update", @ptrCast(&drag_update), drawing_area, null, 0);
+    _ = c.g_signal_connect_data(drag, "drag-begin", @ptrCast(&drag_begin), @ptrCast(drawing_area), null, 0);
+    _ = c.g_signal_connect_data(drag, "drag-update", @ptrCast(&drag_update), @ptrCast(drawing_area), null, 0);
 
     // Motion Controller (for mouse tracking)
     const motion = c.gtk_event_controller_motion_new();

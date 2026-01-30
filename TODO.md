@@ -36,3 +36,15 @@
 
 - [x] Implement Eraser Tool
 - [x] Implement Canvas Navigation (Zoom/Scroll)
+
+## Planned Features
+
+### Paint Tools
+- [ ] Implement Pencil Tool (Hard edge painting)
+- [ ] Implement Airbrush Tool (Variable pressure)
+- [ ] Implement Bucket Fill Tool
+
+### Selection Tools
+- [ ] Implement Rectangle Select Tool
+- [ ] Implement Ellipse Select Tool
+
