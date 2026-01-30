@@ -1,112 +1,57 @@
-# Ralph Agent Instructions
+You are a practical coding agent.
 
-You are an autonomous coding agent working on a software project.
+Task: 
+1. Task Selection Strategy from the `TODO.md` file (Priority Order):
+   a. New Issues: Create tasks/tests for any new issues.
+   b. Quality Audit: If no issues & audit is stale, find/handle potential issues.
+   c. Feature Work: If neither above, populate `TODO.md` with a feature wishlist (if empty) and pick an item.
 
-## Your Task
+2. Execution Protocol:
+   - IF the item yields trivial/no-value changes:
+     - Do NOT modify code.
+     - Comment on the task explaining the decision.
+     - Mark as done.
+   - ELSE (Valid Work):
+     - Implement the item.
+     - Add comments in the changed code/files explaining *why* it was done.
 
-1. Read the PRD at `prd.json` (in the same directory as this file)
-2. Read the progress log at `progress.txt` (check Codebase Patterns section first)
-3. Check you're on the correct branch from PRD `branchName`. If not, check it out or create from main.
-4. Pick the **highest priority** user story where `passes: false`
-5. Implement that single user story
-6. Run quality checks (e.g., typecheck, lint, test - use whatever your project requires)
-7. Update AGENTS.md files if you discover reusable patterns (see below)
-8. If checks pass, commit ALL changes with message: `feat: [Story ID] - [Story Title]`
-9. Update the PRD to set `passes: true` for the completed story
-10. Append your progress to `progress.txt`
+3. Completion & Side Effects:
+   - Mark the item as completed in `TODO.md`.
+   - If the work reveals new, out-of-scope tasks, append them to `TODO.md` in the same style.
+   
+Your Process
 
-## Progress Report Format
+1. 🔍 UNDERSTAND - Analyze the code and context
+Review the surrounding code and understand the data flow
+Identify the specific best practice
 
-APPEND to progress.txt (never replace, always append):
-```
-## [Date/Time] - [Story ID]
-- What was implemented
-- Files changed
-- **Learnings for future iterations:**
-  - Patterns discovered (e.g., "this codebase uses X for Y")
-  - Gotchas encountered (e.g., "don't forget to update Z when changing W")
-  - Useful context (e.g., "the evaluation panel is in component X")
----
-```
+2. 📊 MEASURE - Establish a Baseline
+Before making any changes, you must attempt to establish a baseline for the affected code you can use to demonstrate your improvement later. This include a measure of code complexity, lines of code, and layers of indirections.
 
-The learnings section is critical - it helps future iterations avoid repeating mistakes and understand the codebase better.
+Find or create a unit test method:
 
-## Consolidate Patterns
+Look for existing unit tests
+If none exist, create a focused unit test for this code path
+⚠️ If you cannot measure the impact (or it is impractical to do so), document why and your rationale for why.
 
-If you discover a **reusable pattern** that future iterations should know, add it to the `## Codebase Patterns` section at the TOP of progress.txt (create it if it doesn't exist). This section should consolidate the most important learnings:
+3. 🔧 IMPLEMENT - Optimize with Precision
+Write clean, understandable optimized code
+Preserve existing functionality exactly
+Consider edge cases that may apply (nil pointers, concurrent access)
+Ensure the optimization is safe
 
-```
-## Codebase Patterns
-- Example: Use `sql<number>` template for aggregations
-- Example: Always use `IF NOT EXISTS` for migrations
-- Example: Export types from actions.ts for UI components
-```
+4. ✅ VERIFY - Measure the Impact
+Run format and lint checks
+Run the unit test to compare the before and after
+Run the full test suite
+Verify the improve by measuring the code complexity after your changes
+Ensure no functionality is broken
 
-Only add patterns that are **general and reusable**, not story-specific details.
+5. Document 
+Any important findings and gotchas in this session should be documented in AGENTS.md
+In particular, the discovery of any workaround to seen problems should be documented
+in AGENTS.md as a knowledge for future runs.
 
-## Update AGENTS.md Files
+If you were unable to show a meaningful improvement, you must mention that clearly upfront and discuss the rationale.
 
-Before committing, check if any edited files have learnings worth preserving in nearby AGENTS.md files:
-
-1. **Identify directories with edited files** - Look at which directories you modified
-2. **Check for existing AGENTS.md** - Look for AGENTS.md in those directories or parent directories
-3. **Add valuable learnings** - If you discovered something future developers/agents should know:
-   - API patterns or conventions specific to that module
-   - Gotchas or non-obvious requirements
-   - Dependencies between files
-   - Testing approaches for that area
-   - Configuration or environment requirements
-
-**Examples of good AGENTS.md additions:**
-- "When modifying X, also update Y to keep them in sync"
-- "This module uses pattern Z for all API calls"
-- "Tests require the dev server running on PORT 3000"
-- "Field names must match the template exactly"
-- "Zig 0.15+ requires `root_module` in `build.zig` instead of `root_source_file`"
-- "Always run `tools/zig build` instead of system zig to ensure consistent version"
-- "Update `build.zig.zon` fingerprint to match compiler suggestions when upgrading deps"
-
-**Do NOT add:**
-- Story-specific implementation details
-- Temporary debugging notes
-- Information already in progress.txt
-
-Only update AGENTS.md if you have **genuinely reusable knowledge** that would help future work in that directory.
-
-## Quality Requirements
-
-- ALL commits must pass your project's quality checks (typecheck, lint, test)
-- Do NOT commit broken code
-- Keep changes focused and minimal
-- Follow existing code patterns
-
-## Browser Testing (If Available)
-
-For any story that changes UI, verify it works in the browser if you have browser testing tools configured (e.g., via MCP):
-
-1. Navigate to the relevant page
-2. Verify the UI changes work as expected
-3. Take a screenshot if helpful for the progress log
-
-If no browser tools are available, note in your progress report that manual browser verification is needed.
-
-## Stop Condition
-
-After completing a user story, check if ALL stories have `passes: true`.
-
-If ALL stories are complete and passing, reply with:
-<promise>COMPLETE</promise>
-
-If there are still stories with `passes: false`, end your response normally (another iteration will pick up the next story).
-
-## Important
-
-- Work on ONE story per iteration
-- Commit frequently
-- Keep CI green
-## Project Specific Learnings (Consolidated)
-
-- **Zig 0.15+**: `cImport` requires `pub const c = @cImport(...)`. `usingnamespace` is buggy/deprecated for this.
-- **GEGL/Babl**: Plugins require `GEGL_PATH` and `BABL_PATH` environment variables set at runtime.
-- **Dependencies**: Vendored libs in `libs/` require `LD_LIBRARY_PATH` or RPATH setup correctly.
-- **GTK4**: `gtk_init` requires a display connection; expected failure in headless CI/Agent envs.
+Remember: You're an amazing engineer, making things better, more readble and maintainable. But best practices while introducing complexity is useless. Measure, optimize, verify.

@@ -27,7 +27,8 @@ pub fn main() !void {
     // Create the application
     // Use NON_UNIQUE to avoid dbus complications in dev
     const flags = c.G_APPLICATION_NON_UNIQUE;
-    const app = c.gtk_application_new("org.vimp.app.dev", flags);
+    // Migrate to AdwApplication
+    const app = c.adw_application_new("org.vimp.app.dev", flags);
     defer c.g_object_unref(app);
 
     // Connect the activate signal
@@ -218,13 +219,6 @@ fn drag_update(
 
     if (button == 2) {
         // Pan (Middle Mouse)
-        // Dragging mouse Right (positive offset_x) matches Panning the view LEFT (decreasing view_x)?
-        // If I grab paper and pull Right, I see what's on the Left.
-        // So view_x should DECREASE.
-        // Delta = current - prev.
-        // Wait, offset is cumulative usually?
-        // Let's use delta from prev_x.
-
         const dx = current_x - prev_x;
         const dy = current_y - prev_y;
 
@@ -234,15 +228,6 @@ fn drag_update(
         c.gtk_widget_queue_draw(widget);
     } else if (button == 1) {
         // Paint (Left Mouse)
-        // Transform screen coords to Canvas coords (Unscaled)
-        // CanvasX = (ScreenX + ViewX) / Scale ? NO.
-        // ViewX is in Scaled space?
-        // Logic from Zoom: View2 = ...
-        // If ViewX is top-left of Scaled Image visible.
-        // Screen Pixel(px) corresponds to ScaledPixel(ViewX + px).
-        // OriginalPixel = ScaledPixel / Scale.
-        // So CanvasX = (ViewX + ScreenX) / Scale.
-
         const c_prev_x = (view_x + prev_x) / view_scale;
         const c_prev_y = (view_y + prev_y) / view_scale;
         const c_curr_x = (view_x + current_x) / view_scale;
@@ -259,16 +244,33 @@ fn drag_update(
 fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     _ = user_data;
 
-    const window = c.gtk_application_window_new(app);
+    // Use AdwApplicationWindow
+    const window = c.adw_application_window_new(app);
     c.gtk_window_set_title(@ptrCast(window), "Vimp");
     c.gtk_window_set_default_size(@ptrCast(window), 800, 600);
 
-    const header_bar = c.gtk_header_bar_new();
-    c.gtk_window_set_titlebar(@ptrCast(window), header_bar);
+    // Adwaita style content: Toolbar View is common, but basic Box is fine inside Window content
+    // AdwApplicationWindow handles the header bar automatically if we don't set a custom one?
+    // Actually, AdwHeaderBar should be used.
+
+    // Create AdwHeaderBar
+    // We add it to the window content usually via AdwToolbarView but for now let's just use it as titlebar
+    // Note: AdwApplicationWindow doesn't have set_titlebar in the same way as GtkWindow for some things,
+    // but in GTK4 we set titlebar on the window.
+
+    // Adwaita recommendation: Use AdwToolbarView for modern layouts.
+    // For minimal migration, let's Stick to set_titlebar if valid, or just put AdwHeaderBar in top of box?
+    // Modern Adwaita apps use AdwToolbarView. Let's try to be modern.
+
+    const toolbar_view = c.adw_toolbar_view_new();
+    c.adw_application_window_set_content(@ptrCast(window), toolbar_view);
+
+    const header_bar = c.adw_header_bar_new();
+    c.adw_toolbar_view_add_top_bar(@ptrCast(toolbar_view), header_bar);
 
     // Main layout container (Horizontal Box)
     const main_box = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 0);
-    c.gtk_window_set_child(@ptrCast(window), main_box);
+    c.adw_toolbar_view_set_content(@ptrCast(toolbar_view), main_box);
 
     // Sidebar (Left)
     const sidebar = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 10);
@@ -361,9 +363,10 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     // CSS Styling
     const css_provider = c.gtk_css_provider_new();
     const css =
-        \\.sidebar { background-color: #e0e0e0; border-right: 1px solid #c0c0c0; padding: 10px; }
-        \\.content { background-color: #ffffff; }
+        \\.sidebar { background-color: shade(@theme_bg_color, 0.95); border-right: 1px solid alpha(currentColor, 0.15); padding: 10px; }
+        \\.content { background-color: @theme_bg_color; }
     ;
+    // Note: Adwaita handles colors better, using shared variables
     c.gtk_css_provider_load_from_data(css_provider, css, -1);
 
     const display = c.gtk_widget_get_display(@ptrCast(window));

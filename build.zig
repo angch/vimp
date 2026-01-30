@@ -18,7 +18,9 @@ pub fn build(b: *std.Build) void {
     exe.linkLibC();
     exe.linkSystemLibrary("gtk4");
     exe.linkSystemLibrary("gegl-0.4");
+    exe.linkSystemLibrary("gegl-0.4");
     exe.linkSystemLibrary("babl-0.1");
+    exe.linkSystemLibrary("libadwaita-1");
 
     // Vendored paths from tools/build_gegl.sh (or libs cache)
     exe.addIncludePath(b.path("libs/usr/include/gegl-0.4"));
@@ -66,7 +68,9 @@ pub fn build(b: *std.Build) void {
     unit_tests.linkLibC();
     unit_tests.linkSystemLibrary("gtk4");
     unit_tests.linkSystemLibrary("gegl-0.4");
+    unit_tests.linkSystemLibrary("gegl-0.4");
     unit_tests.linkSystemLibrary("babl-0.1");
+    unit_tests.linkSystemLibrary("libadwaita-1");
 
     // GIMP source include paths
     unit_tests.addIncludePath(b.path("src"));
@@ -97,7 +101,9 @@ pub fn build(b: *std.Build) void {
     engine_tests.linkLibC();
     engine_tests.linkSystemLibrary("gtk4");
     engine_tests.linkSystemLibrary("gegl-0.4");
+    engine_tests.linkSystemLibrary("gegl-0.4");
     engine_tests.linkSystemLibrary("babl-0.1");
+    engine_tests.linkSystemLibrary("libadwaita-1");
     engine_tests.addIncludePath(b.path("libs/usr/include/gegl-0.4"));
     engine_tests.addIncludePath(b.path("libs/usr/include/babl-0.1"));
     engine_tests.addLibraryPath(b.path("libs/usr/lib/x86_64-linux-gnu")); // Ensure we find vendored libs

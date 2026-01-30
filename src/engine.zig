@@ -35,7 +35,7 @@ pub const Engine = struct {
         if (self.graph) |g| {
             c.g_object_unref(g);
         }
-        c.gegl_exit();
+        // c.gegl_exit();
         gegl_mutex.unlock();
     }
 

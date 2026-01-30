@@ -16,7 +16,14 @@
 
 ### Alignment
 
-- [ ] Check and update the TODOs here ensuring that we are on the way towards alignment as described in `doc/gimp_gnome_hig_gap_analysis.md`
+- [x] Check and update the TODOs here ensuring that we are on the way towards alignment as described in `doc/gimp_gnome_hig_gap_analysis.md`
+
+### Alignment (GNOME HIG)
+
+- [x] Migrate to Libadwaita (AdwApplication) for modern styling <!-- id: 3 -->
+- [ ] Implement fully functional Header Bar (Hamburger Menu, Primary Actions)
+- [ ] Implement Adaptive Layouts (Collapsible Sidebar/Flap)
+- [ ] Implement Unified Save/Export Flow
 
 ## Higher priority
 
