@@ -39,7 +39,9 @@ sudo apt-get install -y \
     curl \
     wget \
     pkg-config \
-    xz-utils
+    xz-utils \
+    meson \
+    ninja-build
 
 # -----------------------------------------------------------------------------
 # Step 3: Install GTK4 development libraries
