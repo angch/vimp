@@ -82,3 +82,10 @@ term planning.
  - Updated `paintStroke` and `bucketFill` to respect selection bounds.
  - Added `rect_select` tool to UI with "marching ants" visual feedback.
  - Verified correct clipping behavior with unit tests.
+
+### 2026-01-30: Ellipse Select Tool
+- Implemented Ellipse Select Tool with `SelectionMode` enum in `Engine`.
+- Added `isPointInSelection` helper to centralize clipping logic (Rectangle vs Ellipse).
+- Updated `paintStroke` and `bucketFill` to use this helper.
+- UI: Added Ellipse tool button and Cairo rendering for elliptical selection (using `cairo_scale` and `cairo_arc`).
+- Verified with unit tests for edge/corner cases of ellipse clipping.

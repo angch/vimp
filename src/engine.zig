@@ -14,6 +14,11 @@ pub const Engine = struct {
         circle,
     };
 
+    pub const SelectionMode = enum {
+        rectangle,
+        ellipse,
+    };
+
     graph: ?*c.GeglNode = null,
     output_node: ?*c.GeglNode = null,
     paint_buffer: ?*c.GeglBuffer = null,
@@ -25,6 +30,7 @@ pub const Engine = struct {
     mode: Mode = .paint,
     brush_type: BrushType = .square,
     selection: ?c.GeglRectangle = null,
+    selection_mode: SelectionMode = .rectangle,
 
     // GEGL is not thread-safe for init/exit, and tests run in parallel.
     // We must serialize access to the GEGL global state.
@@ -78,6 +84,24 @@ pub const Engine = struct {
         _ = c.gegl_node_connect(over_node, "aux", self.buffer_node, "output");
 
         self.output_node = over_node;
+    }
+
+    fn isPointInSelection(self: *Engine, x: c_int, y: c_int) bool {
+        if (self.selection) |sel| {
+            if (x < sel.x or x >= sel.x + sel.width or y < sel.y or y >= sel.y + sel.height) return false;
+
+            if (self.selection_mode == .ellipse) {
+                const cx = @as(f64, @floatFromInt(sel.x)) + @as(f64, @floatFromInt(sel.width)) / 2.0;
+                const cy = @as(f64, @floatFromInt(sel.y)) + @as(f64, @floatFromInt(sel.height)) / 2.0;
+                const rx = @as(f64, @floatFromInt(sel.width)) / 2.0;
+                const ry = @as(f64, @floatFromInt(sel.height)) / 2.0;
+                const dx_p = @as(f64, @floatFromInt(x)) + 0.5 - cx;
+                const dy_p = @as(f64, @floatFromInt(y)) + 0.5 - cy;
+
+                if ((dx_p * dx_p) / (rx * rx) + (dy_p * dy_p) / (ry * ry) > 1.0) return false;
+            }
+        }
+        return true;
     }
 
     pub fn paintStroke(self: *Engine, x0: f64, y0: f64, x1: f64, y1: f64, pressure: f64) void {
@@ -151,9 +175,7 @@ pub const Engine = struct {
                     const px = x + bx;
                     const py = y + by;
 
-                    if (self.selection) |sel| {
-                        if (px < sel.x or px >= sel.x + sel.width or py < sel.y or py >= sel.y + sel.height) continue;
-                    }
+                    if (!self.isPointInSelection(px, py)) continue;
 
                     if (px >= 0 and py >= 0 and px < self.canvas_width and py < self.canvas_height) {
                         const rect = c.GeglRectangle{ .x = px, .y = py, .width = 1, .height = 1 };
@@ -175,9 +197,7 @@ pub const Engine = struct {
 
         if (x < 0 or x >= self.canvas_width or y < 0 or y >= self.canvas_height) return;
 
-        if (self.selection) |sel| {
-            if (x < sel.x or x >= sel.x + sel.width or y < sel.y or y >= sel.y + sel.height) return;
-        }
+        if (!self.isPointInSelection(x, y)) return;
 
         // 1. Read entire buffer
         // Allocation: 800 * 600 * 4 = 1.9 MB approx
@@ -220,9 +240,7 @@ pub const Engine = struct {
 
             if (px < 0 or px >= self.canvas_width or py < 0 or py >= self.canvas_height) continue;
 
-            if (self.selection) |sel| {
-                if (px < sel.x or px >= sel.x + sel.width or py < sel.y or py >= sel.y + sel.height) continue;
-            }
+            if (!self.isPointInSelection(px, py)) continue;
 
             const p_idx: usize = (@as(usize, @intCast(py)) * w + @as(usize, @intCast(px))) * 4;
             const current_pixel = pixels[p_idx..][0..4];
@@ -269,6 +287,10 @@ pub const Engine = struct {
 
     pub fn setBrushType(self: *Engine, brush_type: BrushType) void {
         self.brush_type = brush_type;
+    }
+
+    pub fn setSelectionMode(self: *Engine, mode: SelectionMode) void {
+        self.selection_mode = mode;
     }
 
     pub fn setSelection(self: *Engine, x: c_int, y: c_int, w: c_int, h: c_int) void {
@@ -663,6 +685,52 @@ test "Engine selection clipping" {
         const format = c.babl_format("R'G'B'A u8");
         c.gegl_buffer_get(buf, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
         // Should be painted now
+        try std.testing.expectEqual(pixel[0], 255);
+    }
+}
+
+test "Engine ellipse selection clipping" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+    engine.setFgColor(255, 255, 255, 255);
+
+    // Set selection 10,10 10x10 (10..19, 10..19)
+    // Center 15,15. Radius 5.
+    engine.setSelection(10, 10, 10, 10);
+    engine.setSelectionMode(.ellipse);
+
+    // 1. Paint at Center (15,15) - Should be Inside
+    engine.paintStroke(15, 15, 15, 15, 1.0);
+    if (engine.paint_buffer) |buf| {
+        var pixel: [4]u8 = .{ 0, 0, 0, 0 };
+        const rect = c.GeglRectangle{ .x = 15, .y = 15, .width = 1, .height = 1 };
+        const format = c.babl_format("R'G'B'A u8");
+        c.gegl_buffer_get(buf, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+        try std.testing.expectEqual(pixel[0], 255);
+    }
+
+    // 2. Paint at Corner (10,10) - Should be Outside Ellipse (Distance Sqrt(5^2+5^2) > 5)
+    // 10,10. Center 15,15. Diff -5, -5. DistSq 50. RadiusSq 25. Outside.
+    engine.paintStroke(10, 10, 10, 10, 1.0);
+    if (engine.paint_buffer) |buf| {
+        var pixel: [4]u8 = .{ 0, 0, 0, 0 };
+        const rect = c.GeglRectangle{ .x = 10, .y = 10, .width = 1, .height = 1 };
+        const format = c.babl_format("R'G'B'A u8");
+        c.gegl_buffer_get(buf, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+        // Should be empty
+        try std.testing.expectEqual(pixel[0], 0);
+    }
+
+    // 3. Paint at Edge (15, 10) - Top middle. Should be Inside.
+    // 15,10. Center 15,15. Diff 0, -5. DistSq 25. RadiusSq 25. Inside (<=).
+    engine.paintStroke(15, 10, 15, 10, 1.0);
+    if (engine.paint_buffer) |buf| {
+        var pixel: [4]u8 = .{ 0, 0, 0, 0 };
+        const rect = c.GeglRectangle{ .x = 15, .y = 10, .width = 1, .height = 1 };
+        const format = c.babl_format("R'G'B'A u8");
+        c.gegl_buffer_get(buf, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
         try std.testing.expectEqual(pixel[0], 255);
     }
 }
