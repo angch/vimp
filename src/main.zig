@@ -10,6 +10,7 @@ const Tool = enum {
     airbrush,
     eraser,
     bucket_fill,
+    rect_select,
     // pencil, // Reorder if desired, but append is safer for diffs usually
 };
 
@@ -107,6 +108,10 @@ fn tool_toggled(
                 engine.setBrushType(.square);
             },
             .bucket_fill => engine.setMode(.fill),
+            .rect_select => {
+                // No specific engine mode for selection interaction yet,
+                // effectively "idle" regarding painting.
+            },
         }
     }
 }
@@ -117,6 +122,7 @@ var pencil_tool = Tool.pencil;
 var airbrush_tool = Tool.airbrush;
 var eraser_tool = Tool.eraser;
 var bucket_fill_tool = Tool.bucket_fill;
+var rect_select_tool = Tool.rect_select;
 
 // View State
 var view_scale: f64 = 1.0;
@@ -154,6 +160,34 @@ fn draw_func(
         if (cr) |cr_ctx| {
             c.cairo_set_source_surface(cr_ctx, s, 0, 0);
             c.cairo_paint(cr_ctx);
+
+            // Draw Selection Overlay
+            if (engine.selection) |sel| {
+                const r: f64 = @floatFromInt(sel.x);
+                const g: f64 = @floatFromInt(sel.y);
+                const w: f64 = @floatFromInt(sel.width);
+                const h: f64 = @floatFromInt(sel.height);
+
+                // Convert to Screen Coordinates
+                const sx = r * view_scale - view_x;
+                const sy = g * view_scale - view_y;
+                const sw = w * view_scale;
+                const sh = h * view_scale;
+
+                c.cairo_save(cr_ctx);
+                c.cairo_rectangle(cr_ctx, sx, sy, sw, sh);
+                // Marching ants (static for now)
+                const dash: [2]f64 = .{ 4.0, 4.0 };
+                c.cairo_set_dash(cr_ctx, &dash, 2, 0);
+                c.cairo_set_source_rgb(cr_ctx, 1.0, 1.0, 1.0); // White
+                c.cairo_set_line_width(cr_ctx, 1.0);
+                c.cairo_stroke_preserve(cr_ctx);
+
+                c.cairo_set_source_rgb(cr_ctx, 0.0, 0.0, 0.0); // Black contrast
+                c.cairo_set_dash(cr_ctx, &dash, 2, 4.0); // Offset
+                c.cairo_stroke(cr_ctx);
+                c.cairo_restore(cr_ctx);
+            }
         }
     }
 }
@@ -239,6 +273,10 @@ fn drag_begin(
                 std.debug.print("Bucket fill failed: {}\n", .{err});
             };
             c.gtk_widget_queue_draw(widget);
+        } else if (button == 1 and current_tool == .rect_select) {
+            // Start selection - maybe clear existing?
+            engine.clearSelection();
+            c.gtk_widget_queue_draw(widget);
         }
     }
 }
@@ -284,6 +322,29 @@ fn drag_update(
         const c_prev_y = (view_y + prev_y) / view_scale;
         const c_curr_x = (view_x + current_x) / view_scale;
         const c_curr_y = (view_y + current_y) / view_scale;
+
+        if (current_tool == .rect_select) {
+            // Dragging selection
+            // Start point was recorded in drag_begin implicitly?
+            // No, drag_update gives offset from start.
+            // start_sx, start_sy from gtk_gesture_drag_get_start_point are screen coords.
+
+            const start_world_x = (view_x + start_sx) / view_scale;
+            const start_world_y = (view_y + start_sy) / view_scale;
+
+            // Calculate min/max
+            const min_x: c_int = @intFromFloat(@min(start_world_x, c_curr_x));
+            const min_y: c_int = @intFromFloat(@min(start_world_y, c_curr_y));
+            const max_x: c_int = @intFromFloat(@max(start_world_x, c_curr_x));
+            const max_y: c_int = @intFromFloat(@max(start_world_y, c_curr_y));
+
+            engine.setSelection(min_x, min_y, max_x - min_x, max_y - min_y);
+            c.gtk_widget_queue_draw(widget);
+
+            prev_x = current_x;
+            prev_y = current_y;
+            return;
+        }
 
         // Default pressure 1.0 for now
         engine.paintStroke(c_prev_x, c_prev_y, c_curr_x, c_curr_y, 1.0);
@@ -498,11 +559,15 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.gtk_box_append(@ptrCast(sidebar), tools_box);
 
     const createToolButton = struct {
-        fn func(tool_val: *Tool, icon_path: [:0]const u8, group: ?*c.GtkToggleButton) *c.GtkWidget {
+        fn func(tool_val: *Tool, icon_path: [:0]const u8, group: ?*c.GtkToggleButton, is_icon_name: bool) *c.GtkWidget {
             const btn = if (group) |_| c.gtk_toggle_button_new() else c.gtk_toggle_button_new();
             if (group) |g| c.gtk_toggle_button_set_group(@ptrCast(btn), g);
 
-            const img = c.gtk_image_new_from_file(icon_path);
+            const img = if (is_icon_name)
+                c.gtk_image_new_from_icon_name(icon_path)
+            else
+                c.gtk_image_new_from_file(icon_path);
+
             c.gtk_widget_set_size_request(img, 24, 24);
             c.gtk_button_set_child(@ptrCast(btn), img);
 
@@ -512,25 +577,30 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     }.func;
 
     // Brush
-    const brush_btn = createToolButton(&brush_tool, "assets/brush.png", null);
+    const brush_btn = createToolButton(&brush_tool, "assets/brush.png", null, false);
     c.gtk_box_append(@ptrCast(tools_box), brush_btn);
     c.gtk_toggle_button_set_active(@ptrCast(brush_btn), 1);
 
     // Pencil
-    const pencil_btn = createToolButton(&pencil_tool, "assets/pencil.png", @ptrCast(brush_btn));
+    const pencil_btn = createToolButton(&pencil_tool, "assets/pencil.png", @ptrCast(brush_btn), false);
     c.gtk_box_append(@ptrCast(tools_box), pencil_btn);
 
     // Airbrush
-    const airbrush_btn = createToolButton(&airbrush_tool, "assets/airbrush.png", @ptrCast(brush_btn));
+    const airbrush_btn = createToolButton(&airbrush_tool, "assets/airbrush.png", @ptrCast(brush_btn), false);
     c.gtk_box_append(@ptrCast(tools_box), airbrush_btn);
 
     // Eraser
-    const eraser_btn = createToolButton(&eraser_tool, "assets/eraser.png", @ptrCast(brush_btn));
+    const eraser_btn = createToolButton(&eraser_tool, "assets/eraser.png", @ptrCast(brush_btn), false);
     c.gtk_box_append(@ptrCast(tools_box), eraser_btn);
 
     // Bucket Fill
-    const fill_btn = createToolButton(&bucket_fill_tool, "assets/bucket.png", @ptrCast(brush_btn));
+    const fill_btn = createToolButton(&bucket_fill_tool, "assets/bucket.png", @ptrCast(brush_btn), false);
     c.gtk_box_append(@ptrCast(tools_box), fill_btn);
+
+    // Rect Select
+    const select_btn = createToolButton(&rect_select_tool, "edit-select-symbolic", @ptrCast(brush_btn), true);
+    c.gtk_widget_set_tooltip_text(select_btn, "Rectangle Select");
+    c.gtk_box_append(@ptrCast(tools_box), select_btn);
 
     // Separator
     c.gtk_box_append(@ptrCast(sidebar), c.gtk_separator_new(c.GTK_ORIENTATION_HORIZONTAL));

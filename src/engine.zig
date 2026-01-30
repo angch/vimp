@@ -24,6 +24,7 @@ pub const Engine = struct {
     brush_size: c_int = 3,
     mode: Mode = .paint,
     brush_type: BrushType = .square,
+    selection: ?c.GeglRectangle = null,
 
     // GEGL is not thread-safe for init/exit, and tests run in parallel.
     // We must serialize access to the GEGL global state.
@@ -149,6 +150,11 @@ pub const Engine = struct {
 
                     const px = x + bx;
                     const py = y + by;
+
+                    if (self.selection) |sel| {
+                        if (px < sel.x or px >= sel.x + sel.width or py < sel.y or py >= sel.y + sel.height) continue;
+                    }
+
                     if (px >= 0 and py >= 0 and px < self.canvas_width and py < self.canvas_height) {
                         const rect = c.GeglRectangle{ .x = px, .y = py, .width = 1, .height = 1 };
                         c.gegl_buffer_set(buf, &rect, 0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE);
@@ -168,6 +174,10 @@ pub const Engine = struct {
         const y: c_int = @intFromFloat(start_y);
 
         if (x < 0 or x >= self.canvas_width or y < 0 or y >= self.canvas_height) return;
+
+        if (self.selection) |sel| {
+            if (x < sel.x or x >= sel.x + sel.width or y < sel.y or y >= sel.y + sel.height) return;
+        }
 
         // 1. Read entire buffer
         // Allocation: 800 * 600 * 4 = 1.9 MB approx
@@ -209,6 +219,10 @@ pub const Engine = struct {
             const py = p.y;
 
             if (px < 0 or px >= self.canvas_width or py < 0 or py >= self.canvas_height) continue;
+
+            if (self.selection) |sel| {
+                if (px < sel.x or px >= sel.x + sel.width or py < sel.y or py >= sel.y + sel.height) continue;
+            }
 
             const p_idx: usize = (@as(usize, @intCast(py)) * w + @as(usize, @intCast(px))) * 4;
             const current_pixel = pixels[p_idx..][0..4];
@@ -255,6 +269,14 @@ pub const Engine = struct {
 
     pub fn setBrushType(self: *Engine, brush_type: BrushType) void {
         self.brush_type = brush_type;
+    }
+
+    pub fn setSelection(self: *Engine, x: c_int, y: c_int, w: c_int, h: c_int) void {
+        self.selection = c.GeglRectangle{ .x = x, .y = y, .width = w, .height = h };
+    }
+
+    pub fn clearSelection(self: *Engine) void {
+        self.selection = null;
     }
 
     pub fn blit(self: *Engine, width: c_int, height: c_int, ptr: [*]u8, stride: c_int) void {
@@ -598,5 +620,49 @@ test "Engine airbrush pressure" {
         c.gegl_buffer_get(buf, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
         // int(255 * 0.5) = 127
         try std.testing.expectEqual(pixel[3], 127);
+    }
+}
+
+test "Engine selection clipping" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+    engine.setFgColor(255, 255, 255, 255);
+
+    // Set selection 10,10 10x10 (10..19, 10..19)
+    engine.setSelection(10, 10, 10, 10);
+
+    // 1. Paint inside at 15,15
+    engine.paintStroke(15, 15, 15, 15, 1.0);
+    if (engine.paint_buffer) |buf| {
+        var pixel: [4]u8 = .{ 0, 0, 0, 0 };
+        const rect = c.GeglRectangle{ .x = 15, .y = 15, .width = 1, .height = 1 };
+        const format = c.babl_format("R'G'B'A u8");
+        c.gegl_buffer_get(buf, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+        try std.testing.expectEqual(pixel[0], 255);
+    }
+
+    // 2. Paint outside at 5,5
+    engine.paintStroke(5, 5, 5, 5, 1.0);
+    if (engine.paint_buffer) |buf| {
+        var pixel: [4]u8 = .{ 0, 0, 0, 0 };
+        const rect = c.GeglRectangle{ .x = 5, .y = 5, .width = 1, .height = 1 };
+        const format = c.babl_format("R'G'B'A u8");
+        c.gegl_buffer_get(buf, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+        // Should be empty
+        try std.testing.expectEqual(pixel[0], 0);
+    }
+
+    // 3. Clear selection and paint outside
+    engine.clearSelection();
+    engine.paintStroke(5, 5, 5, 5, 1.0);
+    if (engine.paint_buffer) |buf| {
+        var pixel: [4]u8 = .{ 0, 0, 0, 0 };
+        const rect = c.GeglRectangle{ .x = 5, .y = 5, .width = 1, .height = 1 };
+        const format = c.babl_format("R'G'B'A u8");
+        c.gegl_buffer_get(buf, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+        // Should be painted now
+        try std.testing.expectEqual(pixel[0], 255);
     }
 }

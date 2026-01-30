@@ -46,7 +46,7 @@
 - [x] Implement Bucket Fill Tool
 
 ### Selection Tools
-- [ ] Implement Rectangle Select Tool
+- [x] Implement Rectangle Select Tool
 - [ ] Implement Ellipse Select Tool
 
 ### Layers

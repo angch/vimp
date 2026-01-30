@@ -75,4 +75,10 @@ term planning.
 - Implemented dirty rectangle tracking for `bucketFill` in `src/engine.zig`.
 - Reduced memory bandwidth usage by only writing back changed pixels to GEGL.
 - Benchmark: ~18% speedup for small fills (87ms -> 71ms).
-- Bottleneck remains reading the full buffer from GEGL to perform the flood fill client-side. Future optimization should look into tiling the read or using GEGL iterators.
+- Bottleneck remains reading the full biopsy from GEGL to perform the flood fill client-side. Future optimization should look into tiling the read or using GEGL iterators.
+ 
+ ### 2026-01-30: Rectangle Select Tool
+ - Implemented `setSelection` and clipping in `engine.zig`.
+ - Updated `paintStroke` and `bucketFill` to respect selection bounds.
+ - Added `rect_select` tool to UI with "marching ants" visual feedback.
+ - Verified correct clipping behavior with unit tests.
