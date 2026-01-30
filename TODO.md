@@ -4,7 +4,7 @@
 
 ### Document features from GIMP
 
-- [ ] Search and document features in GIMP in markdown. (GIMP.md)
+- [x] Search and document features in GIMP in markdown. (GIMP.md)
 
 ### Document implemented features in Vimp
 
