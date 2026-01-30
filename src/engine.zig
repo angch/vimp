@@ -108,67 +108,84 @@ pub const Engine = struct {
         if (self.paint_buffer == null) return;
 
         const buf = self.paint_buffer.?;
-
-        // Draw a simple line by setting pixels along the path
-        // Using Bresenham-style drawing for simplicity
-        const brush_size = self.brush_size;
         const format = c.babl_format("R'G'B'A u8");
 
-        // Use selected foreground color, or transparent if erasing
-        var pixel: [4]u8 = undefined;
+        // Compute Bounding Box
+        const x_min_f = @min(x0, x1);
+        const x_max_f = @max(x0, x1);
+        const y_min_f = @min(y0, y1);
+        const y_max_f = @max(y0, y1);
+
+        const half = @divFloor(self.brush_size, 2);
+        const pad: c_int = half + 2;
+
+        var min_x: c_int = @intFromFloat(x_min_f);
+        min_x -= pad;
+        var max_x: c_int = @intFromFloat(x_max_f);
+        max_x += pad;
+
+        var min_y: c_int = @intFromFloat(y_min_f);
+        min_y -= pad;
+        var max_y: c_int = @intFromFloat(y_max_f);
+        max_y += pad;
+
+        min_x = @max(0, min_x);
+        min_y = @max(0, min_y);
+        max_x = @min(self.canvas_width - 1, max_x);
+        max_y = @min(self.canvas_height - 1, max_y);
+
+        if (min_x > max_x or min_y > max_y) return;
+
+        const rect_w = max_x - min_x + 1;
+        const rect_h = max_y - min_y + 1;
+        const rect = c.GeglRectangle{ .x = min_x, .y = min_y, .width = rect_w, .height = rect_h };
+
+        // Allocate buffer
+        const allocator = std.heap.c_allocator;
+        const buffer_size = @as(usize, @intCast(rect_w)) * @as(usize, @intCast(rect_h)) * 4;
+        const pixels = allocator.alloc(u8, buffer_size) catch return;
+        defer allocator.free(pixels);
+
+        // Read current data
+        const rowstride = rect_w * 4;
+        c.gegl_buffer_get(buf, &rect, 1.0, format, pixels.ptr, rowstride, c.GEGL_ABYSS_NONE);
+
+        // Prepare paint color
+        var paint_pixel: [4]u8 = undefined;
         if (self.mode == .erase) {
-            pixel = .{ 0, 0, 0, 0 };
+            paint_pixel = .{ 0, 0, 0, 0 }; // Erase means transparency
         } else {
-            pixel = self.fg_color;
+            paint_pixel = self.fg_color;
             if (self.mode == .airbrush) {
-                // Modulate alpha by pressure
-                // pixel[3] is u8 (0-255)
-                const alpha: f64 = @as(f64, @floatFromInt(pixel[3]));
+                const alpha: f64 = @as(f64, @floatFromInt(paint_pixel[3]));
                 const new_alpha: u8 = @intFromFloat(alpha * pressure);
-                pixel[3] = new_alpha;
+                paint_pixel[3] = new_alpha;
             }
         }
 
-        // Simple line drawing using interpolation
+        // Draw
         const dx = x1 - x0;
         const dy = y1 - y0;
         const dist = @sqrt(dx * dx + dy * dy);
         const steps: usize = @max(1, @as(usize, @intFromFloat(dist)));
+
+        const brush_size = self.brush_size;
+        const radius_sq = if (self.brush_type == .circle)
+            std.math.pow(f64, @as(f64, @floatFromInt(brush_size)) / 2.0, 2.0)
+        else
+            0;
 
         for (0..steps + 1) |i| {
             const t: f64 = if (steps == 0) 0.0 else @as(f64, @floatFromInt(i)) / @as(f64, @floatFromInt(steps));
             const x: c_int = @intFromFloat(x0 + dx * t);
             const y: c_int = @intFromFloat(y0 + dy * t);
 
-            // Paint a small brush
-            const half = @divFloor(brush_size, 2);
-            const radius_sq = if (self.brush_type == .circle)
-                std.math.pow(f64, @as(f64, @floatFromInt(brush_size)) / 2.0, 2.0)
-            else
-                0;
-
             var by: c_int = -half;
             while (by <= half) : (by += 1) {
                 var bx: c_int = -half;
                 while (bx <= half) : (bx += 1) {
-                    // Check shape
                     if (self.brush_type == .circle) {
-                        // Center of the pixel is bx + 0.5, by + 0.5 relative to center?
-                        // Simple dist check from center 0,0
-                        // Distance check: bx^2 + by^2 <= (size/2)^2
-                        // For even consistency we might need offset, but for odd sizes (e.g. 3) center is 0,0.
                         const dist_sq = @as(f64, @floatFromInt(bx * bx + by * by));
-                        // Allow some fuzziness or stick to strict circle
-                        if (dist_sq > radius_sq + 0.25) continue; // +0.25 for a bit of aliasing guard? or strict?
-                        // Let's stick to simple <= radius_sq
-                        // For size 3: rad=1.5, rad_sq=2.25.
-                        // 1,1 -> dist_sq=2. 2 <= 2.25. Included.
-                        // 1,0 -> 1. Included.
-                        // So Size 3 circle == Size 3 square?
-                        // Wait. Size 5. Half=2. Rad=2.5. RadSq=6.25.
-                        // 2,2 -> 4+4=8 > 6.25. Excluded.
-                        // 2,1 -> 4+1=5 <= 6.25. Included.
-                        // So Size 5 circle will lack corners.
                         if (dist_sq > radius_sq) continue;
                     }
 
@@ -177,13 +194,19 @@ pub const Engine = struct {
 
                     if (!self.isPointInSelection(px, py)) continue;
 
-                    if (px >= 0 and py >= 0 and px < self.canvas_width and py < self.canvas_height) {
-                        const rect = c.GeglRectangle{ .x = px, .y = py, .width = 1, .height = 1 };
-                        c.gegl_buffer_set(buf, &rect, 0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE);
+                    // Check bounds relative to our local buffer
+                    if (px >= min_x and py >= min_y and px <= max_x and py <= max_y) {
+                        const local_x = px - min_x;
+                        const local_y = py - min_y;
+                        const idx = (@as(usize, @intCast(local_y)) * @as(usize, @intCast(rect_w)) + @as(usize, @intCast(local_x))) * 4;
+                        @memcpy(pixels[idx..][0..4], &paint_pixel);
                     }
                 }
             }
         }
+
+        // Write back
+        c.gegl_buffer_set(buf, &rect, 0, format, pixels.ptr, rowstride);
     }
 
     pub fn bucketFill(self: *Engine, start_x: f64, start_y: f64) !void {
