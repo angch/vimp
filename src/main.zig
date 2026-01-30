@@ -11,6 +11,7 @@ const Tool = enum {
     eraser,
     bucket_fill,
     rect_select,
+    ellipse_select,
     // pencil, // Reorder if desired, but append is safer for diffs usually
 };
 
@@ -109,8 +110,10 @@ fn tool_toggled(
             },
             .bucket_fill => engine.setMode(.fill),
             .rect_select => {
-                // No specific engine mode for selection interaction yet,
-                // effectively "idle" regarding painting.
+                engine.setSelectionMode(.rectangle);
+            },
+            .ellipse_select => {
+                engine.setSelectionMode(.ellipse);
             },
         }
     }
@@ -123,6 +126,7 @@ var airbrush_tool = Tool.airbrush;
 var eraser_tool = Tool.eraser;
 var bucket_fill_tool = Tool.bucket_fill;
 var rect_select_tool = Tool.rect_select;
+var ellipse_select_tool = Tool.ellipse_select;
 
 // View State
 var view_scale: f64 = 1.0;
@@ -175,7 +179,20 @@ fn draw_func(
                 const sh = h * view_scale;
 
                 c.cairo_save(cr_ctx);
-                c.cairo_rectangle(cr_ctx, sx, sy, sw, sh);
+
+                if (engine.selection_mode == .ellipse) {
+                    var matrix: c.cairo_matrix_t = undefined;
+                    c.cairo_get_matrix(cr_ctx, &matrix);
+
+                    c.cairo_translate(cr_ctx, sx + sw / 2.0, sy + sh / 2.0);
+                    c.cairo_scale(cr_ctx, sw / 2.0, sh / 2.0);
+                    c.cairo_arc(cr_ctx, 0.0, 0.0, 1.0, 0.0, 2.0 * std.math.pi);
+
+                    c.cairo_set_matrix(cr_ctx, &matrix);
+                } else {
+                    c.cairo_rectangle(cr_ctx, sx, sy, sw, sh);
+                }
+
                 // Marching ants (static for now)
                 const dash: [2]f64 = .{ 4.0, 4.0 };
                 c.cairo_set_dash(cr_ctx, &dash, 2, 0);
@@ -273,7 +290,7 @@ fn drag_begin(
                 std.debug.print("Bucket fill failed: {}\n", .{err});
             };
             c.gtk_widget_queue_draw(widget);
-        } else if (button == 1 and current_tool == .rect_select) {
+        } else if (button == 1 and (current_tool == .rect_select or current_tool == .ellipse_select)) {
             // Start selection - maybe clear existing?
             engine.clearSelection();
             c.gtk_widget_queue_draw(widget);
@@ -323,7 +340,7 @@ fn drag_update(
         const c_curr_x = (view_x + current_x) / view_scale;
         const c_curr_y = (view_y + current_y) / view_scale;
 
-        if (current_tool == .rect_select) {
+        if (current_tool == .rect_select or current_tool == .ellipse_select) {
             // Dragging selection
             // Start point was recorded in drag_begin implicitly?
             // No, drag_update gives offset from start.
@@ -601,6 +618,11 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     const select_btn = createToolButton(&rect_select_tool, "edit-select-symbolic", @ptrCast(brush_btn), true);
     c.gtk_widget_set_tooltip_text(select_btn, "Rectangle Select");
     c.gtk_box_append(@ptrCast(tools_box), select_btn);
+
+    // Ellipse Select
+    const ellipse_btn = createToolButton(&ellipse_select_tool, "media-record-symbolic", @ptrCast(brush_btn), true);
+    c.gtk_widget_set_tooltip_text(ellipse_btn, "Ellipse Select");
+    c.gtk_box_append(@ptrCast(tools_box), ellipse_btn);
 
     // Separator
     c.gtk_box_append(@ptrCast(sidebar), c.gtk_separator_new(c.GTK_ORIENTATION_HORIZONTAL));

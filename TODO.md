@@ -47,7 +47,7 @@
 
 ### Selection Tools
 - [x] Implement Rectangle Select Tool
-- [ ] Implement Ellipse Select Tool
+- [x] Implement Ellipse Select Tool
 
 ### Layers
 - [ ] Implement Layer Management (Visibility, Locks, Reordering)
