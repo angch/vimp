@@ -8,10 +8,16 @@
 
 ### Document implemented features in Vimp
 
-- [ ] Search and document features in that has been implemented in markdown (VIMP.md)
+- [x] Search and document features in that has been implemented in markdown (VIMP.md)
 
 ### Implement missing features in Vimp from GIMP
 
-- [ ] Diff GIMP.md and VIMP.md and add to TODO.md in medium priority.
+- [x] Diff GIMP.md and VIMP.md and add to TODO.md in medium priority.
+
 
 ## Medium priority
+
+- [ ] Implement Color Selection (Foreground/Background colors)
+- [ ] Implement Brush Size Control
+- [ ] Implement Eraser Tool
+- [ ] Implement Canvas Navigation (Zoom/Scroll)
