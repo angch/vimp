@@ -8,6 +8,11 @@ pub const Engine = struct {
         fill,
     };
 
+    pub const BrushType = enum {
+        square,
+        circle,
+    };
+
     graph: ?*c.GeglNode = null,
     output_node: ?*c.GeglNode = null,
     paint_buffer: ?*c.GeglBuffer = null,
@@ -17,6 +22,7 @@ pub const Engine = struct {
     fg_color: [4]u8 = .{ 0, 0, 0, 255 },
     brush_size: c_int = 3,
     mode: Mode = .paint,
+    brush_type: BrushType = .square,
 
     // GEGL is not thread-safe for init/exit, and tests run in parallel.
     // We must serialize access to the GEGL global state.
@@ -101,12 +107,38 @@ pub const Engine = struct {
             const x: c_int = @intFromFloat(x0 + dx * t);
             const y: c_int = @intFromFloat(y0 + dy * t);
 
-            // Paint a small square brush
+            // Paint a small brush
             const half = @divFloor(brush_size, 2);
+            const radius_sq = if (self.brush_type == .circle)
+                std.math.pow(f64, @as(f64, @floatFromInt(brush_size)) / 2.0, 2.0)
+            else
+                0;
+
             var by: c_int = -half;
             while (by <= half) : (by += 1) {
                 var bx: c_int = -half;
                 while (bx <= half) : (bx += 1) {
+                    // Check shape
+                    if (self.brush_type == .circle) {
+                        // Center of the pixel is bx + 0.5, by + 0.5 relative to center?
+                        // Simple dist check from center 0,0
+                        // Distance check: bx^2 + by^2 <= (size/2)^2
+                        // For even consistency we might need offset, but for odd sizes (e.g. 3) center is 0,0.
+                        const dist_sq = @as(f64, @floatFromInt(bx * bx + by * by));
+                        // Allow some fuzziness or stick to strict circle
+                        if (dist_sq > radius_sq + 0.25) continue; // +0.25 for a bit of aliasing guard? or strict?
+                        // Let's stick to simple <= radius_sq
+                        // For size 3: rad=1.5, rad_sq=2.25.
+                        // 1,1 -> dist_sq=2. 2 <= 2.25. Included.
+                        // 1,0 -> 1. Included.
+                        // So Size 3 circle == Size 3 square?
+                        // Wait. Size 5. Half=2. Rad=2.5. RadSq=6.25.
+                        // 2,2 -> 4+4=8 > 6.25. Excluded.
+                        // 2,1 -> 4+1=5 <= 6.25. Included.
+                        // So Size 5 circle will lack corners.
+                        if (dist_sq > radius_sq) continue;
+                    }
+
                     const px = x + bx;
                     const py = y + by;
                     if (px >= 0 and py >= 0 and px < self.canvas_width and py < self.canvas_height) {
@@ -195,6 +227,10 @@ pub const Engine = struct {
 
     pub fn setMode(self: *Engine, mode: Mode) void {
         self.mode = mode;
+    }
+
+    pub fn setBrushType(self: *Engine, brush_type: BrushType) void {
+        self.brush_type = brush_type;
     }
 
     pub fn blit(self: *Engine, width: c_int, height: c_int, ptr: [*]u8, stride: c_int) void {
@@ -460,5 +496,52 @@ test "Engine bucket fill" {
         rect.y = 40;
         c.gegl_buffer_get(buf, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
         try std.testing.expectEqual(pixel[3], 0);
+    }
+}
+
+test "Engine brush shapes" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+    engine.setFgColor(255, 255, 255, 255);
+
+    // Size 5. Half=2. Center=100,100.
+    // Square: 98..102 (inclusive). Corner 102,102.
+    // Circle: Radius 2.5. 2,2 (dist sq 8) > 6.25. Corner 102,102 should be OFF.
+    engine.setBrushSize(5);
+
+    // 1. Square (Default)
+    // engine.setBrushType(.square); // Already default
+    engine.paintStroke(100, 100, 100, 100);
+
+    if (engine.paint_buffer) |buf| {
+        var pixel: [4]u8 = .{ 0, 0, 0, 0 };
+        // Check corner (102, 102)
+        const rect = c.GeglRectangle{ .x = 102, .y = 102, .width = 1, .height = 1 };
+        const format = c.babl_format("R'G'B'A u8");
+        c.gegl_buffer_get(buf, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+        // Should be painted white
+        try std.testing.expectEqual(pixel[0], 255);
+    }
+
+    // 2. Circle
+    engine.setBrushType(.circle);
+    // Paint at new location 200, 200
+    engine.paintStroke(200, 200, 200, 200);
+
+    if (engine.paint_buffer) |buf| {
+        // Check corner (202, 202). Relative 2,2. DistSq 8. RadiusSq 6.25. Should be skipped.
+        var pixel: [4]u8 = .{ 0, 0, 0, 0 };
+        var rect = c.GeglRectangle{ .x = 202, .y = 202, .width = 1, .height = 1 };
+        const format = c.babl_format("R'G'B'A u8");
+        c.gegl_buffer_get(buf, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+        // Should be unpainted (0)
+        try std.testing.expectEqual(pixel[0], 0);
+
+        // Check inner pixel (202, 201). Relative 2,1. DistSq 5. <= 6.25. Should be painted.
+        rect.y = 201;
+        c.gegl_buffer_get(buf, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+        try std.testing.expectEqual(pixel[0], 255);
     }
 }

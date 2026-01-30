@@ -6,8 +6,10 @@ const Engine = @import("engine.zig").Engine;
 // Global state for simplicity in this phase
 const Tool = enum {
     brush,
+    pencil,
     eraser,
     bucket_fill,
+    // pencil, // Reorder if desired, but append is safer for diffs usually
 };
 
 var engine: Engine = .{};
@@ -83,8 +85,22 @@ fn tool_toggled(
         std.debug.print("Tool switched to: {}\n", .{current_tool});
 
         switch (current_tool) {
-            .brush => engine.setMode(.paint),
-            .eraser => engine.setMode(.erase),
+            .brush => {
+                engine.setMode(.paint);
+                engine.setBrushType(.circle);
+            },
+            .pencil => {
+                engine.setMode(.paint);
+                engine.setBrushType(.square);
+            },
+            .eraser => {
+                engine.setMode(.erase);
+                // Eraser shape? Usually square or round. Let's default to circle for now or keep previous behavior.
+                // Previous behavior was square (default).
+                // Let's make eraser square for consistency with typical pixel erasers, or circle.
+                // Let's stick to square for eraser for now as it was default.
+                engine.setBrushType(.square);
+            },
             .bucket_fill => engine.setMode(.fill),
         }
     }
@@ -92,6 +108,7 @@ fn tool_toggled(
 
 // Keep these alive
 var brush_tool = Tool.brush;
+var pencil_tool = Tool.pencil;
 var eraser_tool = Tool.eraser;
 var bucket_fill_tool = Tool.bucket_fill;
 
@@ -491,6 +508,10 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     const brush_btn = createToolButton(&brush_tool, "assets/brush.png", null);
     c.gtk_box_append(@ptrCast(tools_box), brush_btn);
     c.gtk_toggle_button_set_active(@ptrCast(brush_btn), 1);
+
+    // Pencil
+    const pencil_btn = createToolButton(&pencil_tool, "assets/pencil.png", @ptrCast(brush_btn));
+    c.gtk_box_append(@ptrCast(tools_box), pencil_btn);
 
     // Eraser
     const eraser_btn = createToolButton(&eraser_tool, "assets/eraser.png", @ptrCast(brush_btn));

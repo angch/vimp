@@ -40,7 +40,7 @@
 ## Planned Features
 
 ### Paint Tools
-- [ ] Implement Pencil Tool (Hard edge painting)
+- [x] Implement Pencil Tool (Hard edge painting)
 - [ ] Implement Airbrush Tool (Variable pressure)
 - [ ] Implement Bucket Fill Tool
 
