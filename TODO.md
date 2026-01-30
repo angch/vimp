@@ -17,7 +17,7 @@
 ### Alignment
 
 - [x] Check and update the TODOs here ensuring that we are on the way towards alignment as described in `doc/gimp_gnome_hig_gap_analysis.md`
-- [ ] Check and update the TODOs here ensuring that we are on the way towards the user stories as described in `doc/gimp-feature-spec-gnome-hig.md`
+- [x] Check and update the TODOs here ensuring that we are on the way towards the user stories as described in `doc/gimp-feature-spec-gnome-hig.md`
 
 ### Alignment (GNOME HIG)
 
@@ -43,9 +43,24 @@
 ### Paint Tools
 - [x] Implement Pencil Tool (Hard edge painting)
 - [x] Implement Airbrush Tool (Variable pressure)
-- [ ] Implement Bucket Fill Tool
+- [x] Implement Bucket Fill Tool
 
 ### Selection Tools
 - [ ] Implement Rectangle Select Tool
 - [ ] Implement Ellipse Select Tool
+
+### Layers
+- [ ] Implement Layer Management (Visibility, Locks, Reordering)
+
+### Transformations
+- [ ] Implement Unified Transform Tool
+
+### Filters
+- [ ] Implement Basic Blur Filters (Gaussian)
+- [ ] Implement On-Canvas Preview ("Split View")
+
+### UI Improvements
+- [ ] Implement Empty State for Canvas
+- [ ] Implement Overlay Feedback (OSD)
+- [ ] Implement Undo History Panel
 
