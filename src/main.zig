@@ -529,6 +529,27 @@ fn redo_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv
     queue_draw();
 }
 
+fn blur_small_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    engine.applyGaussianBlur(5.0) catch |err| {
+        std.debug.print("Blur failed: {}\n", .{err});
+    };
+    queue_draw();
+}
+
+fn blur_medium_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    engine.applyGaussianBlur(10.0) catch |err| {
+        std.debug.print("Blur failed: {}\n", .{err});
+    };
+    queue_draw();
+}
+
+fn blur_large_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    engine.applyGaussianBlur(20.0) catch |err| {
+        std.debug.print("Blur failed: {}\n", .{err});
+    };
+    queue_draw();
+}
+
 fn sidebar_toggled(
     _: *c.GtkButton,
     user_data: ?*anyopaque,
@@ -674,6 +695,9 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     add_action(app, "quit", @ptrCast(&quit_activated), app);
     add_action(app, "undo", @ptrCast(&undo_activated), null);
     add_action(app, "redo", @ptrCast(&redo_activated), null);
+    add_action(app, "blur-small", @ptrCast(&blur_small_activated), null);
+    add_action(app, "blur-medium", @ptrCast(&blur_medium_activated), null);
+    add_action(app, "blur-large", @ptrCast(&blur_large_activated), null);
 
     // Keyboard Shortcuts
     const set_accel = struct {
@@ -733,6 +757,18 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.gtk_actionable_set_action_name(@ptrCast(redo_btn), "app.redo");
     c.gtk_widget_set_tooltip_text(redo_btn, "Redo");
     c.adw_header_bar_pack_start(@ptrCast(header_bar), redo_btn);
+
+    // Filters Menu
+    const filters_menu = c.g_menu_new();
+    c.g_menu_append(filters_menu, "Blur (5px)", "app.blur-small");
+    c.g_menu_append(filters_menu, "Blur (10px)", "app.blur-medium");
+    c.g_menu_append(filters_menu, "Blur (20px)", "app.blur-large");
+
+    const filters_btn = c.gtk_menu_button_new();
+    c.gtk_menu_button_set_label(@ptrCast(filters_btn), "Filters");
+    c.gtk_menu_button_set_menu_model(@ptrCast(filters_btn), @ptrCast(@alignCast(filters_menu)));
+    c.gtk_widget_set_tooltip_text(filters_btn, "Image Filters");
+    c.adw_header_bar_pack_start(@ptrCast(header_bar), filters_btn);
 
     // Hamburger Menu (End)
     const menu = c.g_menu_new();

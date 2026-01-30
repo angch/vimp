@@ -66,7 +66,7 @@
 - [ ] Implement Unified Transform Tool
 
 ### Filters
-- [ ] Implement Basic Blur Filters (Gaussian)
+- [x] Implement Basic Blur Filters (Gaussian)
 - [ ] Implement On-Canvas Preview ("Split View")
 
 ### UI Improvements
