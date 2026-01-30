@@ -16,7 +16,7 @@
 
 ## Higher priority
 
-- [ ] Ensure there is colored icons for all tools
+- [x] Ensure there is colored icons for all tools
 
 ## Medium priority
 

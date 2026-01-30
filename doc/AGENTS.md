@@ -18,3 +18,7 @@
 ## LibAdwaita / Gnome HIG
 - **Rust**: Requires strict version coupling between `gtk4` and `libadwaita` crates (e.g. `gtk4 0.9` -> `libadwaita 0.7`). Mixing major/minor versions causes sys-crate linking conflicts.
 - **Zig**: Requires explicit linking of `adwaita-1` system library (`exe.linkSystemLibrary("adwaita-1")`) and usage of `@cInclude("adwaita.h")`. Ensures access to `libadwaita-1-dev` headers.
+
+## Asset Management
+- **Icons**: Generated icons are placed in `assets/` directory.
+- **Loading**: `gtk_image_new_from_file` works with relative paths (e.g., "assets/brush.png") assuming the binary is executed from the project root.

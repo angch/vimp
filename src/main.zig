@@ -4,10 +4,16 @@ const c = @import("c.zig").c;
 const Engine = @import("engine.zig").Engine;
 
 // Global state for simplicity in this phase
+const Tool = enum {
+    brush,
+    eraser,
+};
+
 var engine: Engine = .{};
 var surface: ?*c.cairo_surface_t = null;
 var prev_x: f64 = 0;
 var prev_y: f64 = 0;
+var current_tool: Tool = .brush;
 
 pub fn main() !void {
     engine.init();
@@ -61,6 +67,17 @@ fn brush_size_changed(
     const value = c.gtk_range_get_value(range);
     const size: c_int = @intFromFloat(value);
     engine.setBrushSize(size);
+}
+
+fn tool_toggled(
+    button: *c.GtkToggleButton,
+    user_data: ?*anyopaque,
+) callconv(std.builtin.CallingConvention.c) void {
+    if (c.gtk_toggle_button_get_active(button) == 1) {
+        const tool_ptr = @as(*Tool, @ptrCast(@alignCast(user_data)));
+        current_tool = tool_ptr.*;
+        std.debug.print("Tool switched to: {}\n", .{current_tool});
+    }
 }
 
 fn draw_func(
@@ -139,6 +156,10 @@ fn drag_update(
     c.gtk_widget_queue_draw(widget);
 }
 
+// Keep these alive
+var brush_tool = Tool.brush;
+var eraser_tool = Tool.eraser;
+
 fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     _ = user_data;
 
@@ -154,27 +175,59 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.gtk_window_set_child(@ptrCast(window), main_box);
 
     // Sidebar (Left)
-    const sidebar = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 0);
+    const sidebar = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 10);
     c.gtk_widget_set_size_request(sidebar, 200, -1);
     c.gtk_widget_add_css_class(sidebar, "sidebar");
-    c.gtk_widget_add_css_class(sidebar, "sidebar");
     c.gtk_box_append(@ptrCast(main_box), sidebar);
+
+    // Tools Header
+    const tools_label = c.gtk_label_new("Tools");
+    c.gtk_box_append(@ptrCast(sidebar), tools_label);
+
+    // Tools Container
+    const tools_box = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 5);
+    c.gtk_widget_set_halign(tools_box, c.GTK_ALIGN_CENTER);
+    c.gtk_box_append(@ptrCast(sidebar), tools_box);
+
+    const createToolButton = struct {
+        fn func(tool_val: *Tool, icon_path: [:0]const u8, group: ?*c.GtkToggleButton) *c.GtkWidget {
+            const btn = if (group) |_| c.gtk_toggle_button_new() else c.gtk_toggle_button_new();
+            if (group) |g| c.gtk_toggle_button_set_group(@ptrCast(btn), g);
+
+            const img = c.gtk_image_new_from_file(icon_path);
+            c.gtk_widget_set_size_request(img, 24, 24);
+            c.gtk_button_set_child(@ptrCast(btn), img);
+
+            _ = c.g_signal_connect_data(btn, "toggled", @ptrCast(&tool_toggled), tool_val, null, 0);
+            return btn;
+        }
+    }.func;
+
+    // Brush
+    const brush_btn = createToolButton(&brush_tool, "assets/brush.png", null);
+    c.gtk_box_append(@ptrCast(tools_box), brush_btn);
+    c.gtk_toggle_button_set_active(@ptrCast(brush_btn), 1);
+
+    // Eraser
+    const eraser_btn = createToolButton(&eraser_tool, "assets/eraser.png", @ptrCast(brush_btn));
+    c.gtk_box_append(@ptrCast(tools_box), eraser_btn);
+
+    // Separator
+    c.gtk_box_append(@ptrCast(sidebar), c.gtk_separator_new(c.GTK_ORIENTATION_HORIZONTAL));
 
     // Color Selection
     const color_btn = c.gtk_color_button_new();
     c.gtk_widget_set_valign(color_btn, c.GTK_ALIGN_START);
+    c.gtk_widget_set_halign(color_btn, c.GTK_ALIGN_CENTER);
     c.gtk_box_append(@ptrCast(sidebar), color_btn);
     _ = c.g_signal_connect_data(color_btn, "color-set", @ptrCast(&color_changed), null, null, 0);
 
     // Brush Size Slider
-    // Min 1, Max 50, Step 1
     const size_slider = c.gtk_scale_new_with_range(c.GTK_ORIENTATION_HORIZONTAL, 1.0, 50.0, 1.0);
-    c.gtk_range_set_value(@ptrCast(size_slider), 3.0); // Default size
+    c.gtk_range_set_value(@ptrCast(size_slider), 3.0);
     c.gtk_widget_set_hexpand(size_slider, 0);
     c.gtk_box_append(@ptrCast(sidebar), size_slider);
     _ = c.g_signal_connect_data(size_slider, "value-changed", @ptrCast(&brush_size_changed), null, null, 0);
-
-    // Main Content (Right)
 
     // Main Content (Right)
     const content = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 0);
@@ -194,14 +247,12 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.gtk_widget_add_controller(drawing_area, @ptrCast(drag));
 
     _ = c.g_signal_connect_data(drag, "drag-begin", @ptrCast(&drag_begin), null, null, 0);
-
-    _ = c.g_signal_connect_data(drag, "drag-update", @ptrCast(&drag_update), drawing_area, // passed as user_data
-        null, 0);
+    _ = c.g_signal_connect_data(drag, "drag-update", @ptrCast(&drag_update), drawing_area, null, 0);
 
     // CSS Styling
     const css_provider = c.gtk_css_provider_new();
     const css =
-        \\.sidebar { background-color: #e0e0e0; border-right: 1px solid #c0c0c0; }
+        \\.sidebar { background-color: #e0e0e0; border-right: 1px solid #c0c0c0; padding: 10px; }
         \\.content { background-color: #ffffff; }
     ;
     c.gtk_css_provider_load_from_data(css_provider, css, -1);
