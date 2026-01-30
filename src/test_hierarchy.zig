@@ -76,3 +76,7 @@ test "GimpBrushTool offset verification" {
     try checkOffset(brush_tool_mod.GimpBrushTool, c.struct__GimpBrushTool, "boundary");
     try checkOffset(brush_tool_mod.GimpBrushTool, c.struct__GimpBrushTool, "boundary_hardness");
 }
+
+test {
+    _ = @import("engine.zig");
+}

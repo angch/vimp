@@ -14,10 +14,14 @@
 
 - [x] Diff GIMP.md and VIMP.md and add to TODO.md in medium priority.
 
+## Higher priority
+
+- [ ] Ensure there is colored icons for all tools
 
 ## Medium priority
 
-- [ ] Implement Color Selection (Foreground/Background colors)
-- [ ] Implement Brush Size Control
+- [x] Implement Color Selection (Foreground/Background colors)
+- [x] Implement Brush Size Control
+
 - [ ] Implement Eraser Tool
 - [ ] Implement Canvas Navigation (Zoom/Scroll)

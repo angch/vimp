@@ -37,6 +37,32 @@ pub fn main() !void {
     _ = status;
 }
 
+fn color_changed(
+    button: *c.GtkColorButton,
+    user_data: ?*anyopaque,
+) callconv(std.builtin.CallingConvention.c) void {
+    _ = user_data;
+    var rgba: c.GdkRGBA = undefined;
+    c.gtk_color_chooser_get_rgba(@ptrCast(button), &rgba);
+
+    const r: u8 = @intFromFloat(rgba.red * 255.0);
+    const g: u8 = @intFromFloat(rgba.green * 255.0);
+    const b: u8 = @intFromFloat(rgba.blue * 255.0);
+    const a: u8 = @intFromFloat(rgba.alpha * 255.0);
+
+    engine.setFgColor(r, g, b, a);
+}
+
+fn brush_size_changed(
+    range: *c.GtkRange,
+    user_data: ?*anyopaque,
+) callconv(std.builtin.CallingConvention.c) void {
+    _ = user_data;
+    const value = c.gtk_range_get_value(range);
+    const size: c_int = @intFromFloat(value);
+    engine.setBrushSize(size);
+}
+
 fn draw_func(
     drawing_area: [*c]c.GtkDrawingArea,
     cr: ?*c.cairo_t,
@@ -131,7 +157,24 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     const sidebar = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 0);
     c.gtk_widget_set_size_request(sidebar, 200, -1);
     c.gtk_widget_add_css_class(sidebar, "sidebar");
+    c.gtk_widget_add_css_class(sidebar, "sidebar");
     c.gtk_box_append(@ptrCast(main_box), sidebar);
+
+    // Color Selection
+    const color_btn = c.gtk_color_button_new();
+    c.gtk_widget_set_valign(color_btn, c.GTK_ALIGN_START);
+    c.gtk_box_append(@ptrCast(sidebar), color_btn);
+    _ = c.g_signal_connect_data(color_btn, "color-set", @ptrCast(&color_changed), null, null, 0);
+
+    // Brush Size Slider
+    // Min 1, Max 50, Step 1
+    const size_slider = c.gtk_scale_new_with_range(c.GTK_ORIENTATION_HORIZONTAL, 1.0, 50.0, 1.0);
+    c.gtk_range_set_value(@ptrCast(size_slider), 3.0); // Default size
+    c.gtk_widget_set_hexpand(size_slider, 0);
+    c.gtk_box_append(@ptrCast(sidebar), size_slider);
+    _ = c.g_signal_connect_data(size_slider, "value-changed", @ptrCast(&brush_size_changed), null, null, 0);
+
+    // Main Content (Right)
 
     // Main Content (Right)
     const content = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 0);

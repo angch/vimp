@@ -7,17 +7,21 @@ TOOLS_DIR = $(CURDIR)/tools
 
 ZIG_BIN = $(TOOLS_DIR)/zig
 
-.PHONY: all clean tools/zig
+.PHONY: all clean tools/zig build run test
 
-all: $(ZIG_BIN)
+all: build
 
-$(ZIG_BIN):
-	mkdir -p $(TOOLS_DIR)
-	curl -o $(TOOLS_DIR)/zig.tar.xz $(ZIG_URL)
-	tar -xf $(TOOLS_DIR)/zig.tar.xz -C $(TOOLS_DIR)
-	ln -sf $(ZIG_DIR)/zig $(ZIG_BIN)
-	rm $(TOOLS_DIR)/zig.tar.xz
-	@echo "Zig $(ZIG_VERSION) installed to $(ZIG_BIN)"
+build:
+	zig build
+
+run:
+	./run_local.sh
+
+test:
+	zig build test
 
 clean:
 	rm -rf $(TOOLS_DIR)
+	rm -rf zig-out
+	rm -rf .zig-cache
+

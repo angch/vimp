@@ -8,6 +8,8 @@ pub const Engine = struct {
     buffer_node: ?*c.GeglNode = null,
     canvas_width: c_int = 800,
     canvas_height: c_int = 600,
+    fg_color: [4]u8 = .{ 0, 0, 0, 255 },
+    brush_size: c_int = 3,
 
     pub fn init(self: *Engine) void {
         _ = self;
@@ -64,11 +66,11 @@ pub const Engine = struct {
 
         // Draw a simple line by setting pixels along the path
         // Using Bresenham-style drawing for simplicity
-        const brush_size: c_int = 3;
+        const brush_size = self.brush_size;
         const format = c.babl_format("R'G'B'A u8");
 
-        // Black color with full alpha
-        var pixel: [4]u8 = .{ 0, 0, 0, 255 };
+        // Use selected foreground color
+        var pixel: [4]u8 = self.fg_color;
 
         // Simple line drawing using interpolation
         const dx = x1 - x0;
@@ -98,6 +100,14 @@ pub const Engine = struct {
         }
     }
 
+    pub fn setFgColor(self: *Engine, r: u8, g: u8, b: u8, a: u8) void {
+        self.fg_color = .{ r, g, b, a };
+    }
+
+    pub fn setBrushSize(self: *Engine, size: c_int) void {
+        self.brush_size = size;
+    }
+
     pub fn blit(self: *Engine, width: c_int, height: c_int, ptr: [*]u8, stride: c_int) void {
         if (self.output_node) |node| {
             const rect = c.GeglRectangle{ .x = 0, .y = 0, .width = width, .height = height };
@@ -107,3 +117,73 @@ pub const Engine = struct {
         }
     }
 };
+
+test "Engine paint color" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+
+    // Set color to RED
+    engine.setFgColor(255, 0, 0, 255);
+
+    // Draw a single point/small line at 100,100
+    engine.paintStroke(100, 100, 100, 100);
+
+    // Read back pixel
+    if (engine.paint_buffer) |buf| {
+        var pixel: [4]u8 = .{ 0, 0, 0, 0 };
+        const rect = c.GeglRectangle{ .x = 100, .y = 100, .width = 1, .height = 1 };
+        const format = c.babl_format("R'G'B'A u8");
+        c.gegl_buffer_get(buf, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+
+        // Expect RED: 255, 0, 0, 255
+        // std.testing.expectEqual is strict with types, use manual check or slice
+        try std.testing.expectEqual(pixel[0], 255);
+        try std.testing.expectEqual(pixel[1], 0);
+        try std.testing.expectEqual(pixel[2], 0);
+        try std.testing.expectEqual(pixel[3], 255);
+    } else {
+        return error.NoBuffer;
+    }
+}
+
+test "Engine brush size" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+    engine.setFgColor(255, 255, 255, 255); // White for visibility
+
+    // 1. Large Brush (Size 5)
+    engine.setBrushSize(5);
+    engine.paintStroke(100, 100, 100, 100);
+
+    // Center is 100,100.
+    // Half is 2. Range: 98..102.
+    // Pixel at 102, 102 should be painted.
+    if (engine.paint_buffer) |buf| {
+        var pixel: [4]u8 = .{ 0, 0, 0, 0 };
+        const rect = c.GeglRectangle{ .x = 102, .y = 102, .width = 1, .height = 1 };
+        const format = c.babl_format("R'G'B'A u8");
+        c.gegl_buffer_get(buf, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+        try std.testing.expectEqual(pixel[0], 255);
+    }
+
+    // 2. Small Brush (Size 1)
+    engine.setBrushSize(1);
+    engine.paintStroke(200, 200, 200, 200);
+
+    // Center 200,200.
+    // Half 0. Range: 200..200.
+    // Pixel at 201, 200 should NOT be painted (it should be 0 or transparent).
+    if (engine.paint_buffer) |buf| {
+        var pixel: [4]u8 = .{ 0, 0, 0, 0 };
+        const rect = c.GeglRectangle{ .x = 201, .y = 200, .width = 1, .height = 1 };
+        const format = c.babl_format("R'G'B'A u8");
+        c.gegl_buffer_get(buf, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+        // Expect empty/black (since buffer init is empty)
+        try std.testing.expectEqual(pixel[0], 0);
+        try std.testing.expectEqual(pixel[3], 0);
+    }
+}
