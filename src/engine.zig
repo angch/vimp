@@ -31,16 +31,17 @@ pub const Engine = struct {
     brush_type: BrushType = .square,
     selection: ?c.GeglRectangle = null,
     selection_mode: SelectionMode = .rectangle,
+    format_cairo_argb32: ?*const c.Babl = null,
 
     // GEGL is not thread-safe for init/exit, and tests run in parallel.
     // We must serialize access to the GEGL global state.
     var gegl_mutex = std.Thread.Mutex{};
 
     pub fn init(self: *Engine) void {
-        _ = self;
         gegl_mutex.lock();
         // Accept null args for generic initialization
         c.gegl_init(null, null);
+        self.format_cairo_argb32 = c.babl_format("cairo-ARGB32");
     }
 
     pub fn deinit(self: *Engine) void {
@@ -308,7 +309,7 @@ pub const Engine = struct {
     pub fn blitView(self: *Engine, width: c_int, height: c_int, ptr: [*]u8, stride: c_int, scale: f64, view_x: f64, view_y: f64) void {
         if (self.output_node) |node| {
             const rect = c.GeglRectangle{ .x = @intFromFloat(view_x), .y = @intFromFloat(view_y), .width = width, .height = height };
-            const format = c.babl_format("cairo-ARGB32");
+            const format = self.format_cairo_argb32 orelse c.babl_format("cairo-ARGB32");
 
             c.gegl_node_blit(node, scale, &rect, format, ptr, stride, c.GEGL_BLIT_DEFAULT);
         }
