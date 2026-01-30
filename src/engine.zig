@@ -2,6 +2,11 @@ const std = @import("std");
 const c = @import("c.zig").c;
 
 pub const Engine = struct {
+    pub const Mode = enum {
+        paint,
+        erase,
+    };
+
     graph: ?*c.GeglNode = null,
     output_node: ?*c.GeglNode = null,
     paint_buffer: ?*c.GeglBuffer = null,
@@ -10,6 +15,7 @@ pub const Engine = struct {
     canvas_height: c_int = 600,
     fg_color: [4]u8 = .{ 0, 0, 0, 255 },
     brush_size: c_int = 3,
+    mode: Mode = .paint,
 
     pub fn init(self: *Engine) void {
         _ = self;
@@ -69,8 +75,13 @@ pub const Engine = struct {
         const brush_size = self.brush_size;
         const format = c.babl_format("R'G'B'A u8");
 
-        // Use selected foreground color
-        var pixel: [4]u8 = self.fg_color;
+        // Use selected foreground color, or transparent if erasing
+        var pixel: [4]u8 = undefined;
+        if (self.mode == .erase) {
+            pixel = .{ 0, 0, 0, 0 };
+        } else {
+            pixel = self.fg_color;
+        }
 
         // Simple line drawing using interpolation
         const dx = x1 - x0;
@@ -106,6 +117,10 @@ pub const Engine = struct {
 
     pub fn setBrushSize(self: *Engine, size: c_int) void {
         self.brush_size = size;
+    }
+
+    pub fn setMode(self: *Engine, mode: Mode) void {
+        self.mode = mode;
     }
 
     pub fn blit(self: *Engine, width: c_int, height: c_int, ptr: [*]u8, stride: c_int) void {
@@ -184,6 +199,46 @@ test "Engine brush size" {
         c.gegl_buffer_get(buf, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
         // Expect empty/black (since buffer init is empty)
         try std.testing.expectEqual(pixel[0], 0);
+        try std.testing.expectEqual(pixel[3], 0);
+    }
+}
+
+test "Engine eraser" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+    engine.setFgColor(255, 0, 0, 255); // Red
+
+    // 1. Paint Red at 50,50
+    engine.paintStroke(50, 50, 50, 50);
+
+    // Verify it's red
+    if (engine.paint_buffer) |buf| {
+        var pixel: [4]u8 = .{ 0, 0, 0, 0 };
+        const rect = c.GeglRectangle{ .x = 50, .y = 50, .width = 1, .height = 1 };
+        const format = c.babl_format("R'G'B'A u8");
+        c.gegl_buffer_get(buf, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+        try std.testing.expectEqual(pixel[0], 255);
+        try std.testing.expectEqual(pixel[3], 255);
+    }
+
+    // 2. Switch to Erase
+    engine.setMode(.erase);
+
+    // 3. Erase at 50,50
+    engine.paintStroke(50, 50, 50, 50);
+
+    // Verify it's transparent (0,0,0,0)
+    if (engine.paint_buffer) |buf| {
+        var pixel: [4]u8 = .{ 255, 255, 255, 255 }; // Initialize with junk
+        const rect = c.GeglRectangle{ .x = 50, .y = 50, .width = 1, .height = 1 };
+        const format = c.babl_format("R'G'B'A u8");
+        c.gegl_buffer_get(buf, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+
+        try std.testing.expectEqual(pixel[0], 0);
+        try std.testing.expectEqual(pixel[1], 0);
+        try std.testing.expectEqual(pixel[2], 0);
         try std.testing.expectEqual(pixel[3], 0);
     }
 }

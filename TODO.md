@@ -23,5 +23,5 @@
 - [x] Implement Color Selection (Foreground/Background colors)
 - [x] Implement Brush Size Control
 
-- [ ] Implement Eraser Tool
+- [x] Implement Eraser Tool
 - [ ] Implement Canvas Navigation (Zoom/Scroll)

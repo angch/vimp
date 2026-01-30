@@ -77,6 +77,11 @@ fn tool_toggled(
         const tool_ptr = @as(*Tool, @ptrCast(@alignCast(user_data)));
         current_tool = tool_ptr.*;
         std.debug.print("Tool switched to: {}\n", .{current_tool});
+
+        switch (current_tool) {
+            .brush => engine.setMode(.paint),
+            .eraser => engine.setMode(.erase),
+        }
     }
 }
 
