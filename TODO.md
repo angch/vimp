@@ -50,7 +50,7 @@
 - [x] Implement Ellipse Select Tool
 
 ### Layers
-- [ ] Implement Layer Management (Visibility, Locks, Reordering)
+- [x] Implement Layer Management (Visibility, Locks, Reordering)
 
 ### Transformations
 - [ ] Implement Unified Transform Tool

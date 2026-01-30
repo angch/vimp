@@ -89,3 +89,12 @@ term planning.
 - Updated `paintStroke` and `bucketFill` to use this helper.
 - UI: Added Ellipse tool button and Cairo rendering for elliptical selection (using `cairo_scale` and `cairo_arc`).
 - Verified with unit tests for edge/corner cases of ellipse clipping.
+
+### 2026-01-30: Layer Management
+- Refactored `Engine` to support multiple layers using `std.ArrayList(Layer)`.
+- Replaced static GEGL graph with dynamic `rebuildGraph` which chains `gegl:over` nodes for visible layers.
+- Implemented `addLayer`, `removeLayer`, `reorderLayer`, `toggleLayerVisibility`, `toggleLayerLock`.
+- Updated UI to include a Layers panel with controls and visibility/lock toggles.
+- Gotcha: `std.ArrayList` in Zig 0.15+ behaves like `Unmanaged` (requires allocator for `append`/`deinit` and init via struct literal `{}`).
+- Gotcha: `c.gegl_node_new_child` returns optional pointer, must be handled.
+- Gotcha: When removing layers, old `gegl:over` nodes in the composition chain must be cleaned up (currently removed from graph).
