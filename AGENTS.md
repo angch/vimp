@@ -30,7 +30,7 @@ Goal: Upgrade GIMP concepts to a modern stack (Zig, GTK4, GEGL/Babl).
 - The project uses vendored headers/libs for GEGL/Babl in `libs/`.
 - `build.zig` automatically handles `GEGL_PATH`, `BABL_PATH`, and `LD_LIBRARY_PATH` when running via `zig build run` or `zig build test`.
 - If running binaries directly, ensure these environment variables are set (see `build.zig` for details).
-- Development environment setup script is available at `scripts/setup_dev_machine.sh`.
+- Development environment setup script is available at `setup.sh` (wraps `scripts/setup_dev_machine.sh` logic and library setup).
 
 ## Coding Conventions
 

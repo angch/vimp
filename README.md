@@ -29,29 +29,31 @@ After an architectural analysis (see [`doc/architecture-analysis/`](doc/architec
 # Clone and run setup script
 git clone git@github.com:angch/vimp.git ~/project/vimp
 cd ~/project/vimp
-bash scripts/setup_dev_machine.sh
+bash setup.sh
 source ~/.bashrc
 ```
 
 ### What Gets Installed
 
-The setup script ([`scripts/setup_dev_machine.sh`](scripts/setup_dev_machine.sh)) installs:
+The setup script (`setup.sh`) installs:
 
 - **Build Tools**: `build-essential`, `git`, `curl`, `pkg-config`
 - **GTK4**: `libgtk-4-dev`, `libadwaita-1-dev`
 - **GEGL/Babl**: `libgegl-dev`, `libbabl-dev`
 - **Zig 0.15.2**: Installed to `~/.local/zig`, added to PATH
+- **Vendored Libs**: GEGL/Babl libs downloaded to `libs/` (via `scripts/setup_libs.sh`)
 
 ### Build & Run
 
 ```bash
-# Setup vendored libs (for GEGL/Babl headers)
-bash tools/setup_libs.sh
-
 # Build
+make build
+# or
 zig build
 
 # Run
+make run
+# or
 zig build run
 ```
 
