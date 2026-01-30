@@ -23,6 +23,9 @@ var mouse_x: f64 = 0;
 var mouse_y: f64 = 0;
 var current_tool: Tool = .brush;
 
+var layers_list_box: ?*c.GtkWidget = null;
+var drawing_area: ?*c.GtkWidget = null;
+
 pub fn main() !void {
     engine.init();
     defer engine.deinit();
@@ -134,14 +137,14 @@ var view_x: f64 = 0.0;
 var view_y: f64 = 0.0;
 
 fn draw_func(
-    drawing_area: [*c]c.GtkDrawingArea,
+    widget: [*c]c.GtkDrawingArea,
     cr: ?*c.cairo_t,
     width: c_int,
     height: c_int,
     user_data: ?*anyopaque,
 ) callconv(std.builtin.CallingConvention.c) void {
     _ = user_data;
-    _ = drawing_area;
+    _ = widget;
 
     if (surface == null) {
         surface = c.cairo_image_surface_create(c.CAIRO_FORMAT_ARGB32, width, height);
@@ -477,6 +480,118 @@ fn sidebar_toggled(
     c.adw_overlay_split_view_set_show_sidebar(split_view, if (is_shown != 0) 0 else 1);
 }
 
+fn queue_draw() void {
+    if (drawing_area) |w| {
+        c.gtk_widget_queue_draw(w);
+    }
+}
+
+fn refresh_layers_ui() void {
+    if (layers_list_box) |box| {
+        // Clear children
+        var child = c.gtk_widget_get_first_child(@ptrCast(box));
+        while (child != null) {
+            const next = c.gtk_widget_get_next_sibling(child);
+            c.gtk_list_box_remove(@ptrCast(box), child);
+            child = next;
+        }
+
+        // Add layers (reversed: Top layer first)
+        var i: usize = engine.layers.items.len;
+        while (i > 0) {
+            i -= 1;
+            const idx = i;
+            const layer = &engine.layers.items[idx];
+
+            const row = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 5);
+
+            // Visible Check
+            const vis_check = c.gtk_check_button_new();
+            c.gtk_check_button_set_active(@ptrCast(vis_check), if (layer.visible) 1 else 0);
+            c.gtk_widget_set_tooltip_text(vis_check, "Visible");
+            _ = c.g_signal_connect_data(vis_check, "toggled", @ptrCast(&layer_visibility_toggled), @as(*anyopaque, @ptrFromInt(idx)), null, 0);
+            c.gtk_box_append(@ptrCast(row), vis_check);
+
+            // Lock Check
+            const lock_check = c.gtk_check_button_new();
+            c.gtk_check_button_set_active(@ptrCast(lock_check), if (layer.locked) 1 else 0);
+            c.gtk_widget_set_tooltip_text(lock_check, "Lock");
+            _ = c.g_signal_connect_data(lock_check, "toggled", @ptrCast(&layer_lock_toggled), @as(*anyopaque, @ptrFromInt(idx)), null, 0);
+            c.gtk_box_append(@ptrCast(row), lock_check);
+
+            // Name Label
+            const name_span = std.mem.span(@as([*:0]const u8, @ptrCast(&layer.name)));
+            const label = c.gtk_label_new(name_span.ptr);
+            c.gtk_widget_set_hexpand(label, 1);
+            c.gtk_widget_set_halign(label, c.GTK_ALIGN_START);
+            c.gtk_box_append(@ptrCast(row), label);
+
+            c.gtk_list_box_insert(@ptrCast(box), row, -1);
+
+            // Select if active (Wait, creating row doesn't give GtkListBoxRow easily here unless we query or wrap)
+            // GtkListBox wraps generic widget in a GtkListBoxRow automatically.
+            // We can get it after insertion? Or explicitly create GtkListBoxRow.
+            // Let's rely on auto-wrapping and iterate children to select? Or just ignore selection visual for now if tricky?
+            // Actually, correct way: create GtkListBoxRow, set child, insert Row.
+            // But we can verify active layer by list selection later.
+        }
+    }
+}
+
+fn layer_visibility_toggled(_: *c.GtkCheckButton, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const idx = @intFromPtr(user_data);
+    engine.toggleLayerVisibility(idx);
+    queue_draw();
+}
+
+fn layer_lock_toggled(_: *c.GtkCheckButton, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const idx = @intFromPtr(user_data);
+    engine.toggleLayerLock(idx);
+}
+
+fn layer_add_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    engine.addLayer("New Layer") catch return;
+    refresh_layers_ui();
+    queue_draw();
+}
+
+fn layer_remove_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    engine.removeLayer(engine.active_layer_idx);
+    refresh_layers_ui();
+    queue_draw();
+}
+
+fn layer_up_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const idx = engine.active_layer_idx;
+    if (idx + 1 < engine.layers.items.len) {
+        engine.reorderLayer(idx, idx + 1);
+        refresh_layers_ui();
+        queue_draw();
+    }
+}
+
+fn layer_down_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const idx = engine.active_layer_idx;
+    if (idx > 0) {
+        engine.reorderLayer(idx, idx - 1);
+        refresh_layers_ui();
+        queue_draw();
+    }
+}
+
+fn layer_selected(_: *c.GtkListBox, row: ?*c.GtkListBoxRow, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    if (row) |r| {
+        const index_in_list = c.gtk_list_box_row_get_index(r);
+        if (index_in_list >= 0) {
+            const k: usize = @intCast(index_in_list);
+            if (k < engine.layers.items.len) {
+                const layer_idx = engine.layers.items.len - 1 - k;
+                engine.setActiveLayer(layer_idx);
+            }
+        }
+    }
+}
+
 fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     _ = user_data;
 
@@ -640,6 +755,47 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.gtk_box_append(@ptrCast(sidebar), size_slider);
     _ = c.g_signal_connect_data(size_slider, "value-changed", @ptrCast(&brush_size_changed), null, null, 0);
 
+    // Layers Section
+    c.gtk_box_append(@ptrCast(sidebar), c.gtk_separator_new(c.GTK_ORIENTATION_HORIZONTAL));
+
+    c.gtk_box_append(@ptrCast(sidebar), c.gtk_label_new("Layers"));
+
+    const layers_list = c.gtk_list_box_new();
+    c.gtk_widget_set_vexpand(layers_list, 1);
+    c.gtk_list_box_set_selection_mode(@ptrCast(layers_list), c.GTK_SELECTION_SINGLE);
+    _ = c.g_signal_connect_data(layers_list, "row-selected", @ptrCast(&layer_selected), null, null, 0);
+
+    const scrolled = c.gtk_scrolled_window_new();
+    c.gtk_scrolled_window_set_child(@ptrCast(scrolled), layers_list);
+    c.gtk_widget_set_vexpand(scrolled, 1);
+    c.gtk_box_append(@ptrCast(sidebar), scrolled);
+
+    layers_list_box = layers_list;
+
+    const layers_btns = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 5);
+    c.gtk_widget_set_halign(layers_btns, c.GTK_ALIGN_CENTER);
+    c.gtk_box_append(@ptrCast(sidebar), layers_btns);
+
+    const add_layer_btn = c.gtk_button_new_from_icon_name("list-add-symbolic");
+    c.gtk_widget_set_tooltip_text(add_layer_btn, "Add Layer");
+    c.gtk_box_append(@ptrCast(layers_btns), add_layer_btn);
+    _ = c.g_signal_connect_data(add_layer_btn, "clicked", @ptrCast(&layer_add_clicked), null, null, 0);
+
+    const remove_layer_btn = c.gtk_button_new_from_icon_name("list-remove-symbolic");
+    c.gtk_widget_set_tooltip_text(remove_layer_btn, "Remove Layer");
+    c.gtk_box_append(@ptrCast(layers_btns), remove_layer_btn);
+    _ = c.g_signal_connect_data(remove_layer_btn, "clicked", @ptrCast(&layer_remove_clicked), null, null, 0);
+
+    const up_layer_btn = c.gtk_button_new_from_icon_name("go-up-symbolic");
+    c.gtk_widget_set_tooltip_text(up_layer_btn, "Move Up");
+    c.gtk_box_append(@ptrCast(layers_btns), up_layer_btn);
+    _ = c.g_signal_connect_data(up_layer_btn, "clicked", @ptrCast(&layer_up_clicked), null, null, 0);
+
+    const down_layer_btn = c.gtk_button_new_from_icon_name("go-down-symbolic");
+    c.gtk_widget_set_tooltip_text(down_layer_btn, "Move Down");
+    c.gtk_box_append(@ptrCast(layers_btns), down_layer_btn);
+    _ = c.g_signal_connect_data(down_layer_btn, "clicked", @ptrCast(&layer_down_clicked), null, null, 0);
+
     // Main Content (Right / Content Pane)
     const content = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 0);
     c.gtk_widget_set_hexpand(content, 1);
@@ -649,31 +805,35 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.adw_overlay_split_view_set_content(@ptrCast(split_view), content);
 
     // Drawing Area
-    const drawing_area = c.gtk_drawing_area_new();
-    c.gtk_widget_set_hexpand(drawing_area, 1);
-    c.gtk_widget_set_vexpand(drawing_area, 1);
-    c.gtk_drawing_area_set_draw_func(@ptrCast(drawing_area), draw_func, null, null);
-    c.gtk_box_append(@ptrCast(content), drawing_area);
+    const area = c.gtk_drawing_area_new();
+    drawing_area = area;
+    c.gtk_widget_set_hexpand(area, 1);
+    c.gtk_widget_set_vexpand(area, 1);
+    c.gtk_drawing_area_set_draw_func(@ptrCast(area), draw_func, null, null);
+    c.gtk_box_append(@ptrCast(content), area);
 
     // Gestures
     const drag = c.gtk_gesture_drag_new();
     // Allow Middle Click (Button 2)
     c.gtk_gesture_single_set_button(@ptrCast(drag), 0); // 0 = all buttons
-    c.gtk_widget_add_controller(drawing_area, @ptrCast(drag));
+    c.gtk_widget_add_controller(area, @ptrCast(drag));
 
-    _ = c.g_signal_connect_data(drag, "drag-begin", @ptrCast(&drag_begin), @ptrCast(drawing_area), null, 0);
-    _ = c.g_signal_connect_data(drag, "drag-update", @ptrCast(&drag_update), @ptrCast(drawing_area), null, 0);
+    _ = c.g_signal_connect_data(drag, "drag-begin", @ptrCast(&drag_begin), @ptrCast(area), null, 0);
+    _ = c.g_signal_connect_data(drag, "drag-update", @ptrCast(&drag_update), @ptrCast(area), null, 0);
 
     // Motion Controller (for mouse tracking)
     const motion = c.gtk_event_controller_motion_new();
-    c.gtk_widget_add_controller(drawing_area, @ptrCast(motion));
+    c.gtk_widget_add_controller(area, @ptrCast(motion));
     _ = c.g_signal_connect_data(motion, "motion", @ptrCast(&motion_func), null, null, 0);
 
     // Scroll Gesture
     const scroll_flags = c.GTK_EVENT_CONTROLLER_SCROLL_VERTICAL | c.GTK_EVENT_CONTROLLER_SCROLL_HORIZONTAL;
     const scroll = c.gtk_event_controller_scroll_new(scroll_flags);
-    c.gtk_widget_add_controller(drawing_area, @ptrCast(scroll));
-    _ = c.g_signal_connect_data(scroll, "scroll", @ptrCast(&scroll_func), drawing_area, null, 0);
+    c.gtk_widget_add_controller(area, @ptrCast(scroll));
+    _ = c.g_signal_connect_data(scroll, "scroll", @ptrCast(&scroll_func), area, null, 0);
+
+    // Refresh Layers UI initially
+    refresh_layers_ui();
 
     // CSS Styling
     const css_provider = c.gtk_css_provider_new();
