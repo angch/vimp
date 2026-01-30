@@ -52,4 +52,30 @@ pub fn build(b: *std.Build) void {
     // Check step support
     const check_step = b.step("check", "Check if compilation works");
     check_step.dependOn(&exe.step);
+
+    // Unit tests
+    const unit_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/test_hierarchy.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    unit_tests.linkLibC();
+    unit_tests.linkSystemLibrary("gtk4");
+    unit_tests.linkSystemLibrary("gegl-0.4");
+    unit_tests.linkSystemLibrary("babl-0.1");
+
+    // GIMP source include paths
+    unit_tests.addIncludePath(b.path("src"));
+    unit_tests.addIncludePath(b.path("ref/gimp"));
+    unit_tests.addIncludePath(b.path("ref/gimp/app"));
+
+    // Libs
+    unit_tests.addIncludePath(b.path("libs/usr/include/gegl-0.4"));
+    unit_tests.addIncludePath(b.path("libs/usr/include/babl-0.1"));
+
+    const run_unit_tests = b.addRunArtifact(unit_tests);
+    const test_step = b.step("test", "Run unit tests");
+    test_step.dependOn(&run_unit_tests.step);
 }

@@ -1,65 +1,77 @@
 {
     "project": "Vimp",
-    "branchName": "ralph/phase-2-core",
-    "description": "Integrate the core image processing engine by linking Zig with libgegl and libbabl. This transforms the shell into a basic graphics editor.",
+    "branchName": "ralph/phase-3-porting",
+    "description": "Phase 3 begins the porting process by implementing a 'Zig Eraser Tool' that inherits from the C GimpBrushTool. This proves Zig can subclass complex GObject hierarchies while maintaining binary compatibility.",
     "userStories": [
         {
             "id": "US-001",
-            "title": "Build System Dependencies (GEGL/Babl)",
-            "description": "As a developer, I need the build system to link against system GEGL and Babl libraries so I can call their functions from Zig.",
+            "title": "Zig Bindings for Tool Hierarchy",
+            "description": "As a developer, I need Zig struct definitions that match the C memory layout of GimpTool, GimpPaintTool, and GimpBrushTool so I can inherit from them.",
             "acceptanceCriteria": [
-                "zig build links libgegl-0.4 (or similar) and libbabl-0.1",
-                "@cImport in Zig successfully finds gegl.h and babl.h",
-                "Application compiles and runs without linker errors",
+                "src/gimp/tool.zig defines GimpTool and GimpToolClass extern structs",
+                "src/gimp/paint_tool.zig defines GimpPaintTool layout",
+                "Offsets of fields in Zig match C (verified via extern or runtime assertions)",
                 "Typecheck passes"
             ],
             "priority": 1,
             "passes": true,
-            "notes": "Vendored via tools/setup_libs.sh"
+            "notes": ""
         },
         {
             "id": "US-002",
-            "title": "GEGL Initialization & Graph Setup",
-            "description": "As a developer, I want the application to initialize the GEGL engine on startup so it is ready for image processing.",
+            "title": "Zig GObject Registration",
+            "description": "As a developer, I want to register a new GType GimpZigEraserTool from Zig code that the C GObject system recognizes.",
             "acceptanceCriteria": [
-                "Call gegl_init() and babl_init() at application launch",
-                "Construct a basic GEGL graph (e.g., a background color node connected to a write buffer)",
-                "Clean up resources (if applicable) on exit",
-                "No crashes on startup",
+                "Zig function gimp_zig_eraser_tool_get_type() returns a valid GType",
+                "class_init and instance_init functions are implemented in Zig and called by GObject",
+                "The type is derived from GIMP_TYPE_BRUSH_TOOL (or appropriate parent)",
                 "Typecheck passes"
             ],
             "priority": 2,
-            "passes": true,
+            "passes": false,
             "notes": ""
         },
         {
             "id": "US-003",
-            "title": "Render GEGL Buffer to Canvas",
-            "description": "As a user, I want to see the actual image data from GEGL displayed in the window, rather than a placeholder.",
+            "title": "VTable Overriding in Zig",
+            "description": "As a developer, I want to override button_press and motion virtual methods in Zig to define custom behavior.",
             "acceptanceCriteria": [
-                "Extract pixel data from the GEGL graph/node",
-                "Convert/Blit the data to a format compatible with GtkDrawingArea (e.g., GdkTexture or Cairo surface)",
-                "The canvas displays the visual output of the GEGL graph",
-                "Visual verification",
+                "In class_init, the GimpToolClass.button_press function pointer is swapped for a Zig function",
+                "When the tool is selected and used, the Zig function prints a debug message or executes logic",
+                "parent_class methods can be called from Zig (chaining up)",
                 "Typecheck passes"
             ],
             "priority": 3,
-            "passes": true,
+            "passes": false,
             "notes": ""
         },
         {
             "id": "US-004",
-            "title": "Interactive Drawing (GEGL Update)",
-            "description": "As a user, when I draw on the canvas, I want the underlying image data to change using GEGL operations.",
+            "title": "Functional Eraser Logic",
+            "description": "As a user, I want the Zig Eraser to actually erase pixels on the canvas.",
             "acceptanceCriteria": [
-                "Mouse/Pointer events on the canvas map to coordinates in the GEGL graph",
-                "Clicking/Dragging applies a GEGL operation (e.g., painting a stroke on a buffer node) or modifies a node property",
-                "The view updates to reflect the change (repaint triggered)",
-                "Visual verification (strokes appear where drawn)",
+                "Implement GimpPaintToolClass.is_alpha_only in Zig",
+                "Reuse gimp_brush_tool logic or implement custom painting logic (via GEGL graph manipulation)",
+                "Verify in browser (if UI capable) or via unit test that pixels are modified",
                 "Typecheck passes"
             ],
             "priority": 4,
-            "passes": true,
+            "passes": false,
+            "notes": ""
+        },
+        {
+            "id": "US-005",
+            "title": "Register Tool in Tool Manager",
+            "description": "As a user, I want to see 'Zig Eraser' in the toolbar.",
+            "acceptanceCriteria": [
+                "Call gimp_tool_register (or equivalent) to add the new tool to the registry",
+                "Assign an icon (reuse existing Eraser icon)",
+                "Tool appears in the UI and can be selected",
+                "Typecheck passes",
+                "Verify in browser using dev-browser skill"
+            ],
+            "priority": 5,
+            "passes": false,
             "notes": ""
         }
     ]
