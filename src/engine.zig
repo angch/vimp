@@ -19,6 +19,27 @@ pub const Engine = struct {
         ellipse,
     };
 
+    pub const PaintCommand = struct {
+        layer_idx: usize,
+        before: *c.GeglBuffer,
+        after: ?*c.GeglBuffer = null,
+
+        pub fn deinit(self: *PaintCommand) void {
+            c.g_object_unref(self.before);
+            if (self.after) |a| c.g_object_unref(a);
+        }
+    };
+
+    pub const Command = union(enum) {
+        paint: PaintCommand,
+
+        pub fn deinit(self: *Command) void {
+            switch (self.*) {
+                .paint => |*cmd| cmd.deinit(),
+            }
+        }
+    };
+
     pub const Layer = struct {
         buffer: *c.GeglBuffer,
         source_node: *c.GeglNode,
@@ -34,6 +55,10 @@ pub const Engine = struct {
 
     base_node: ?*c.GeglNode = null,
     composition_nodes: std.ArrayList(*c.GeglNode) = undefined,
+
+    undo_stack: std.ArrayList(Command) = undefined,
+    redo_stack: std.ArrayList(Command) = undefined,
+    current_command: ?Command = null,
 
     canvas_width: c_int = 800,
     canvas_height: c_int = 600,
@@ -54,9 +79,17 @@ pub const Engine = struct {
         c.gegl_init(null, null);
         self.layers = std.ArrayList(Layer){};
         self.composition_nodes = std.ArrayList(*c.GeglNode){};
+        self.undo_stack = std.ArrayList(Command){};
+        self.redo_stack = std.ArrayList(Command){};
     }
 
     pub fn deinit(self: *Engine) void {
+        for (self.undo_stack.items) |*cmd| cmd.deinit();
+        self.undo_stack.deinit(std.heap.c_allocator);
+        for (self.redo_stack.items) |*cmd| cmd.deinit();
+        self.redo_stack.deinit(std.heap.c_allocator);
+        if (self.current_command) |*cmd| cmd.deinit();
+
         self.composition_nodes.deinit(std.heap.c_allocator);
         for (self.layers.items) |layer| {
             c.g_object_unref(layer.buffer);
@@ -74,6 +107,110 @@ pub const Engine = struct {
         }
         // c.gegl_exit();
         gegl_mutex.unlock();
+    }
+
+    pub fn beginTransaction(self: *Engine) void {
+        if (self.current_command != null) return;
+        if (self.active_layer_idx >= self.layers.items.len) return;
+
+        const layer = &self.layers.items[self.active_layer_idx];
+        // We capture 'before' state.
+        // gegl_buffer_dup creates a COW copy.
+        const before_buf = c.gegl_buffer_dup(layer.buffer);
+        if (before_buf == null) return;
+
+        const cmd = PaintCommand{
+            .layer_idx = self.active_layer_idx,
+            .before = before_buf.?,
+            .after = null,
+        };
+        self.current_command = Command{ .paint = cmd };
+    }
+
+    pub fn commitTransaction(self: *Engine) void {
+        if (self.current_command) |*cmd| {
+            switch (cmd.*) {
+                .paint => |*p_cmd| {
+                    if (p_cmd.layer_idx < self.layers.items.len) {
+                        const layer = &self.layers.items[p_cmd.layer_idx];
+                        // Capture 'after' state.
+                        const after_buf = c.gegl_buffer_dup(layer.buffer);
+                        if (after_buf) |ab| {
+                            p_cmd.after = ab;
+                        }
+                    }
+                },
+            }
+            // Move current_command to undo stack
+            self.undo_stack.append(std.heap.c_allocator, self.current_command.?) catch |err| {
+                std.debug.print("Failed to append to undo stack: {}\n", .{err});
+                self.current_command.?.deinit();
+                self.current_command = null;
+                return;
+            };
+            self.current_command = null;
+
+            // Clear redo stack
+            for (self.redo_stack.items) |*r_cmd| r_cmd.deinit();
+            self.redo_stack.clearRetainingCapacity();
+        }
+    }
+
+    pub fn undo(self: *Engine) void {
+        if (self.undo_stack.items.len == 0) return;
+        const cmd_opt = self.undo_stack.pop();
+        if (cmd_opt) |cmd| {
+            switch (cmd) {
+                .paint => |p_cmd| {
+                    if (p_cmd.layer_idx < self.layers.items.len) {
+                        const layer = &self.layers.items[p_cmd.layer_idx];
+
+                        // Restore 'before' buffer
+                        const new_buf = c.gegl_buffer_dup(p_cmd.before);
+                        if (new_buf) |b| {
+                            c.g_object_unref(layer.buffer);
+                            layer.buffer = b;
+
+                            // Update source node
+                            c.gegl_node_set(layer.source_node, "buffer", b, @as(?*anyopaque, null));
+                        }
+                    }
+                },
+            }
+
+            self.redo_stack.append(std.heap.c_allocator, cmd) catch {
+                var mutable_cmd = cmd;
+                mutable_cmd.deinit();
+            };
+        }
+    }
+
+    pub fn redo(self: *Engine) void {
+        if (self.redo_stack.items.len == 0) return;
+        const cmd_opt = self.redo_stack.pop();
+
+        if (cmd_opt) |cmd| {
+            switch (cmd) {
+                .paint => |p_cmd| {
+                     if (p_cmd.layer_idx < self.layers.items.len) {
+                        const layer = &self.layers.items[p_cmd.layer_idx];
+                        if (p_cmd.after) |after_buf| {
+                            const new_buf = c.gegl_buffer_dup(after_buf);
+                            if (new_buf) |b| {
+                                c.g_object_unref(layer.buffer);
+                                layer.buffer = b;
+                                c.gegl_node_set(layer.source_node, "buffer", b, @as(?*anyopaque, null));
+                            }
+                        }
+                    }
+                },
+            }
+
+            self.undo_stack.append(std.heap.c_allocator, cmd) catch {
+                var mutable_cmd = cmd;
+                mutable_cmd.deinit();
+            };
+        }
     }
 
     pub fn setupGraph(self: *Engine) void {
@@ -798,4 +935,55 @@ test "Cairo error surface check" {
     try std.testing.expect(data == null);
 
     c.cairo_surface_destroy(s);
+}
+
+test "Engine undo redo" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+
+    // Paint stroke
+    engine.setFgColor(255, 0, 0, 255);
+    engine.beginTransaction();
+    engine.paintStroke(10, 10, 10, 10, 1.0);
+    engine.commitTransaction();
+
+    // Check pixel is Red
+    if (engine.layers.items.len > 0) {
+        const buf = engine.layers.items[0].buffer;
+        var pixel: [4]u8 = .{ 0, 0, 0, 0 };
+        const rect = c.GeglRectangle{ .x = 10, .y = 10, .width = 1, .height = 1 };
+        const format = c.babl_format("R'G'B'A u8");
+        c.gegl_buffer_get(buf, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+        try std.testing.expectEqual(pixel[0], 255);
+    } else {
+        return error.NoLayer;
+    }
+
+    // Undo
+    engine.undo();
+    // Check pixel is Transparent (original)
+    if (engine.layers.items.len > 0) {
+        const buf = engine.layers.items[0].buffer;
+        var pixel: [4]u8 = .{ 255, 255, 255, 255 };
+        const rect = c.GeglRectangle{ .x = 10, .y = 10, .width = 1, .height = 1 };
+        const format = c.babl_format("R'G'B'A u8");
+        c.gegl_buffer_get(buf, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+        // Expect Transparent
+        try std.testing.expectEqual(pixel[0], 0);
+        try std.testing.expectEqual(pixel[3], 0);
+    }
+
+    // Redo
+    engine.redo();
+    // Check pixel is Red
+    if (engine.layers.items.len > 0) {
+        const buf = engine.layers.items[0].buffer;
+        var pixel: [4]u8 = .{ 0, 0, 0, 0 };
+        const rect = c.GeglRectangle{ .x = 10, .y = 10, .width = 1, .height = 1 };
+        const format = c.babl_format("R'G'B'A u8");
+        c.gegl_buffer_get(buf, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+        try std.testing.expectEqual(pixel[0], 255);
+    }
 }
