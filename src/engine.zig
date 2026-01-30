@@ -398,6 +398,8 @@ pub const Engine = struct {
         var queue = std.ArrayList(Point){};
         defer queue.deinit(allocator);
 
+        // Fill start pixel and add to queue
+        @memcpy(pixels[idx..][0..4], &fill_color);
         try queue.append(allocator, .{ .x = x, .y = y });
 
         var min_x = x;
@@ -407,33 +409,39 @@ pub const Engine = struct {
 
         while (queue.items.len > 0) {
             const p = queue.pop().?;
-            const px = p.x;
-            const py = p.y;
-
-            if (px < 0 or px >= self.canvas_width or py < 0 or py >= self.canvas_height) continue;
-
-            if (!self.isPointInSelection(px, py)) continue;
-
-            const p_idx: usize = (@as(usize, @intCast(py)) * w + @as(usize, @intCast(px))) * 4;
-            const current_pixel = pixels[p_idx..][0..4];
-
-            // Check if matches target
-            if (!std.mem.eql(u8, current_pixel, &target_color)) continue;
-
-            // Fill
-            @memcpy(current_pixel, &fill_color);
-
-            // Update dirty bounds
-            if (px < min_x) min_x = px;
-            if (px > max_x) max_x = px;
-            if (py < min_y) min_y = py;
-            if (py > max_y) max_y = py;
 
             // Neighbors
-            try queue.append(allocator, .{ .x = px + 1, .y = py });
-            try queue.append(allocator, .{ .x = px - 1, .y = py });
-            try queue.append(allocator, .{ .x = px, .y = py + 1 });
-            try queue.append(allocator, .{ .x = px, .y = py - 1 });
+            const neighbors = [4]Point{
+                .{ .x = p.x + 1, .y = p.y },
+                .{ .x = p.x - 1, .y = p.y },
+                .{ .x = p.x, .y = p.y + 1 },
+                .{ .x = p.x, .y = p.y - 1 },
+            };
+
+            for (neighbors) |n| {
+                const px = n.x;
+                const py = n.y;
+
+                if (px < 0 or px >= self.canvas_width or py < 0 or py >= self.canvas_height) continue;
+                if (!self.isPointInSelection(px, py)) continue;
+
+                const p_idx: usize = (@as(usize, @intCast(py)) * w + @as(usize, @intCast(px))) * 4;
+                const current_pixel = pixels[p_idx..][0..4];
+
+                // Check if matches target
+                if (std.mem.eql(u8, current_pixel, &target_color)) {
+                    // Fill immediately
+                    @memcpy(current_pixel, &fill_color);
+
+                    // Update dirty bounds
+                    if (px < min_x) min_x = px;
+                    if (px > max_x) max_x = px;
+                    if (py < min_y) min_y = py;
+                    if (py > max_y) max_y = py;
+
+                    try queue.append(allocator, n);
+                }
+            }
         }
 
         // 4. Write back buffer (Only dirty rect)
@@ -753,4 +761,22 @@ test "Engine selection clipping" {
         c.gegl_buffer_get(buf, &rect2, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
         try std.testing.expectEqual(pixel[0], 0);
     }
+}
+
+test "Benchmark bucket fill" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+
+    // 1. Measure Fill of empty 800x600 canvas (Worst Case BFS)
+    // Target: Transparent (0,0,0,0)
+    // Fill: Red
+    engine.setFgColor(255, 0, 0, 255);
+
+    var timer = try std.time.Timer.start();
+    try engine.bucketFill(400, 300);
+    const duration = timer.read();
+
+    std.debug.print("\nBenchmark bucket fill: {d} ms\n", .{@divFloor(duration, std.time.ns_per_ms)});
 }
