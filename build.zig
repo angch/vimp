@@ -20,11 +20,11 @@ pub fn build(b: *std.Build) void {
     exe.linkSystemLibrary("gegl-0.4");
     exe.linkSystemLibrary("babl-0.1");
 
-    // Vendored paths from tools/build_gegl.sh
-    exe.addIncludePath(b.path("tools/local/include/gegl-0.4"));
-    exe.addIncludePath(b.path("tools/local/include/babl-0.1"));
-    exe.addLibraryPath(b.path("tools/local/lib/x86_64-linux-gnu"));
-    exe.addRPath(b.path("tools/local/lib/x86_64-linux-gnu"));
+    // Vendored paths from tools/build_gegl.sh (or libs cache)
+    exe.addIncludePath(b.path("libs/usr/include/gegl-0.4"));
+    exe.addIncludePath(b.path("libs/usr/include/babl-0.1"));
+    exe.addLibraryPath(b.path("libs/usr/lib/x86_64-linux-gnu"));
+    exe.addRPath(b.path("libs/usr/lib/x86_64-linux-gnu"));
 
     // Install the artifact
     b.installArtifact(exe);
@@ -33,15 +33,15 @@ pub fn build(b: *std.Build) void {
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
 
-    const gegl_path = b.pathFromRoot("tools/local/lib/x86_64-linux-gnu/gegl-0.4");
-    const babl_path = b.pathFromRoot("tools/local/lib/x86_64-linux-gnu/babl-0.1");
+    const gegl_path = b.pathFromRoot("libs/usr/lib/x86_64-linux-gnu/gegl-0.4");
+    const babl_path = b.pathFromRoot("libs/usr/lib/x86_64-linux-gnu/babl-0.1");
     // Only set if not already set, but setEnvironmentVariable overrides.
     // Ideally we check if env var exists, but for now specific to vendoring request:
     run_cmd.setEnvironmentVariable("GEGL_PATH", gegl_path);
     run_cmd.setEnvironmentVariable("BABL_PATH", babl_path);
 
     // Plugins need to find libgegl-0.4.so.0 and libbabl-0.1.so.0
-    const lib_path = b.pathFromRoot("tools/local/lib/x86_64-linux-gnu");
+    const lib_path = b.pathFromRoot("libs/usr/lib/x86_64-linux-gnu");
     run_cmd.setEnvironmentVariable("LD_LIBRARY_PATH", lib_path);
 
     if (b.args) |args| {
@@ -74,8 +74,8 @@ pub fn build(b: *std.Build) void {
     unit_tests.addIncludePath(b.path("ref/gimp/app"));
 
     // Libs
-    unit_tests.addIncludePath(b.path("tools/local/include/gegl-0.4"));
-    unit_tests.addIncludePath(b.path("tools/local/include/babl-0.1"));
+    unit_tests.addIncludePath(b.path("libs/usr/include/gegl-0.4"));
+    unit_tests.addIncludePath(b.path("libs/usr/include/babl-0.1"));
 
     const run_unit_tests = b.addRunArtifact(unit_tests);
     run_unit_tests.setEnvironmentVariable("GEGL_PATH", gegl_path);
@@ -84,4 +84,26 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_unit_tests.step);
+
+    const engine_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/engine.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    engine_tests.linkLibC();
+    engine_tests.linkSystemLibrary("gtk4");
+    engine_tests.linkSystemLibrary("gegl-0.4");
+    engine_tests.linkSystemLibrary("babl-0.1");
+    engine_tests.addIncludePath(b.path("libs/usr/include/gegl-0.4"));
+    engine_tests.addIncludePath(b.path("libs/usr/include/babl-0.1"));
+    engine_tests.addLibraryPath(b.path("libs/usr/lib/x86_64-linux-gnu")); // Ensure we find vendored libs
+
+    const run_engine_tests = b.addRunArtifact(engine_tests);
+    run_engine_tests.setEnvironmentVariable("GEGL_PATH", gegl_path);
+    run_engine_tests.setEnvironmentVariable("BABL_PATH", babl_path);
+    run_engine_tests.setEnvironmentVariable("LD_LIBRARY_PATH", lib_path);
+
+    test_step.dependOn(&run_engine_tests.step);
 }

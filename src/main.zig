@@ -85,6 +85,15 @@ fn tool_toggled(
     }
 }
 
+// Keep these alive
+var brush_tool = Tool.brush;
+var eraser_tool = Tool.eraser;
+
+// View State
+var view_scale: f64 = 1.0;
+var view_x: f64 = 0.0;
+var view_y: f64 = 0.0;
+
 fn draw_func(
     drawing_area: [*c]c.GtkDrawingArea,
     cr: ?*c.cairo_t,
@@ -101,16 +110,13 @@ fn draw_func(
 
     // US-003: Render from GEGL
     if (surface) |s| {
-        // We render regardless of whether it's new, because GEGL graph might have changed.
-        // In a real app we'd optimize this (damage rects etc), but for now, full redraw.
-
         c.cairo_surface_flush(s);
         const data = c.cairo_image_surface_get_data(s);
         const stride = c.cairo_image_surface_get_stride(s);
         const s_width = c.cairo_image_surface_get_width(s);
         const s_height = c.cairo_image_surface_get_height(s);
 
-        engine.blit(s_width, s_height, data, stride);
+        engine.blitView(s_width, s_height, data, stride, view_scale, view_x, view_y);
 
         c.cairo_surface_mark_dirty(s);
     }
@@ -121,6 +127,56 @@ fn draw_func(
             c.cairo_paint(cr_ctx);
         }
     }
+}
+
+fn scroll_func(
+    controller: *c.GtkEventControllerScroll,
+    dx: f64,
+    dy: f64,
+    user_data: ?*anyopaque,
+) callconv(std.builtin.CallingConvention.c) c.gboolean {
+    _ = dx;
+    _ = controller;
+    const widget: *c.GtkWidget = @ptrCast(@alignCast(user_data));
+
+    // Get cursor position relative to widget
+    // We strictly need the widget to be the event target
+    // We can get current pointer position from the controller?
+    // Not directly easily in GTK4 without GdkDevice.
+    // For now, simpler: Zoom to center of view?
+    // Or try to get location?
+    // GtkEventControllerScroll doesn't pass x/y.
+    // But GtkEventController has getCurrentEvent -> getCoords?
+    // Let's rely on global simpler zoom first (center of screen) or hack it.
+    // Wait, GtkEventControllerScroll has flags?
+
+    // Let's use simplified zoom to start: Center of Viewport.
+    const width = c.gtk_widget_get_width(widget);
+    const height = c.gtk_widget_get_height(widget);
+    const center_x = @as(f64, @floatFromInt(width)) / 2.0;
+    const center_y = @as(f64, @floatFromInt(height)) / 2.0;
+
+    // Zoom factor
+    const zoom_factor: f64 = if (dy > 0) 0.9 else 1.1; // Scroll down = Zoom out? verify direction.
+    // Usually Scroll Down (positive dy) = Scroll content up / View down.
+    // In Zoom apps, usually Scroll Down = Zoom OUT. Scroll Up = Zoom IN.
+    // dy > 0 is scroll down. So 0.9 (smaller scale).
+
+    const new_scale = view_scale * zoom_factor;
+    // Limit scale
+    if (new_scale < 0.1 or new_scale > 20.0) return 0; // Propagate?
+
+    // Update view_x/y to pin the center
+    // View2 = (View1 + M) * (S2/S1) - M
+    // M = center
+
+    view_x = (view_x + center_x) * zoom_factor - center_x;
+    view_y = (view_y + center_y) * zoom_factor - center_y;
+    view_scale = new_scale;
+
+    c.gtk_widget_queue_draw(widget);
+
+    return 1; // Handled
 }
 
 fn drag_begin(
@@ -141,8 +197,13 @@ fn drag_update(
     offset_y: f64,
     user_data: ?*anyopaque,
 ) callconv(std.builtin.CallingConvention.c) void {
+    const widget: *c.GtkWidget = @ptrCast(@alignCast(user_data));
 
-    // We need original start coordinates.
+    // Check which button is pressed
+    // gtk_gesture_single_get_current_button(GTK_GESTURE_SINGLE(gesture))
+    const button = c.gtk_gesture_single_get_current_button(@ptrCast(gesture));
+
+    // Get start point
     var start_sx: f64 = 0;
     var start_sy: f64 = 0;
     _ = c.gtk_gesture_drag_get_start_point(gesture, &start_sx, &start_sy);
@@ -150,20 +211,45 @@ fn drag_update(
     const current_x = start_sx + offset_x;
     const current_y = start_sy + offset_y;
 
-    const widget: *c.GtkWidget = @ptrCast(@alignCast(user_data));
+    if (button == 2) {
+        // Pan (Middle Mouse)
+        // Dragging mouse Right (positive offset_x) matches Panning the view LEFT (decreasing view_x)?
+        // If I grab paper and pull Right, I see what's on the Left.
+        // So view_x should DECREASE.
+        // Delta = current - prev.
+        // Wait, offset is cumulative usually?
+        // Let's use delta from prev_x.
 
-    // US-004: Paint on the GEGL buffer instead of Cairo surface directly
-    engine.paintStroke(prev_x, prev_y, current_x, current_y);
+        const dx = current_x - prev_x;
+        const dy = current_y - prev_y;
+
+        view_x -= dx;
+        view_y -= dy;
+
+        c.gtk_widget_queue_draw(widget);
+    } else if (button == 1) {
+        // Paint (Left Mouse)
+        // Transform screen coords to Canvas coords (Unscaled)
+        // CanvasX = (ScreenX + ViewX) / Scale ? NO.
+        // ViewX is in Scaled space?
+        // Logic from Zoom: View2 = ...
+        // If ViewX is top-left of Scaled Image visible.
+        // Screen Pixel(px) corresponds to ScaledPixel(ViewX + px).
+        // OriginalPixel = ScaledPixel / Scale.
+        // So CanvasX = (ViewX + ScreenX) / Scale.
+
+        const c_prev_x = (view_x + prev_x) / view_scale;
+        const c_prev_y = (view_y + prev_y) / view_scale;
+        const c_curr_x = (view_x + current_x) / view_scale;
+        const c_curr_y = (view_y + current_y) / view_scale;
+
+        engine.paintStroke(c_prev_x, c_prev_y, c_curr_x, c_curr_y);
+        c.gtk_widget_queue_draw(widget);
+    }
 
     prev_x = current_x;
     prev_y = current_y;
-
-    c.gtk_widget_queue_draw(widget);
 }
-
-// Keep these alive
-var brush_tool = Tool.brush;
-var eraser_tool = Tool.eraser;
 
 fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     _ = user_data;
@@ -249,10 +335,17 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
 
     // Gestures
     const drag = c.gtk_gesture_drag_new();
+    // Allow Middle Click (Button 2)
+    c.gtk_gesture_single_set_button(@ptrCast(drag), 0); // 0 = all buttons
     c.gtk_widget_add_controller(drawing_area, @ptrCast(drag));
 
     _ = c.g_signal_connect_data(drag, "drag-begin", @ptrCast(&drag_begin), null, null, 0);
     _ = c.g_signal_connect_data(drag, "drag-update", @ptrCast(&drag_update), drawing_area, null, 0);
+
+    // Scroll Gesture
+    const scroll = c.gtk_event_controller_scroll_new(c.GTK_EVENT_CONTROLLER_SCROLL_VERTICAL);
+    c.gtk_widget_add_controller(drawing_area, @ptrCast(scroll));
+    _ = c.g_signal_connect_data(scroll, "scroll", @ptrCast(&scroll_func), drawing_area, null, 0);
 
     // CSS Styling
     const css_provider = c.gtk_css_provider_new();
