@@ -21,7 +21,7 @@
 ### Alignment (GNOME HIG)
 
 - [x] Migrate to Libadwaita (AdwApplication) for modern styling <!-- id: 3 -->
-- [ ] Implement fully functional Header Bar (Hamburger Menu, Primary Actions)
+- [x] Implement fully functional Header Bar (Hamburger Menu, Primary Actions)
 - [ ] Implement Adaptive Layouts (Collapsible Sidebar/Flap)
 - [ ] Implement Unified Save/Export Flow
 

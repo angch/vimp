@@ -241,6 +241,34 @@ fn drag_update(
     prev_y = current_y;
 }
 
+fn new_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    std.debug.print("New activated\n", .{});
+}
+
+fn open_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    std.debug.print("Open activated\n", .{});
+}
+
+fn save_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    std.debug.print("Save activated\n", .{});
+}
+
+fn about_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    std.debug.print("Vimp Application\nVersion 0.1\n", .{});
+}
+
+fn quit_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const app: *c.GtkApplication = @ptrCast(@alignCast(user_data));
+    const windows = c.gtk_application_get_windows(app);
+    if (windows) |list| {
+        const window = list.*.data;
+        c.gtk_window_close(@ptrCast(@alignCast(window)));
+    }
+    // Alternatively: c.g_application_quit(@ptrCast(app));
+    // But closing the window is more "Adwaita" friendly if it manages the lifecycle.
+    c.g_application_quit(@ptrCast(app));
+}
+
 fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     _ = user_data;
 
@@ -262,11 +290,69 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     // For minimal migration, let's Stick to set_titlebar if valid, or just put AdwHeaderBar in top of box?
     // Modern Adwaita apps use AdwToolbarView. Let's try to be modern.
 
+    // Actions Setup
+    // Actions Setup
+    const add_action = struct {
+        fn func(application: *c.GtkApplication, name: [:0]const u8, callback: c.GCallback, data: ?*anyopaque) void {
+            const action = c.g_simple_action_new(name, null);
+            _ = c.g_signal_connect_data(action, "activate", callback, data, null, 0);
+            c.g_action_map_add_action(@ptrCast(application), @ptrCast(action));
+        }
+    }.func;
+
+    add_action(app, "new", @ptrCast(&new_activated), null);
+    add_action(app, "open", @ptrCast(&open_activated), null);
+    add_action(app, "save", @ptrCast(&save_activated), null);
+    add_action(app, "about", @ptrCast(&about_activated), null);
+    add_action(app, "quit", @ptrCast(&quit_activated), app);
+
+    // Keyboard Shortcuts
+    const set_accel = struct {
+        fn func(application: *c.GtkApplication, action: [:0]const u8, accel: [:0]const u8) void {
+            const accels = [_]?[*:0]const u8{ accel, null };
+            c.gtk_application_set_accels_for_action(application, action, @ptrCast(&accels));
+        }
+    }.func;
+    set_accel(app, "app.quit", "<Ctrl>q");
+    set_accel(app, "app.new", "<Ctrl>n");
+    set_accel(app, "app.open", "<Ctrl>o");
+    set_accel(app, "app.save", "<Ctrl>s");
+
     const toolbar_view = c.adw_toolbar_view_new();
     c.adw_application_window_set_content(@ptrCast(window), toolbar_view);
 
     const header_bar = c.adw_header_bar_new();
     c.adw_toolbar_view_add_top_bar(@ptrCast(toolbar_view), header_bar);
+
+    // Primary Actions (Start)
+    const new_btn = c.gtk_button_new_from_icon_name("document-new-symbolic");
+    c.gtk_actionable_set_action_name(@ptrCast(new_btn), "app.new");
+    c.gtk_widget_set_tooltip_text(new_btn, "New");
+    c.adw_header_bar_pack_start(@ptrCast(header_bar), new_btn);
+
+    const open_btn = c.gtk_button_new_from_icon_name("document-open-symbolic");
+    c.gtk_actionable_set_action_name(@ptrCast(open_btn), "app.open");
+    c.gtk_widget_set_tooltip_text(open_btn, "Open");
+    c.adw_header_bar_pack_start(@ptrCast(header_bar), open_btn);
+
+    const save_btn = c.gtk_button_new_from_icon_name("document-save-symbolic");
+    c.gtk_actionable_set_action_name(@ptrCast(save_btn), "app.save");
+    c.gtk_widget_set_tooltip_text(save_btn, "Save");
+    c.adw_header_bar_pack_start(@ptrCast(header_bar), save_btn);
+
+    // Hamburger Menu (End)
+    const menu = c.g_menu_new();
+    c.g_menu_append(menu, "About Vimp", "app.about");
+    c.g_menu_append(menu, "Quit", "app.quit");
+
+    const menu_btn = c.gtk_menu_button_new();
+    c.gtk_menu_button_set_icon_name(@ptrCast(menu_btn), "open-menu-symbolic");
+    c.gtk_menu_button_set_menu_model(@ptrCast(menu_btn), @ptrCast(@alignCast(menu)));
+    c.gtk_widget_set_tooltip_text(menu_btn, "Menu");
+
+    // AdwHeaderBar adds window controls by default at end.
+    // pack_end adds items before the window controls usually, or alongside them.
+    c.adw_header_bar_pack_end(@ptrCast(header_bar), menu_btn);
 
     // Main layout container (Horizontal Box)
     const main_box = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 0);
