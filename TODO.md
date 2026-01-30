@@ -40,6 +40,16 @@
 
 ## Planned Features
 
+### Undo/Redo System
+- [ ] Design Command Pattern and History Management in `src/engine.zig`
+- [ ] Implement `beginStroke` / `endStroke` transaction logic in `Engine` for grouping actions
+- [ ] Integrate `drag_begin` / `drag_end` in `src/main.zig` with Engine transactions
+- [ ] Implement `PaintCommand` (Snapshot strategy for undoing pixel changes)
+- [ ] Implement `BucketFillCommand`
+- [ ] Implement `LayerCommand`s (Add, Remove, Reorder, Visibility, Lock)
+- [ ] Implement `SelectionCommand`s
+- [ ] Add Undo/Redo actions (Ctrl+Z, Ctrl+Y) and UI buttons in `src/main.zig`
+
 ### Paint Tools
 - [x] Implement Pencil Tool (Hard edge painting)
 - [x] Implement Airbrush Tool (Variable pressure)
