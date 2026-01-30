@@ -249,8 +249,76 @@ fn open_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv
     std.debug.print("Open activated\n", .{});
 }
 
-fn save_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    std.debug.print("Save activated\n", .{});
+fn save_surface_to_file(s: *c.cairo_surface_t, filename: [*c]const u8) void {
+    const result = c.cairo_surface_write_to_png(s, filename);
+    if (result == c.CAIRO_STATUS_SUCCESS) {
+        std.debug.print("File saved to: {s}\n", .{filename});
+    } else {
+        std.debug.print("Error saving file: {d}\n", .{result});
+    }
+}
+
+fn save_file(filename: [*c]const u8) void {
+    if (surface) |s| {
+        save_surface_to_file(s, filename);
+    } else {
+        std.debug.print("No surface to save.\n", .{});
+    }
+}
+
+fn save_finish(source_object: ?*c.GObject, res: ?*c.GAsyncResult, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    _ = user_data;
+    var err: ?*c.GError = null;
+    const file = c.gtk_file_dialog_save_finish(@ptrCast(source_object), res, &err);
+    if (file) |f| {
+        const path = c.g_file_get_path(f);
+        if (path) |p| {
+            save_file(p);
+            c.g_free(p);
+        }
+        c.g_object_unref(f);
+    } else {
+        if (err) |e| {
+            std.debug.print("Error saving: {s}\n", .{e.*.message});
+            c.g_error_free(e);
+        }
+    }
+}
+
+fn save_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const window: *c.GtkWindow = @ptrCast(@alignCast(user_data));
+    const dialog = c.gtk_file_dialog_new();
+    c.gtk_file_dialog_set_title(dialog, "Save Canvas");
+    c.gtk_file_dialog_set_initial_name(dialog, "untitled.png");
+
+    // Optional: Set filters for PNG
+    const filters = c.g_list_store_new(c.gtk_file_filter_get_type());
+    const filter_png = c.gtk_file_filter_new();
+    c.gtk_file_filter_set_name(filter_png, "PNG Image");
+    c.gtk_file_filter_add_pattern(filter_png, "*.png");
+    c.g_list_store_append(filters, filter_png); // Transfer ownership? ListStore holds ref.
+    c.g_object_unref(filter_png);
+
+    // GtkFileDialog takes ownership of filters? No, it uses the model.
+    // gtk_file_dialog_set_filters (GtkFileDialog *self, GListModel *filters)
+    c.gtk_file_dialog_set_filters(dialog, @ptrCast(filters));
+    c.g_object_unref(filters);
+
+    c.gtk_file_dialog_save(dialog, window, null, @ptrCast(&save_finish), null);
+    c.g_object_unref(dialog);
+}
+
+test "save surface" {
+    const s = c.cairo_image_surface_create(c.CAIRO_FORMAT_ARGB32, 10, 10);
+    defer c.cairo_surface_destroy(s);
+    save_surface_to_file(s, "test_save.png");
+    // Verify file exists
+    const file = std.fs.cwd().openFile("test_save.png", .{}) catch |err| {
+        std.debug.print("Failed to open test file: {}\n", .{err});
+        return err;
+    };
+    file.close();
+    std.fs.cwd().deleteFile("test_save.png") catch {};
 }
 
 fn about_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
@@ -297,7 +365,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
 
     add_action(app, "new", @ptrCast(&new_activated), null);
     add_action(app, "open", @ptrCast(&open_activated), null);
-    add_action(app, "save", @ptrCast(&save_activated), null);
+    add_action(app, "save", @ptrCast(&save_activated), window);
     add_action(app, "about", @ptrCast(&about_activated), null);
     add_action(app, "quit", @ptrCast(&quit_activated), app);
 
