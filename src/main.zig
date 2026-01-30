@@ -147,13 +147,35 @@ fn draw_func(
     _ = widget;
 
     if (surface == null) {
-        surface = c.cairo_image_surface_create(c.CAIRO_FORMAT_ARGB32, width, height);
+        if (width > 0 and height > 0) {
+            const s = c.cairo_image_surface_create(c.CAIRO_FORMAT_ARGB32, width, height);
+            if (c.cairo_surface_status(s) != c.CAIRO_STATUS_SUCCESS) {
+                std.debug.print("Failed to create surface: {}\n", .{c.cairo_surface_status(s)});
+                c.cairo_surface_destroy(s);
+                return;
+            }
+            surface = s;
+        } else {
+            return;
+        }
     }
 
     // US-003: Render from GEGL
     if (surface) |s| {
+        // Verify surface is still valid
+        if (c.cairo_surface_status(s) != c.CAIRO_STATUS_SUCCESS) {
+            c.cairo_surface_destroy(s);
+            surface = null;
+            return;
+        }
+
         c.cairo_surface_flush(s);
         const data = c.cairo_image_surface_get_data(s);
+        if (data == null) {
+            std.debug.print("Surface data is null\n", .{});
+            return;
+        }
+
         const stride = c.cairo_image_surface_get_stride(s);
         const s_width = c.cairo_image_surface_get_width(s);
         const s_height = c.cairo_image_surface_get_height(s);
@@ -394,7 +416,11 @@ fn save_surface_to_file(s: *c.cairo_surface_t, filename: [*c]const u8) void {
 
 fn save_file(filename: [*c]const u8) void {
     if (surface) |s| {
-        save_surface_to_file(s, filename);
+        if (c.cairo_surface_status(s) == c.CAIRO_STATUS_SUCCESS) {
+            save_surface_to_file(s, filename);
+        } else {
+            std.debug.print("Surface invalid, cannot save.\n", .{});
+        }
     } else {
         std.debug.print("No surface to save.\n", .{});
     }

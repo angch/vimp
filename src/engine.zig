@@ -780,3 +780,22 @@ test "Benchmark bucket fill" {
 
     std.debug.print("\nBenchmark bucket fill: {d} ms\n", .{@divFloor(duration, std.time.ns_per_ms)});
 }
+
+test "Cairo error surface check" {
+    // Attempt to create a surface with invalid dimensions (negative)
+    // Cairo 1.16+ handles -1, -1 as error.
+    const s = c.cairo_image_surface_create(c.CAIRO_FORMAT_ARGB32, -1, -1);
+    const status = c.cairo_surface_status(s);
+
+    // Expect failure
+    try std.testing.expect(status != c.CAIRO_STATUS_SUCCESS);
+
+    // Check data
+    const data = c.cairo_image_surface_get_data(s);
+    // data should be null for error surface in recent Cairo,
+    // or pointing to garbage but status is definitely error.
+    // Documentation says "If the surface is not an image surface... or if an error occurred... the return value is NULL."
+    try std.testing.expect(data == null);
+
+    c.cairo_surface_destroy(s);
+}
