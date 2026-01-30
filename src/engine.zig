@@ -17,8 +17,13 @@ pub const Engine = struct {
     brush_size: c_int = 3,
     mode: Mode = .paint,
 
+    // GEGL is not thread-safe for init/exit, and tests run in parallel.
+    // We must serialize access to the GEGL global state.
+    var gegl_mutex = std.Thread.Mutex{};
+
     pub fn init(self: *Engine) void {
         _ = self;
+        gegl_mutex.lock();
         // Accept null args for generic initialization
         c.gegl_init(null, null);
     }
@@ -31,6 +36,7 @@ pub const Engine = struct {
             c.g_object_unref(g);
         }
         c.gegl_exit();
+        gegl_mutex.unlock();
     }
 
     pub fn setupGraph(self: *Engine) void {

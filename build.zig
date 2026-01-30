@@ -76,6 +76,8 @@ pub fn build(b: *std.Build) void {
     // Libs
     unit_tests.addIncludePath(b.path("libs/usr/include/gegl-0.4"));
     unit_tests.addIncludePath(b.path("libs/usr/include/babl-0.1"));
+    unit_tests.addLibraryPath(b.path("libs/usr/lib/x86_64-linux-gnu"));
+    unit_tests.addRPath(b.path("libs/usr/lib/x86_64-linux-gnu"));
 
     const run_unit_tests = b.addRunArtifact(unit_tests);
     run_unit_tests.setEnvironmentVariable("GEGL_PATH", gegl_path);
@@ -99,11 +101,19 @@ pub fn build(b: *std.Build) void {
     engine_tests.addIncludePath(b.path("libs/usr/include/gegl-0.4"));
     engine_tests.addIncludePath(b.path("libs/usr/include/babl-0.1"));
     engine_tests.addLibraryPath(b.path("libs/usr/lib/x86_64-linux-gnu")); // Ensure we find vendored libs
+    engine_tests.addRPath(b.path("libs/usr/lib/x86_64-linux-gnu"));
 
     const run_engine_tests = b.addRunArtifact(engine_tests);
     run_engine_tests.setEnvironmentVariable("GEGL_PATH", gegl_path);
     run_engine_tests.setEnvironmentVariable("BABL_PATH", babl_path);
     run_engine_tests.setEnvironmentVariable("LD_LIBRARY_PATH", lib_path);
+    // Pass DISPLAY and HOME for GEGL/GTK
+    if (std.process.getEnvVarOwned(b.allocator, "DISPLAY")) |disp| {
+        run_engine_tests.setEnvironmentVariable("DISPLAY", disp);
+    } else |_| {}
+    if (std.process.getEnvVarOwned(b.allocator, "HOME")) |home| {
+        run_engine_tests.setEnvironmentVariable("HOME", home);
+    } else |_| {}
 
     test_step.dependOn(&run_engine_tests.step);
 }

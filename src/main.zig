@@ -13,6 +13,8 @@ var engine: Engine = .{};
 var surface: ?*c.cairo_surface_t = null;
 var prev_x: f64 = 0;
 var prev_y: f64 = 0;
+var mouse_x: f64 = 0;
+var mouse_y: f64 = 0;
 var current_tool: Tool = .brush;
 
 pub fn main() !void {
@@ -129,50 +131,53 @@ fn draw_func(
     }
 }
 
+fn motion_func(
+    controller: *c.GtkEventControllerMotion,
+    x: f64,
+    y: f64,
+    user_data: ?*anyopaque,
+) callconv(std.builtin.CallingConvention.c) void {
+    _ = controller;
+    _ = user_data;
+    mouse_x = x;
+    mouse_y = y;
+}
+
 fn scroll_func(
     controller: *c.GtkEventControllerScroll,
     dx: f64,
     dy: f64,
     user_data: ?*anyopaque,
 ) callconv(std.builtin.CallingConvention.c) c.gboolean {
-    _ = dx;
-    _ = controller;
     const widget: *c.GtkWidget = @ptrCast(@alignCast(user_data));
 
-    // Get cursor position relative to widget
-    // We strictly need the widget to be the event target
-    // We can get current pointer position from the controller?
-    // Not directly easily in GTK4 without GdkDevice.
-    // For now, simpler: Zoom to center of view?
-    // Or try to get location?
-    // GtkEventControllerScroll doesn't pass x/y.
-    // But GtkEventController has getCurrentEvent -> getCoords?
-    // Let's rely on global simpler zoom first (center of screen) or hack it.
-    // Wait, GtkEventControllerScroll has flags?
+    // Check modifiers (Ctrl for Zoom)
+    const state = c.gtk_event_controller_get_current_event_state(@ptrCast(controller));
+    const is_ctrl = (state & c.GDK_CONTROL_MASK) != 0;
 
-    // Let's use simplified zoom to start: Center of Viewport.
-    const width = c.gtk_widget_get_width(widget);
-    const height = c.gtk_widget_get_height(widget);
-    const center_x = @as(f64, @floatFromInt(width)) / 2.0;
-    const center_y = @as(f64, @floatFromInt(height)) / 2.0;
+    if (is_ctrl) {
+        // Zoom at mouse cursor
+        // Zoom factor
+        const zoom_factor: f64 = if (dy > 0) 0.9 else 1.1; // Scroll down = Zoom out
 
-    // Zoom factor
-    const zoom_factor: f64 = if (dy > 0) 0.9 else 1.1; // Scroll down = Zoom out? verify direction.
-    // Usually Scroll Down (positive dy) = Scroll content up / View down.
-    // In Zoom apps, usually Scroll Down = Zoom OUT. Scroll Up = Zoom IN.
-    // dy > 0 is scroll down. So 0.9 (smaller scale).
+        const new_scale = view_scale * zoom_factor;
+        // Limit scale
+        if (new_scale < 0.1 or new_scale > 20.0) return 0;
 
-    const new_scale = view_scale * zoom_factor;
-    // Limit scale
-    if (new_scale < 0.1 or new_scale > 20.0) return 0; // Propagate?
-
-    // Update view_x/y to pin the center
-    // View2 = (View1 + M) * (S2/S1) - M
-    // M = center
-
-    view_x = (view_x + center_x) * zoom_factor - center_x;
-    view_y = (view_y + center_y) * zoom_factor - center_y;
-    view_scale = new_scale;
+        // ViewX_new = (ViewX_old + MouseX) * Factor - MouseX
+        view_x = (view_x + mouse_x) * zoom_factor - mouse_x;
+        view_y = (view_y + mouse_y) * zoom_factor - mouse_y;
+        view_scale = new_scale;
+    } else {
+        // Pan
+        // Scroll down (positive dy) -> Move View Down (increase ViewY) -> Content moves Up?
+        // Standard Web/Doc: Scroll Down -> Content moves Up.
+        // ViewY increases.
+        // Speed factor
+        const speed = 20.0;
+        view_x += dx * speed;
+        view_y += dy * speed;
+    }
 
     c.gtk_widget_queue_draw(widget);
 
@@ -342,8 +347,14 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     _ = c.g_signal_connect_data(drag, "drag-begin", @ptrCast(&drag_begin), null, null, 0);
     _ = c.g_signal_connect_data(drag, "drag-update", @ptrCast(&drag_update), drawing_area, null, 0);
 
+    // Motion Controller (for mouse tracking)
+    const motion = c.gtk_event_controller_motion_new();
+    c.gtk_widget_add_controller(drawing_area, @ptrCast(motion));
+    _ = c.g_signal_connect_data(motion, "motion", @ptrCast(&motion_func), null, null, 0);
+
     // Scroll Gesture
-    const scroll = c.gtk_event_controller_scroll_new(c.GTK_EVENT_CONTROLLER_SCROLL_VERTICAL);
+    const scroll_flags = c.GTK_EVENT_CONTROLLER_SCROLL_VERTICAL | c.GTK_EVENT_CONTROLLER_SCROLL_HORIZONTAL;
+    const scroll = c.gtk_event_controller_scroll_new(scroll_flags);
     c.gtk_widget_add_controller(drawing_area, @ptrCast(scroll));
     _ = c.g_signal_connect_data(scroll, "scroll", @ptrCast(&scroll_func), drawing_area, null, 0);
 
