@@ -22,7 +22,7 @@
 
 - [x] Migrate to Libadwaita (AdwApplication) for modern styling <!-- id: 3 -->
 - [x] Implement fully functional Header Bar (Hamburger Menu, Primary Actions)
-- [ ] Implement Adaptive Layouts (Collapsible Sidebar/Flap)
+- [x] Implement Adaptive Layouts (Collapsible Sidebar/Flap)
 - [ ] Implement Unified Save/Export Flow
 
 ## Higher priority

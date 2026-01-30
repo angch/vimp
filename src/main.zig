@@ -269,6 +269,15 @@ fn quit_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) 
     c.g_application_quit(@ptrCast(app));
 }
 
+fn sidebar_toggled(
+    _: *c.GtkButton,
+    user_data: ?*anyopaque,
+) callconv(std.builtin.CallingConvention.c) void {
+    const split_view: *c.AdwOverlaySplitView = @ptrCast(@alignCast(user_data));
+    const is_shown = c.adw_overlay_split_view_get_show_sidebar(split_view);
+    c.adw_overlay_split_view_set_show_sidebar(split_view, if (is_shown != 0) 0 else 1);
+}
+
 fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     _ = user_data;
 
@@ -277,20 +286,6 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.gtk_window_set_title(@ptrCast(window), "Vimp");
     c.gtk_window_set_default_size(@ptrCast(window), 800, 600);
 
-    // Adwaita style content: Toolbar View is common, but basic Box is fine inside Window content
-    // AdwApplicationWindow handles the header bar automatically if we don't set a custom one?
-    // Actually, AdwHeaderBar should be used.
-
-    // Create AdwHeaderBar
-    // We add it to the window content usually via AdwToolbarView but for now let's just use it as titlebar
-    // Note: AdwApplicationWindow doesn't have set_titlebar in the same way as GtkWindow for some things,
-    // but in GTK4 we set titlebar on the window.
-
-    // Adwaita recommendation: Use AdwToolbarView for modern layouts.
-    // For minimal migration, let's Stick to set_titlebar if valid, or just put AdwHeaderBar in top of box?
-    // Modern Adwaita apps use AdwToolbarView. Let's try to be modern.
-
-    // Actions Setup
     // Actions Setup
     const add_action = struct {
         fn func(application: *c.GtkApplication, name: [:0]const u8, callback: c.GCallback, data: ?*anyopaque) void {
@@ -321,8 +316,20 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     const toolbar_view = c.adw_toolbar_view_new();
     c.adw_application_window_set_content(@ptrCast(window), toolbar_view);
 
+    // AdwOverlaySplitView
+    const split_view = c.adw_overlay_split_view_new();
+    c.adw_toolbar_view_set_content(@ptrCast(toolbar_view), split_view);
+
     const header_bar = c.adw_header_bar_new();
     c.adw_toolbar_view_add_top_bar(@ptrCast(toolbar_view), header_bar);
+
+    // Sidebar Toggle Button
+    const sidebar_btn = c.gtk_button_new_from_icon_name("sidebar-show-symbolic");
+    c.gtk_widget_set_tooltip_text(sidebar_btn, "Toggle Sidebar");
+    c.adw_header_bar_pack_start(@ptrCast(header_bar), sidebar_btn);
+    _ = c.g_signal_connect_data(sidebar_btn, "clicked", @ptrCast(&sidebar_toggled), split_view, null, 0);
+    // Only show button when collapsed
+    _ = c.g_object_bind_property(@ptrCast(split_view), "collapsed", @ptrCast(sidebar_btn), "visible", c.G_BINDING_SYNC_CREATE);
 
     // Primary Actions (Start)
     const new_btn = c.gtk_button_new_from_icon_name("document-new-symbolic");
@@ -350,19 +357,15 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.gtk_menu_button_set_menu_model(@ptrCast(menu_btn), @ptrCast(@alignCast(menu)));
     c.gtk_widget_set_tooltip_text(menu_btn, "Menu");
 
-    // AdwHeaderBar adds window controls by default at end.
-    // pack_end adds items before the window controls usually, or alongside them.
     c.adw_header_bar_pack_end(@ptrCast(header_bar), menu_btn);
 
-    // Main layout container (Horizontal Box)
-    const main_box = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 0);
-    c.adw_toolbar_view_set_content(@ptrCast(toolbar_view), main_box);
-
-    // Sidebar (Left)
+    // Sidebar (Left / Sidebar Pane)
     const sidebar = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 10);
     c.gtk_widget_set_size_request(sidebar, 200, -1);
     c.gtk_widget_add_css_class(sidebar, "sidebar");
-    c.gtk_box_append(@ptrCast(main_box), sidebar);
+
+    // Set as sidebar in split view
+    c.adw_overlay_split_view_set_sidebar(@ptrCast(split_view), sidebar);
 
     // Tools Header
     const tools_label = c.gtk_label_new("Tools");
@@ -413,11 +416,13 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.gtk_box_append(@ptrCast(sidebar), size_slider);
     _ = c.g_signal_connect_data(size_slider, "value-changed", @ptrCast(&brush_size_changed), null, null, 0);
 
-    // Main Content (Right)
+    // Main Content (Right / Content Pane)
     const content = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 0);
     c.gtk_widget_set_hexpand(content, 1);
     c.gtk_widget_add_css_class(content, "content");
-    c.gtk_box_append(@ptrCast(main_box), content);
+
+    // Set as content in split view
+    c.adw_overlay_split_view_set_content(@ptrCast(split_view), content);
 
     // Drawing Area
     const drawing_area = c.gtk_drawing_area_new();
