@@ -35,6 +35,7 @@ Goal: Upgrade GIMP concepts to a modern stack (Zig, GTK4, GEGL/Babl).
 ## Coding Conventions
 
 ### Zig & C Interop
+- **Safety**: Always validate C pointers and return codes. Use `std.debug.print` for errors in GUI context if throwing is not an option.
 - Use `@cImport` definitions from `src/c.zig`.
 - **Memory Management**: GTK/GEGL objects are reference-counted.
   - Use `c.g_object_unref(obj)` when you own a reference and are done with it.
@@ -71,6 +72,12 @@ term planning.
 
 ## Engineering Notes
 
+### 2026-02-05: Security Hardening (Cairo/GEGL)
+- Identified and fixed critical vulnerability where `cairo_image_surface_create` failure could lead to NULL pointer dereference.
+- Enforced validation of Cairo surface status and data pointers before usage in `draw_func` and `save_file`.
+- Added unit test "Cairo error surface check" in `src/engine.zig` to prevent regression.
+- **Rule**: Always check `c.cairo_surface_status(s) == c.CAIRO_STATUS_SUCCESS` and `c.cairo_image_surface_get_data(s) != null` when working with Cairo surfaces, especially before passing data to C libraries like GEGL.
+
 ### 2026-01-30: Bucket Fill Optimization
 - Implemented dirty rectangle tracking for `bucketFill` in `src/engine.zig`.
 - Reduced memory bandwidth usage by only writing back changed pixels to GEGL.
@@ -89,3 +96,12 @@ term planning.
 - Updated `paintStroke` and `bucketFill` to use this helper.
 - UI: Added Ellipse tool button and Cairo rendering for elliptical selection (using `cairo_scale` and `cairo_arc`).
 - Verified with unit tests for edge/corner cases of ellipse clipping.
+
+### 2026-01-30: Layer Management
+- Refactored `Engine` to support multiple layers using `std.ArrayList(Layer)`.
+- Replaced static GEGL graph with dynamic `rebuildGraph` which chains `gegl:over` nodes for visible layers.
+- Implemented `addLayer`, `removeLayer`, `reorderLayer`, `toggleLayerVisibility`, `toggleLayerLock`.
+- Updated UI to include a Layers panel with controls and visibility/lock toggles.
+- Gotcha: `std.ArrayList` in Zig 0.15+ behaves like `Unmanaged` (requires allocator for `append`/`deinit` and init via struct literal `{}`).
+- Gotcha: `c.gegl_node_new_child` returns optional pointer, must be handled.
+- Gotcha: When removing layers, old `gegl:over` nodes in the composition chain must be cleaned up (currently removed from graph).
