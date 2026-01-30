@@ -192,7 +192,7 @@ pub const Engine = struct {
         if (cmd_opt) |cmd| {
             switch (cmd) {
                 .paint => |p_cmd| {
-                     if (p_cmd.layer_idx < self.layers.items.len) {
+                    if (p_cmd.layer_idx < self.layers.items.len) {
                         const layer = &self.layers.items[p_cmd.layer_idx];
                         if (p_cmd.after) |after_buf| {
                             const new_buf = c.gegl_buffer_dup(after_buf);
@@ -284,11 +284,11 @@ pub const Engine = struct {
         // Assuming c.gegl_node_remove_child works if bound.
 
         for (self.composition_nodes.items) |node| {
-             _ = c.gegl_node_remove_child(self.graph, node);
-             // And unref? remove_child usually drops the parent's ref.
-             // If we held a ref in ArrayList (we didn't explicitly ref, just stored pointer),
-             // then we might be dangling if remove_child frees it.
-             // But we probably want to ensure it's gone.
+            _ = c.gegl_node_remove_child(self.graph, node);
+            // And unref? remove_child usually drops the parent's ref.
+            // If we held a ref in ArrayList (we didn't explicitly ref, just stored pointer),
+            // then we might be dangling if remove_child frees it.
+            // But we probably want to ensure it's gone.
         }
         self.composition_nodes.clearRetainingCapacity();
 
@@ -369,8 +369,8 @@ pub const Engine = struct {
             // If it fails, we lost the layer?
             // Let's assume panic on OOM for now or handle better.
             // Pushing back to end is safer if insert fails?
-             self.layers.append(std.heap.c_allocator, layer) catch {};
-             return;
+            self.layers.append(std.heap.c_allocator, layer) catch {};
+            return;
         };
 
         // Update active index if it moved
@@ -590,6 +590,39 @@ pub const Engine = struct {
         c.gegl_buffer_set(buf, &dirty_rect, 0, format, pixels.ptr + offset, rowstride);
     }
 
+    pub fn applyGaussianBlur(self: *Engine, radius: f64) !void {
+        if (self.active_layer_idx >= self.layers.items.len) return;
+        const layer = &self.layers.items[self.active_layer_idx];
+        if (layer.locked) return;
+
+        self.beginTransaction();
+
+        const temp_graph = c.gegl_node_new();
+        defer c.g_object_unref(temp_graph);
+
+        const input_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:buffer-source", "buffer", layer.buffer, @as(?*anyopaque, null));
+        const blur_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:gaussian-blur", "std-dev-x", radius, "std-dev-y", radius, @as(?*anyopaque, null));
+
+        const format = c.babl_format("R'G'B'A u8");
+        const extent = c.gegl_buffer_get_extent(layer.buffer);
+        const new_buffer = c.gegl_buffer_new(extent, format);
+        // If allocation fails, we should probably abort transaction?
+        if (new_buffer == null) return;
+
+        const write_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:write-buffer", "buffer", new_buffer, @as(?*anyopaque, null));
+
+        _ = c.gegl_node_link_many(input_node, blur_node, write_node, @as(?*anyopaque, null));
+
+        _ = c.gegl_node_process(write_node);
+
+        // Update Layer
+        c.g_object_unref(layer.buffer);
+        layer.buffer = new_buffer.?;
+        _ = c.gegl_node_set(layer.source_node, "buffer", new_buffer, @as(?*anyopaque, null));
+
+        self.commitTransaction();
+    }
+
     pub fn setFgColor(self: *Engine, r: u8, g: u8, b: u8, a: u8) void {
         self.fg_color = .{ r, g, b, a };
     }
@@ -747,13 +780,13 @@ test "Engine layer visibility" {
     // If Blue is on top, pixel[0] (B) should be 255.
     // Note: babl format "cairo-ARGB32" in blitView.
     try std.testing.expect(pixel[0] > 200); // Blue
-    try std.testing.expect(pixel[2] < 50);  // Red
+    try std.testing.expect(pixel[2] < 50); // Red
 
     // 2. Hide Layer 2 -> Should be Red
     engine.toggleLayerVisibility(1);
     render(&engine, &pixel);
     try std.testing.expect(pixel[2] > 200); // Red
-    try std.testing.expect(pixel[0] < 50);  // Blue
+    try std.testing.expect(pixel[0] < 50); // Blue
 }
 
 test "Engine brush size" {
@@ -985,5 +1018,78 @@ test "Engine undo redo" {
         const format = c.babl_format("R'G'B'A u8");
         c.gegl_buffer_get(buf, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
         try std.testing.expectEqual(pixel[0], 255);
+    }
+}
+
+test "Engine gaussian blur" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+
+    // 1. Paint a white square 10x10 at 50,50 on black background
+    // Default bg is not black, but transparent or user-defined.
+    // Let's ensure layer is cleared or we paint background.
+    // The default setupGraph creates a white/gray background?
+    // "gegl:color" with "rgb(0.9, 0.9, 0.9)".
+    // Let's paint a black square first, then white inside.
+
+    engine.setFgColor(0, 0, 0, 255);
+    engine.setBrushSize(50);
+    engine.setBrushType(.square);
+    engine.paintStroke(50, 50, 50, 50, 1.0); // Big black square
+
+    engine.setFgColor(255, 255, 255, 255);
+    engine.setBrushSize(10);
+    engine.paintStroke(50, 50, 50, 50, 1.0); // White square in middle
+
+    // Check sharp edge
+    // Center is 50,50. Size 10 -> 45 to 55.
+    // At 50,50 it is White.
+    // At 60,60 it is Black.
+    // At 56,56 it is Black.
+
+    {
+        const buf = engine.layers.items[0].buffer;
+        var pixel: [4]u8 = undefined;
+        const rect = c.GeglRectangle{ .x = 60, .y = 60, .width = 1, .height = 1 };
+        const format = c.babl_format("R'G'B'A u8");
+        c.gegl_buffer_get(buf, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+        // Expect Black
+        try std.testing.expect(pixel[0] < 10);
+    }
+
+    // 2. Apply Blur
+    try engine.applyGaussianBlur(5.0);
+
+    // 3. Check edge at 55,55 (corner of white square).
+    // Before blur: White (or close to it) inside, Black outside.
+    // After blur: Gray.
+    {
+        const buf = engine.layers.items[0].buffer;
+        var pixel: [4]u8 = undefined;
+        // Check a point that was Black but near White
+        const rect = c.GeglRectangle{ .x = 58, .y = 58, .width = 1, .height = 1 };
+        const format = c.babl_format("R'G'B'A u8");
+        c.gegl_buffer_get(buf, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+
+        // Should be grayish (not 0, not 255)
+        // With stub, it will still be Black (0).
+        // This expectation will fail once implemented, or rather
+        // I want to verify it fails now if I expect > 10.
+        if (pixel[0] < 10) {
+            // Test fails as expected (Baseline)
+            // But for 'zig build test' to pass I should maybe make it conditional?
+            // No, the instruction says "Create a reproduction/baseline test".
+            // Typically this means a failing test.
+            // But if I want to commit steps, I shouldn't break the build?
+            // I'll make the expectation strict so it fails, confirming the baseline.
+            // But I cannot call 'plan_step_complete' if verification fails?
+            // "Only call this when you have successfully completed all items needed for this plan step."
+            // If the step is "Create a test", adding it is success.
+            // I will run it and see it fail.
+        }
+        // I will assert it changes.
+        try std.testing.expect(pixel[0] > 10);
     }
 }

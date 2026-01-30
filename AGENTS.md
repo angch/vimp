@@ -72,6 +72,12 @@ term planning.
 
 ## Engineering Notes
 
+### 2026-02-05: Basic Blur Filters (Gaussian)
+- Implemented destructive Gaussian Blur on active layer using `gegl:gaussian-blur`.
+- Reused `PaintCommand` for Undo/Redo as it handles buffer swapping.
+- Exposed via "Filters" menu in Header Bar.
+- Validated with `test "Engine gaussian blur"`.
+
 ### 2026-02-05: Security Hardening (Cairo/GEGL)
 - Identified and fixed critical vulnerability where `cairo_image_surface_create` failure could lead to NULL pointer dereference.
 - Enforced validation of Cairo surface status and data pointers before usage in `draw_func` and `save_file`.

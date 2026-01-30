@@ -24,5 +24,10 @@
 - **Learnings for future iterations:**
   - `ref/gimp` headers expect GTK3; `vimp` uses GTK4. Direct inclusion fails without mocks.
   - Zig test files inside subdirectories (`src/gimp/test.zig`) treat that dir as root, breaking `../c.zig` imports. Use `src/test.zig` or explicit module configuration.
+
+## 2026-02-05 - Basic Filters
+- Implemented Gaussian Blur filter in `src/engine.zig`.
+- Added Filters menu in `src/main.zig`.
+- Added unit test for blur application.
 ---
 
