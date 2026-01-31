@@ -60,6 +60,8 @@ pub const Engine = struct {
     redo_stack: std.ArrayList(Command) = undefined,
     current_command: ?Command = null,
 
+    fill_buffer: std.ArrayList(u8) = undefined,
+
     canvas_width: c_int = 800,
     canvas_height: c_int = 600,
     fg_color: [4]u8 = .{ 0, 0, 0, 255 },
@@ -81,6 +83,7 @@ pub const Engine = struct {
         self.composition_nodes = std.ArrayList(*c.GeglNode){};
         self.undo_stack = std.ArrayList(Command){};
         self.redo_stack = std.ArrayList(Command){};
+        self.fill_buffer = std.ArrayList(u8){};
     }
 
     pub fn deinit(self: *Engine) void {
@@ -89,6 +92,8 @@ pub const Engine = struct {
         for (self.redo_stack.items) |*cmd| cmd.deinit();
         self.redo_stack.deinit(std.heap.c_allocator);
         if (self.current_command) |*cmd| cmd.deinit();
+
+        self.fill_buffer.deinit(std.heap.c_allocator);
 
         self.composition_nodes.deinit(std.heap.c_allocator);
         for (self.layers.items) |layer| {
@@ -513,8 +518,8 @@ pub const Engine = struct {
         // Allocation: 800 * 600 * 4 = 1.9 MB approx
         const allocator = std.heap.c_allocator; // Use C allocator for simplicity with large buffer
         const buffer_size = w * h * 4;
-        const pixels = try allocator.alloc(u8, buffer_size);
-        defer allocator.free(pixels);
+        try self.fill_buffer.resize(allocator, buffer_size);
+        const pixels = self.fill_buffer.items;
 
         const rect = c.GeglRectangle{ .x = 0, .y = 0, .width = self.canvas_width, .height = self.canvas_height };
         const format = c.babl_format("R'G'B'A u8");
