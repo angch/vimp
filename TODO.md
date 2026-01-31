@@ -26,6 +26,10 @@
 - [x] Implement Adaptive Layouts (Collapsible Sidebar/Flap)
 - [x] Implement Unified Save/Export Flow
 
+### Spec Integration
+
+- [ ] Read and generate TODOs from doc/gimp-file-open-spec.md
+
 ## Higher priority
 
 - [x] Ensure there is colored icons for all tools
