@@ -619,6 +619,13 @@ fn open_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) 
     c.gtk_file_filter_add_pattern(filter_imgs, "*.jpg");
     c.gtk_file_filter_add_pattern(filter_imgs, "*.jpeg");
     c.gtk_file_filter_add_pattern(filter_imgs, "*.webp");
+    c.gtk_file_filter_add_pattern(filter_imgs, "*.gif");
+    c.gtk_file_filter_add_pattern(filter_imgs, "*.tif");
+    c.gtk_file_filter_add_pattern(filter_imgs, "*.tiff");
+    c.gtk_file_filter_add_pattern(filter_imgs, "*.bmp");
+    c.gtk_file_filter_add_pattern(filter_imgs, "*.avif");
+    c.gtk_file_filter_add_pattern(filter_imgs, "*.ico");
+    c.gtk_file_filter_add_pattern(filter_imgs, "*.tga");
     c.gtk_file_filter_add_pattern(filter_imgs, "*.xcf"); // Just in case GEGL supports it
 
     c.g_list_store_append(filters, filter_imgs);
