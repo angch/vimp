@@ -24,6 +24,7 @@ var mouse_y: f64 = 0;
 var current_tool: Tool = .brush;
 
 var layers_list_box: ?*c.GtkWidget = null;
+var undo_list_box: ?*c.GtkWidget = null;
 var drawing_area: ?*c.GtkWidget = null;
 
 pub fn main() !void {
@@ -118,6 +119,27 @@ fn tool_toggled(
             .ellipse_select => {
                 engine.setSelectionMode(.ellipse);
             },
+        }
+    }
+}
+
+fn refresh_undo_ui() void {
+    if (undo_list_box) |box| {
+        // Clear children
+        var child = c.gtk_widget_get_first_child(@ptrCast(box));
+        while (child != null) {
+            const next = c.gtk_widget_get_next_sibling(child);
+            c.gtk_list_box_remove(@ptrCast(box), child);
+            child = next;
+        }
+
+        // Add undo commands
+        for (engine.undo_stack.items) |cmd| {
+            const desc = cmd.description();
+            const label = c.gtk_label_new(desc);
+            c.gtk_widget_set_halign(label, c.GTK_ALIGN_START);
+            c.gtk_widget_set_margin_start(label, 5);
+            c.gtk_list_box_insert(@ptrCast(box), label, -1);
         }
     }
 }
@@ -418,6 +440,7 @@ fn drag_end(
 
     // Commit transaction if any (e.g. from paint tools)
     engine.commitTransaction();
+    refresh_undo_ui();
 }
 
 fn new_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
@@ -523,11 +546,13 @@ fn quit_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) 
 fn undo_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     engine.undo();
     queue_draw();
+    refresh_undo_ui();
 }
 
 fn redo_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     engine.redo();
     queue_draw();
+    refresh_undo_ui();
 }
 
 fn blur_small_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
@@ -623,22 +648,26 @@ fn layer_visibility_toggled(_: *c.GtkCheckButton, user_data: ?*anyopaque) callco
     const idx = @intFromPtr(user_data);
     engine.toggleLayerVisibility(idx);
     queue_draw();
+    refresh_undo_ui();
 }
 
 fn layer_lock_toggled(_: *c.GtkCheckButton, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     const idx = @intFromPtr(user_data);
     engine.toggleLayerLock(idx);
+    refresh_undo_ui();
 }
 
 fn layer_add_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     engine.addLayer("New Layer") catch return;
     refresh_layers_ui();
+    refresh_undo_ui();
     queue_draw();
 }
 
 fn layer_remove_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     engine.removeLayer(engine.active_layer_idx);
     refresh_layers_ui();
+    refresh_undo_ui();
     queue_draw();
 }
 
@@ -647,6 +676,7 @@ fn layer_up_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.Callin
     if (idx + 1 < engine.layers.items.len) {
         engine.reorderLayer(idx, idx + 1);
         refresh_layers_ui();
+        refresh_undo_ui();
         queue_draw();
     }
 }
@@ -656,6 +686,7 @@ fn layer_down_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.Call
     if (idx > 0) {
         engine.reorderLayer(idx, idx - 1);
         refresh_layers_ui();
+        refresh_undo_ui();
         queue_draw();
     }
 }
@@ -907,6 +938,20 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.gtk_box_append(@ptrCast(layers_btns), down_layer_btn);
     _ = c.g_signal_connect_data(down_layer_btn, "clicked", @ptrCast(&layer_down_clicked), null, null, 0);
 
+    // Undo History Section
+    c.gtk_box_append(@ptrCast(sidebar), c.gtk_separator_new(c.GTK_ORIENTATION_HORIZONTAL));
+    c.gtk_box_append(@ptrCast(sidebar), c.gtk_label_new("Undo History"));
+
+    const undo_list = c.gtk_list_box_new();
+    c.gtk_list_box_set_selection_mode(@ptrCast(undo_list), c.GTK_SELECTION_NONE);
+
+    const undo_scrolled = c.gtk_scrolled_window_new();
+    c.gtk_scrolled_window_set_child(@ptrCast(undo_scrolled), undo_list);
+    c.gtk_widget_set_vexpand(undo_scrolled, 1);
+    c.gtk_box_append(@ptrCast(sidebar), undo_scrolled);
+
+    undo_list_box = undo_list;
+
     // Main Content (Right / Content Pane)
     const content = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 0);
     c.gtk_widget_set_hexpand(content, 1);
@@ -946,6 +991,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
 
     // Refresh Layers UI initially
     refresh_layers_ui();
+    refresh_undo_ui();
 
     // CSS Styling
     const css_provider = c.gtk_css_provider_new();
