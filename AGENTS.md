@@ -53,6 +53,10 @@ Goal: Upgrade GIMP concepts to a modern stack (Zig, GTK4, GEGL/Babl).
   - Be careful with signal callbacks; generally `user_data` can pass pointers to Zig structs.
 - **Signals**: Use `c.g_signal_connect_data` to connect signals to Zig functions. The callback must have `callconv(std.builtin.CallingConvention.c)` or `callconv(.c)`.
 
+### Naming
+- **Vimp vs GIMP**: We are making something that is feature compatible, we are not replacing GIMP. Avoid variables or references with "GIMP" in the codebase (e.g., use `VimpTool` instead of `GimpTool`).
+- **Bindings**: The directory `src/vimp/` contains structures that mirror GIMP's memory layout for verification, but they should be named `Vimp...`.
+
 ### Architecture
 - **GUI (src/main.zig)**: Handles windowing, inputs, and drawing the canvas (via Cairo).
 - **Engine (src/engine.zig)**: Handles the GEGL graph, buffers, and image operations.
