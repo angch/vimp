@@ -176,6 +176,7 @@ const OsdState = struct {
 };
 
 var osd_state: OsdState = .{};
+var canvas_dirty: bool = true;
 
 fn draw_func(
     widget: [*c]c.GtkDrawingArea,
@@ -187,6 +188,16 @@ fn draw_func(
     _ = user_data;
     _ = widget;
 
+    if (surface) |s| {
+        const s_width = c.cairo_image_surface_get_width(s);
+        const s_height = c.cairo_image_surface_get_height(s);
+        if (s_width != width or s_height != height) {
+            c.cairo_surface_destroy(s);
+            surface = null;
+            canvas_dirty = true;
+        }
+    }
+
     if (surface == null) {
         if (width > 0 and height > 0) {
             const s = c.cairo_image_surface_create(c.CAIRO_FORMAT_ARGB32, width, height);
@@ -196,6 +207,7 @@ fn draw_func(
                 return;
             }
             surface = s;
+            canvas_dirty = true;
         } else {
             return;
         }
@@ -210,7 +222,7 @@ fn draw_func(
             return;
         }
 
-        if (engine.layers.items.len > 0) {
+        if (engine.layers.items.len > 0 and canvas_dirty) {
             c.cairo_surface_flush(s);
             const data = c.cairo_image_surface_get_data(s);
             if (data == null) {
@@ -225,6 +237,7 @@ fn draw_func(
             engine.blitView(s_width, s_height, data, stride, view_scale, view_x, view_y);
 
             c.cairo_surface_mark_dirty(s);
+            canvas_dirty = false;
         }
     }
 
@@ -333,6 +346,7 @@ fn scroll_func(
         view_x = (view_x + mouse_x) * zoom_factor - mouse_x;
         view_y = (view_y + mouse_y) * zoom_factor - mouse_y;
         view_scale = new_scale;
+        canvas_dirty = true;
 
         var buf: [32]u8 = undefined;
         const pct: i32 = @intFromFloat(view_scale * 100.0);
@@ -347,6 +361,7 @@ fn scroll_func(
         const speed = 20.0;
         view_x += dx * speed;
         view_y += dy * speed;
+        canvas_dirty = true;
     }
 
     c.gtk_widget_queue_draw(widget);
@@ -384,6 +399,7 @@ fn drag_begin(
                     std.debug.print("Bucket fill failed: {}\n", .{err});
                 };
                 engine.commitTransaction();
+                canvas_dirty = true;
                 c.gtk_widget_queue_draw(widget);
             } else if (current_tool == .rect_select or current_tool == .ellipse_select) {
                 // Start selection - maybe clear existing?
@@ -426,6 +442,7 @@ fn drag_update(
 
         view_x -= dx;
         view_y -= dy;
+        canvas_dirty = true;
 
         c.gtk_widget_queue_draw(widget);
     } else if (button == 1) {
@@ -465,6 +482,7 @@ fn drag_update(
 
         // Default pressure 1.0 for now
         engine.paintStroke(c_prev_x, c_prev_y, c_curr_x, c_curr_y, 1.0);
+        canvas_dirty = true;
         c.gtk_widget_queue_draw(widget);
     }
 
@@ -495,6 +513,7 @@ fn new_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(
     };
     refresh_layers_ui();
     refresh_undo_ui();
+    canvas_dirty = true;
     queue_draw();
 }
 
@@ -596,12 +615,14 @@ fn quit_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) 
 
 fn undo_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     engine.undo();
+    canvas_dirty = true;
     queue_draw();
     refresh_undo_ui();
 }
 
 fn redo_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     engine.redo();
+    canvas_dirty = true;
     queue_draw();
     refresh_undo_ui();
 }
@@ -618,18 +639,21 @@ fn refresh_header_ui() void {
 fn blur_small_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     engine.setPreviewBlur(5.0);
     refresh_header_ui();
+    canvas_dirty = true;
     queue_draw();
 }
 
 fn blur_medium_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     engine.setPreviewBlur(10.0);
     refresh_header_ui();
+    canvas_dirty = true;
     queue_draw();
 }
 
 fn blur_large_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     engine.setPreviewBlur(20.0);
     refresh_header_ui();
+    canvas_dirty = true;
     queue_draw();
 }
 
@@ -638,6 +662,7 @@ fn apply_preview_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque)
         std.debug.print("Commit preview failed: {}\n", .{err});
     };
     refresh_header_ui();
+    canvas_dirty = true;
     queue_draw();
     refresh_undo_ui();
 }
@@ -645,6 +670,7 @@ fn apply_preview_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque)
 fn discard_preview_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     engine.cancelPreview();
     refresh_header_ui();
+    canvas_dirty = true;
     queue_draw();
 }
 
@@ -652,6 +678,7 @@ fn split_view_change_state(action: *c.GSimpleAction, value: *c.GVariant, _: ?*an
     const enabled = c.g_variant_get_boolean(value) != 0;
     engine.setSplitView(enabled);
     c.g_simple_action_set_state(action, value);
+    canvas_dirty = true;
     queue_draw();
 }
 
@@ -726,6 +753,7 @@ fn refresh_layers_ui() void {
 fn layer_visibility_toggled(_: *c.GtkCheckButton, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     const idx = @intFromPtr(user_data);
     engine.toggleLayerVisibility(idx);
+    canvas_dirty = true;
     queue_draw();
     refresh_undo_ui();
 }
@@ -740,6 +768,7 @@ fn layer_add_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.Calli
     engine.addLayer("New Layer") catch return;
     refresh_layers_ui();
     refresh_undo_ui();
+    canvas_dirty = true;
     queue_draw();
 }
 
@@ -747,6 +776,7 @@ fn layer_remove_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.Ca
     engine.removeLayer(engine.active_layer_idx);
     refresh_layers_ui();
     refresh_undo_ui();
+    canvas_dirty = true;
     queue_draw();
 }
 
@@ -756,6 +786,7 @@ fn layer_up_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.Callin
         engine.reorderLayer(idx, idx + 1);
         refresh_layers_ui();
         refresh_undo_ui();
+        canvas_dirty = true;
         queue_draw();
     }
 }
@@ -766,6 +797,7 @@ fn layer_down_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.Call
         engine.reorderLayer(idx, idx - 1);
         refresh_layers_ui();
         refresh_undo_ui();
+        canvas_dirty = true;
         queue_draw();
     }
 }

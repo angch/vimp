@@ -155,3 +155,9 @@ term planning.
 - Used `GtkRevealer` for fade-in/out animations.
 - Integrated OSD with Zoom (percentage feedback) and Tool Switching events.
 - **Pattern**: `GtkOverlay` + `GtkRevealer` is effective for non-blocking notifications in GTK4 apps.
+
+### 2026-01-31: Rendering Optimization & Resize Handling
+- Fixed an issue where the intermediate Cairo surface in `src/main.zig` was not resized when the window/widget size changed, leading to clipping or artifacts.
+- Implemented a `canvas_dirty` flag in `src/main.zig` to avoid expensive GEGL-to-Cairo blitting (`engine.blitView`) when the image content hasn't changed (e.g., during OSD animations or selection overlay repaints).
+- **Rule**: Always manage intermediate surface lifecycle (destroy/recreate) on resize in `draw_func`.
+- **Optimization**: Skip heavy composition steps if only overlay/vector elements need repainting.
