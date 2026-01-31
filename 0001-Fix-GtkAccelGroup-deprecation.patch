@@ -1,0 +1,221 @@
+diff --git a/app/dialogs/welcome-dialog.c b/app/dialogs/welcome-dialog.c
+index 43db197..46754e8 100644
+--- a/app/dialogs/welcome-dialog.c
++++ b/app/dialogs/welcome-dialog.c
+@@ -114,21 +114,15 @@ static void   welcome_open_activated_callback        (GtkListBox     *listbox,
+                                                       GtkWidget      *welcome_dialog);
+ static void   welcome_open_images_callback           (GtkWidget      *button,
+                                                       GtkListBox     *listbox);
+-static void   welcome_dialog_new_image_accelerator   (GtkAccelGroup  *accel_group,
+-                                                      GObject        *accelerator_widget,
+-                                                      guint           keyval,
+-                                                      GdkModifierType mods,
++static gboolean welcome_dialog_new_image_shortcut    (GtkWidget      *widget,
++                                                      GVariant       *args,
+                                                       gpointer        user_data);
+-static void   welcome_dialog_open_image_dialog_accelerator
+-                                                     (GtkAccelGroup  *accel_group,
+-                                                      GObject        *accelerator_widget,
+-                                                      guint           keyval,
+-                                                      GdkModifierType mods,
++static gboolean welcome_dialog_open_image_dialog_shortcut
++                                                     (GtkWidget      *widget,
++                                                      GVariant       *args,
+                                                       gpointer        user_data);
+-static void   welcome_dialog_open_image_accelerator  (GtkAccelGroup  *accel_group,
+-                                                      GObject        *accelerator_widget,
+-                                                      guint           keyval,
+-                                                      GdkModifierType mods,
++static gboolean welcome_dialog_open_image_shortcut   (GtkWidget      *widget,
++                                                      GVariant       *args,
+                                                       gpointer        user_data);
+
+ static gboolean welcome_scrollable_resize            (gpointer        data);
+@@ -197,9 +191,6 @@ welcome_dialog_new (Gimp       *gimp,
+
+   gchar          *title;
+
+-  GtkAccelGroup  *accel_group;
+-  guint           accel_key;
+-  GdkModifierType accel_mods;
+   gchar         **accels;
+
+   /* Translators: the %s string will be the version, e.g. "3.0". */
+@@ -323,54 +314,62 @@ welcome_dialog_new (Gimp       *gimp,
+   /*************/
+   /* Shortcuts */
+   /*************/
+-  /* XXX: GtkAccelGroup will be deprecated in GTK4
+-   * See: https://docs.gtk.org/gtk4/migrating-3to4.html#use-the-new-apis-for-keyboard-shortcuts
+-   * This GtkAccelGroup must be converted to a GtkShortcutController
+-   */
+-  accel_group = gtk_accel_group_new ();
+-  gtk_window_add_accel_group (GTK_WINDOW (dialog), accel_group);
+-
+-  accels = gtk_application_get_accels_for_action (GTK_APPLICATION (gimp->app),
+-                                                  "app.image-new");
+-  if (accels && accels[0])
+-    {
+-      gtk_accelerator_parse (accels[0], &accel_key, &accel_mods);
+-      gtk_accel_group_connect (accel_group,
+-                              accel_key, accel_mods, 0,
+-                              g_cclosure_new (G_CALLBACK (welcome_dialog_new_image_accelerator),
+-                                              dialog, NULL));
+-      g_strfreev (accels);
+-    }
+-
+-  accels = gtk_application_get_accels_for_action (GTK_APPLICATION (gimp->app),
+-                                                  "app.file-open");
+-  if (accels && accels[0])
+-    {
+-      gtk_accelerator_parse (accels[0], &accel_key, &accel_mods);
+-      gtk_accel_group_connect (accel_group,
+-                              accel_key, accel_mods, 0,
+-                              g_cclosure_new (G_CALLBACK (welcome_dialog_open_image_dialog_accelerator),
+-                                              dialog, NULL));
+-      g_strfreev (accels);
+-    }
+-
+-  for (guint i = 0; i < 10; i++)
+-    {
+-      gchar accel_str[24];
+-
+-      g_snprintf (accel_str, sizeof (accel_str), "app.file-open-recent-%02u", i + 1);
+-      accels = gtk_application_get_accels_for_action (GTK_APPLICATION (gimp->app),
+-                                                      accel_str);
+-      if (accels && accels[0])
+-        {
+-          gtk_accelerator_parse (accels[0], &accel_key, &accel_mods);
+-          gtk_accel_group_connect (accel_group,
+-                                  accel_key, accel_mods, 0,
+-                                  g_cclosure_new (G_CALLBACK (welcome_dialog_open_image_accelerator),
+-                                                  GUINT_TO_POINTER (i), NULL));
+-          g_strfreev (accels);
+-        }
+-    }
++  {
++    GtkEventController *controller;
++
++    controller = gtk_shortcut_controller_new ();
++    gtk_shortcut_controller_set_scope (GTK_SHORTCUT_CONTROLLER (controller),
++                                       GTK_SHORTCUT_SCOPE_MANAGED);
++    gtk_widget_add_controller (dialog, controller);
++
++    accels = gtk_application_get_accels_for_action (GTK_APPLICATION (gimp->app),
++                                                    "app.image-new");
++    if (accels && accels[0])
++      {
++        GtkShortcutTrigger *trigger = gtk_shortcut_trigger_parse_string (accels[0]);
++        if (trigger)
++          {
++            GtkShortcutAction *action = gtk_callback_action_new (welcome_dialog_new_image_shortcut, NULL, NULL);
++            GtkShortcut *shortcut = gtk_shortcut_new (trigger, action);
++            gtk_shortcut_controller_add_shortcut (GTK_SHORTCUT_CONTROLLER (controller), shortcut);
++          }
++        g_strfreev (accels);
++      }
++
++    accels = gtk_application_get_accels_for_action (GTK_APPLICATION (gimp->app),
++                                                    "app.file-open");
++    if (accels && accels[0])
++      {
++        GtkShortcutTrigger *trigger = gtk_shortcut_trigger_parse_string (accels[0]);
++        if (trigger)
++          {
++            GtkShortcutAction *action = gtk_callback_action_new (welcome_dialog_open_image_dialog_shortcut, NULL, NULL);
++            GtkShortcut *shortcut = gtk_shortcut_new (trigger, action);
++            gtk_shortcut_controller_add_shortcut (GTK_SHORTCUT_CONTROLLER (controller), shortcut);
++          }
++        g_strfreev (accels);
++      }
++
++    for (guint i = 0; i < 10; i++)
++      {
++        gchar accel_str[24];
++
++        g_snprintf (accel_str, sizeof (accel_str), "app.file-open-recent-%02u", i + 1);
++        accels = gtk_application_get_accels_for_action (GTK_APPLICATION (gimp->app),
++                                                        accel_str);
++        if (accels && accels[0])
++          {
++            GtkShortcutTrigger *trigger = gtk_shortcut_trigger_parse_string (accels[0]);
++            if (trigger)
++              {
++                GtkShortcutAction *action = gtk_callback_action_new (welcome_dialog_open_image_shortcut, GUINT_TO_POINTER (i), NULL);
++                GtkShortcut *shortcut = gtk_shortcut_new (trigger, action);
++                gtk_shortcut_controller_add_shortcut (GTK_SHORTCUT_CONTROLLER (controller), shortcut);
++              }
++            g_strfreev (accels);
++          }
++      }
++  }
+
+   return dialog;
+ }
+@@ -1526,38 +1525,36 @@ welcome_scrollable_resize (gpointer data)
+   return G_SOURCE_REMOVE;
+ }
+
+-static void
+-welcome_dialog_new_image_accelerator (GtkAccelGroup  *accel_group,
+-                                      GObject        *accelerator_widget,
+-                                      guint           keyval,
+-                                      GdkModifierType mods,
+-                                      gpointer        user_data)
++static gboolean
++welcome_dialog_new_image_shortcut (GtkWidget *widget,
++                                   GVariant  *args,
++                                   gpointer   user_data)
+ {
+-  GtkWidget *dialog = GTK_WIDGET (user_data);
++  GtkWidget *dialog = widget;
+
+   welcome_dialog_new_image_dialog (NULL, dialog);
++
++  return TRUE;
+ }
+
+-static void
+-welcome_dialog_open_image_dialog_accelerator (GtkAccelGroup  *accel_group,
+-                                              GObject        *accelerator_widget,
+-                                              guint           keyval,
+-                                              GdkModifierType mods,
+-                                              gpointer        user_data)
++static gboolean
++welcome_dialog_open_image_dialog_shortcut (GtkWidget *widget,
++                                           GVariant  *args,
++                                           gpointer   user_data)
+ {
+-  GtkWidget *dialog = GTK_WIDGET (user_data);
++  GtkWidget *dialog = widget;
+
+   welcome_dialog_open_image_dialog (NULL, dialog);
++
++  return TRUE;
+ }
+
+-static void
+-welcome_dialog_open_image_accelerator (GtkAccelGroup  *accel_group,
+-                                       GObject        *accelerator_widget,
+-                                       guint           keyval,
+-                                       GdkModifierType mods,
+-                                       gpointer        user_data)
++static gboolean
++welcome_dialog_open_image_shortcut (GtkWidget *widget,
++                                    GVariant  *args,
++                                    gpointer   user_data)
+ {
+-  Gimp          *gimp    = g_object_get_data (G_OBJECT (welcome_dialog), "gimp");
++  Gimp          *gimp    = g_object_get_data (G_OBJECT (widget), "gimp");
+   GimpUIManager *manager = menus_get_image_manager_singleton (gimp);
+   guint          index   = GPOINTER_TO_UINT (user_data);
+   gchar          action_name[20];
+@@ -1565,5 +1562,7 @@ welcome_dialog_open_image_accelerator (GtkAccelGroup  *accel_group,
+   g_snprintf (action_name, sizeof (action_name), "file-open-recent-%02u", index + 1);
+
+   if (gimp_ui_manager_activate_action (manager, "file", action_name))
+-    gtk_widget_destroy (welcome_dialog);
++    gtk_widget_destroy (widget);
++
++  return TRUE;
+ }
