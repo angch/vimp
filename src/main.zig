@@ -40,6 +40,7 @@ var transform_y_spin: ?*c.GtkWidget = null;
 var transform_r_scale: ?*c.GtkWidget = null;
 var transform_s_scale: ?*c.GtkWidget = null;
 var main_stack: ?*c.GtkWidget = null;
+var toast_overlay: ?*c.AdwToastOverlay = null;
 
 pub fn main() !void {
     engine.init();
@@ -110,7 +111,7 @@ fn transform_param_changed(_: *c.GtkWidget, _: ?*anyopaque) callconv(std.builtin
 
 fn transform_apply_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     engine.applyTransform() catch |err| {
-        std.debug.print("Apply transform failed: {}\n", .{err});
+        show_toast("Apply transform failed: {}", .{err});
     };
     // Reset UI
     if (transform_x_spin) |w| c.gtk_spin_button_set_value(@ptrCast(w), 0.0);
@@ -189,6 +190,16 @@ fn tool_toggled(
                 osd_show("Unified Transform");
             },
         }
+    }
+}
+
+fn show_toast(comptime fmt: []const u8, args: anytype) void {
+    if (toast_overlay) |overlay| {
+        const msg_z = std.fmt.allocPrintSentinel(std.heap.c_allocator, fmt, args, 0) catch return;
+        defer std.heap.c_allocator.free(msg_z);
+
+        const toast = c.adw_toast_new(msg_z.ptr);
+        c.adw_toast_overlay_add_toast(overlay, toast);
     }
 }
 
@@ -465,7 +476,7 @@ fn drag_begin(
                 const c_x = (view_x + x) / view_scale;
                 const c_y = (view_y + y) / view_scale;
                 engine.bucketFill(c_x, c_y) catch |err| {
-                    std.debug.print("Bucket fill failed: {}\n", .{err});
+                    show_toast("Bucket fill failed: {}", .{err});
                 };
                 engine.commitTransaction();
                 canvas_dirty = true;
@@ -577,7 +588,7 @@ fn drag_end(
 
 fn new_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     engine.addLayer("Background") catch |err| {
-        std.debug.print("Failed to add layer: {}\n", .{err});
+        show_toast("Failed to add layer: {}", .{err});
         return;
     };
     refresh_layers_ui();
@@ -600,7 +611,7 @@ fn openFileFromPath(path: [:0]const u8, as_layers: bool) void {
     var load_success = true;
     // Call engine load
     engine.loadFromFile(path) catch |e| {
-        std.debug.print("Failed to load file: {}\n", .{e});
+        show_toast("Failed to load file: {}", .{e});
         load_success = false;
     };
 
@@ -647,7 +658,7 @@ fn open_finish(source_object: ?*c.GObject, res: ?*c.GAsyncResult, user_data: ?*a
         c.g_object_unref(f);
     } else {
         if (err) |e| {
-            std.debug.print("Error opening: {s}\n", .{e.*.message});
+            show_toast("Error opening: {s}", .{e.*.message});
             c.g_error_free(e);
         }
     }
@@ -705,9 +716,9 @@ fn open_as_layers_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*a
 fn save_surface_to_file(s: *c.cairo_surface_t, filename: [*c]const u8) void {
     const result = c.cairo_surface_write_to_png(s, filename);
     if (result == c.CAIRO_STATUS_SUCCESS) {
-        std.debug.print("File saved to: {s}\n", .{filename});
+        show_toast("File saved to: {s}", .{filename});
     } else {
-        std.debug.print("Error saving file: {d}\n", .{result});
+        show_toast("Error saving file: {d}", .{result});
     }
 }
 
@@ -716,10 +727,10 @@ fn save_file(filename: [*c]const u8) void {
         if (c.cairo_surface_status(s) == c.CAIRO_STATUS_SUCCESS) {
             save_surface_to_file(s, filename);
         } else {
-            std.debug.print("Surface invalid, cannot save.\n", .{});
+            show_toast("Surface invalid, cannot save.", .{});
         }
     } else {
-        std.debug.print("No surface to save.\n", .{});
+        show_toast("No surface to save.", .{});
     }
 }
 
@@ -736,7 +747,7 @@ fn save_finish(source_object: ?*c.GObject, res: ?*c.GAsyncResult, user_data: ?*a
         c.g_object_unref(f);
     } else {
         if (err) |e| {
-            std.debug.print("Error saving: {s}\n", .{e.*.message});
+            show_toast("Error saving: {s}", .{e.*.message});
             c.g_error_free(e);
         }
     }
@@ -876,7 +887,7 @@ fn blur_large_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) ca
 
 fn apply_preview_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     engine.commitPreview() catch |err| {
-        std.debug.print("Commit preview failed: {}\n", .{err});
+        show_toast("Commit preview failed: {}", .{err});
     };
     refresh_header_ui();
     canvas_dirty = true;
@@ -1139,7 +1150,6 @@ fn drop_func(
                 _ = c.g_signal_connect_data(dialog, "response", @ptrCast(&drop_response), ctx, null, 0);
 
                 c.gtk_window_present(@ptrCast(dialog));
-
             } else {
                 const as_layers = (engine.layers.items.len > 0);
                 openFileFromPath(span, as_layers);
@@ -1229,7 +1239,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     // Init recent manager
     recent_manager = RecentManager.init(std.heap.c_allocator);
     recent_manager.load() catch |err| {
-         std.debug.print("Failed to load recent files: {}\n", .{err});
+        std.debug.print("Failed to load recent files: {}\n", .{err});
     };
 
     // Use AdwApplicationWindow
@@ -1283,9 +1293,14 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     const toolbar_view = c.adw_toolbar_view_new();
     c.adw_application_window_set_content(@ptrCast(window), toolbar_view);
 
+    // AdwToastOverlay
+    const t_overlay = c.adw_toast_overlay_new();
+    toast_overlay = @ptrCast(t_overlay);
+    c.adw_toolbar_view_set_content(@ptrCast(toolbar_view), t_overlay);
+
     // AdwOverlaySplitView
     const split_view = c.adw_overlay_split_view_new();
-    c.adw_toolbar_view_set_content(@ptrCast(toolbar_view), split_view);
+    c.adw_toast_overlay_set_child(@ptrCast(t_overlay), split_view);
 
     const header_bar = c.adw_header_bar_new();
     c.adw_toolbar_view_add_top_bar(@ptrCast(toolbar_view), header_bar);
