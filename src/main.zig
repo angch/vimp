@@ -193,26 +193,47 @@ fn draw_func(
             return;
         }
 
-        c.cairo_surface_flush(s);
-        const data = c.cairo_image_surface_get_data(s);
-        if (data == null) {
-            std.debug.print("Surface data is null\n", .{});
-            return;
+        if (engine.layers.items.len > 0) {
+            c.cairo_surface_flush(s);
+            const data = c.cairo_image_surface_get_data(s);
+            if (data == null) {
+                std.debug.print("Surface data is null\n", .{});
+                return;
+            }
+
+            const stride = c.cairo_image_surface_get_stride(s);
+            const s_width = c.cairo_image_surface_get_width(s);
+            const s_height = c.cairo_image_surface_get_height(s);
+
+            engine.blitView(s_width, s_height, data, stride, view_scale, view_x, view_y);
+
+            c.cairo_surface_mark_dirty(s);
         }
-
-        const stride = c.cairo_image_surface_get_stride(s);
-        const s_width = c.cairo_image_surface_get_width(s);
-        const s_height = c.cairo_image_surface_get_height(s);
-
-        engine.blitView(s_width, s_height, data, stride, view_scale, view_x, view_y);
-
-        c.cairo_surface_mark_dirty(s);
     }
 
     if (surface) |s| {
         if (cr) |cr_ctx| {
-            c.cairo_set_source_surface(cr_ctx, s, 0, 0);
-            c.cairo_paint(cr_ctx);
+            if (engine.layers.items.len > 0) {
+                c.cairo_set_source_surface(cr_ctx, s, 0, 0);
+                c.cairo_paint(cr_ctx);
+            } else {
+                // Empty State
+                c.cairo_set_source_rgb(cr_ctx, 0.15, 0.15, 0.15); // Dark Gray
+                c.cairo_paint(cr_ctx);
+
+                c.cairo_set_source_rgb(cr_ctx, 0.6, 0.6, 0.6); // Light Gray Text
+                c.cairo_select_font_face(cr_ctx, "Sans", c.CAIRO_FONT_SLANT_NORMAL, c.CAIRO_FONT_WEIGHT_BOLD);
+                c.cairo_set_font_size(cr_ctx, 20.0);
+
+                var extents: c.cairo_text_extents_t = undefined;
+                const msg = "No Active Image";
+                c.cairo_text_extents(cr_ctx, msg, &extents);
+                const x = (@as(f64, @floatFromInt(width)) / 2.0) - (extents.width / 2.0 + extents.x_bearing);
+                const y = (@as(f64, @floatFromInt(height)) / 2.0) - (extents.height / 2.0 + extents.y_bearing);
+
+                c.cairo_move_to(cr_ctx, x, y);
+                c.cairo_show_text(cr_ctx, msg);
+            }
 
             // Draw Selection Overlay
             if (engine.selection) |sel| {
@@ -446,7 +467,13 @@ fn drag_end(
 }
 
 fn new_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    std.debug.print("New activated\n", .{});
+    engine.addLayer("Background") catch |err| {
+        std.debug.print("Failed to add layer: {}\n", .{err});
+        return;
+    };
+    refresh_layers_ui();
+    refresh_undo_ui();
+    queue_draw();
 }
 
 fn open_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {

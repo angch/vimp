@@ -70,7 +70,7 @@
 - [x] Implement On-Canvas Preview ("Split View")
 
 ### UI Improvements
-- [ ] Implement Empty State for Canvas
+- [x] Implement Empty State for Canvas
 - [ ] Implement Overlay Feedback (OSD)
 - [x] Implement Undo History Panel
 

@@ -403,11 +403,6 @@ pub const Engine = struct {
         _ = c.gegl_node_link_many(bg_node, bg_crop, @as(?*anyopaque, null));
 
         self.base_node = bg_crop;
-
-        // Add initial layer
-        self.addLayer("Background") catch |err| {
-            std.debug.print("Failed to add initial layer: {}\n", .{err});
-        };
     }
 
     pub fn rebuildGraph(self: *Engine) void {
@@ -955,6 +950,7 @@ test "Engine paint color" {
     engine.init();
     defer engine.deinit();
     engine.setupGraph();
+    try engine.addLayer("Background");
 
     // Set color to RED
     engine.setFgColor(255, 0, 0, 255);
@@ -984,6 +980,7 @@ test "Engine multiple layers" {
     engine.init();
     defer engine.deinit();
     engine.setupGraph();
+    try engine.addLayer("Background");
 
     // Layer 1 (Background) is index 0.
     // Add Layer 2.
@@ -1031,6 +1028,7 @@ test "Engine layer visibility" {
     engine.init();
     defer engine.deinit();
     engine.setupGraph();
+    try engine.addLayer("Background");
 
     // Layer 1: Red at 100,100
     engine.setActiveLayer(0);
@@ -1077,6 +1075,7 @@ test "Engine brush size" {
     engine.init();
     defer engine.deinit();
     engine.setupGraph();
+    try engine.addLayer("Background");
     engine.setFgColor(255, 255, 255, 255); // White for visibility
 
     // 1. Large Brush (Size 5)
@@ -1100,6 +1099,7 @@ test "Engine eraser" {
     engine.init();
     defer engine.deinit();
     engine.setupGraph();
+    try engine.addLayer("Background");
     engine.setFgColor(255, 0, 0, 255); // Red
 
     // 1. Paint Red at 50,50
@@ -1132,6 +1132,7 @@ test "Engine bucket fill" {
     engine.init();
     defer engine.deinit();
     engine.setupGraph();
+    try engine.addLayer("Background");
     engine.setFgColor(255, 0, 0, 255); // Red
 
     // 1. Paint a closed box
@@ -1163,6 +1164,7 @@ test "Engine brush shapes" {
     engine.init();
     defer engine.deinit();
     engine.setupGraph();
+    try engine.addLayer("Background");
     engine.setFgColor(255, 255, 255, 255);
 
     engine.setBrushSize(5);
@@ -1194,6 +1196,7 @@ test "Engine selection clipping" {
     engine.init();
     defer engine.deinit();
     engine.setupGraph();
+    try engine.addLayer("Background");
     engine.setFgColor(255, 255, 255, 255);
 
     engine.setSelection(10, 10, 10, 10);
@@ -1221,6 +1224,7 @@ test "Benchmark bucket fill" {
     engine.init();
     defer engine.deinit();
     engine.setupGraph();
+    try engine.addLayer("Background");
 
     // 1. Measure Fill of empty 800x600 canvas (Worst Case BFS)
     // Target: Transparent (0,0,0,0)
@@ -1258,6 +1262,7 @@ test "Engine undo redo" {
     engine.init();
     defer engine.deinit();
     engine.setupGraph();
+    try engine.addLayer("Background");
 
     // Paint stroke
     engine.setFgColor(255, 0, 0, 255);
@@ -1309,6 +1314,7 @@ test "Engine gaussian blur" {
     engine.init();
     defer engine.deinit();
     engine.setupGraph();
+    try engine.addLayer("Background");
 
     // 1. Paint a white square 10x10 at 50,50 on black background
     // Default bg is not black, but transparent or user-defined.
@@ -1382,6 +1388,7 @@ test "Benchmark bucket fill ellipse" {
     engine.init();
     defer engine.deinit();
     engine.setupGraph();
+    try engine.addLayer("Background");
     engine.setFgColor(255, 0, 0, 255);
 
     // Set an ellipse selection covering most of the canvas
@@ -1402,6 +1409,7 @@ test "Engine layer undo redo" {
     engine.init();
     defer engine.deinit();
     engine.setupGraph();
+    try engine.addLayer("Background");
 
     // 0. Initial state: Background layer only
     try std.testing.expectEqual(engine.layers.items.len, 1);
@@ -1447,6 +1455,7 @@ test "Engine selection undo redo" {
     engine.init();
     defer engine.deinit();
     engine.setupGraph();
+    try engine.addLayer("Background");
 
     // 1. Initial State: No Selection
     try std.testing.expect(engine.selection == null);
@@ -1499,6 +1508,7 @@ test "Engine split view blur" {
     engine.init();
     defer engine.deinit();
     engine.setupGraph();
+    try engine.addLayer("Background");
 
     // Set Canvas Size (Standard is 800x600)
 
