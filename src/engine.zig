@@ -4,8 +4,7 @@ const c = @import("c.zig").c;
 pub const Engine = struct {
     pub const PdfImportParams = struct {
         ppi: f64,
-        page: i32,
-        all_pages: bool,
+        pages: []const i32,
     };
 
     pub const SvgImportParams = struct {
@@ -605,6 +604,76 @@ pub const Engine = struct {
         self.redo_stack.clearRetainingCapacity();
     }
 
+    pub fn getPdfPageCount(self: *Engine, path: []const u8) !i32 {
+        _ = self;
+        const temp_graph = c.gegl_node_new();
+        defer c.g_object_unref(temp_graph);
+
+        const path_z = try std.heap.c_allocator.dupeZ(u8, path);
+        defer std.heap.c_allocator.free(path_z);
+
+        const load_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:pdf-load",
+            "path", path_z.ptr,
+            @as(?*anyopaque, null));
+
+        if (load_node == null) return error.GeglLoadFailed;
+
+        var total_pages: c_int = 0;
+        c.gegl_node_get(load_node, "pages", &total_pages, @as(?*anyopaque, null));
+        return total_pages;
+    }
+
+    pub fn getPdfThumbnail(self: *Engine, path: []const u8, page: i32, size: c_int) !*c.GeglBuffer {
+        _ = self;
+        const temp_graph = c.gegl_node_new();
+        defer c.g_object_unref(temp_graph);
+
+        const path_z = try std.heap.c_allocator.dupeZ(u8, path);
+        defer std.heap.c_allocator.free(path_z);
+
+        // Load specific page
+        const load_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:pdf-load",
+            "path", path_z.ptr,
+            "page", @as(c_int, page),
+            @as(?*anyopaque, null));
+
+        if (load_node == null) return error.GeglLoadFailed;
+
+        // Scale
+        // First get bbox to calculate scale
+        const bbox = c.gegl_node_get_bounding_box(load_node);
+        if (bbox.width <= 0 or bbox.height <= 0) return error.InvalidImage;
+
+        const max_dim = @max(bbox.width, bbox.height);
+        const scale = @as(f64, @floatFromInt(size)) / @as(f64, @floatFromInt(max_dim));
+
+        const scale_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:scale-ratio",
+            "x", scale,
+            "y", scale,
+            "sampler", c.GEGL_SAMPLER_NEAREST, // Fast scaling for thumbnails
+            @as(?*anyopaque, null));
+
+        _ = c.gegl_node_connect(scale_node, "input", load_node, "output");
+
+        // Write to buffer
+        const bbox_scaled = c.gegl_node_get_bounding_box(scale_node);
+        const format = c.babl_format("R'G'B'A u8");
+        const new_buffer = c.gegl_buffer_new(&bbox_scaled, format);
+        if (new_buffer == null) return error.GeglBufferFailed;
+
+        const write_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:write-buffer", "buffer", new_buffer, @as(?*anyopaque, null));
+
+        if (write_node) |wn| {
+            _ = c.gegl_node_connect(wn, "input", scale_node, "output");
+            _ = c.gegl_node_process(wn);
+        } else {
+            c.g_object_unref(new_buffer);
+            return error.GeglGraphFailed;
+        }
+
+        return new_buffer.?;
+    }
+
     pub fn loadPdf(self: *Engine, path: []const u8, params: PdfImportParams) !void {
         const temp_graph = c.gegl_node_new();
         defer c.g_object_unref(temp_graph);
@@ -612,33 +681,17 @@ pub const Engine = struct {
         const path_z = try std.heap.c_allocator.dupeZ(u8, path);
         defer std.heap.c_allocator.free(path_z);
 
-        // Try gegl:pdf-load, fall back to gegl:load if not explicit but we prefer specific ops
         const load_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:pdf-load",
             "path", path_z.ptr,
             "ppi", @as(f64, params.ppi),
-            "page", @as(c_int, params.page),
             @as(?*anyopaque, null));
 
         if (load_node == null) return error.GeglLoadFailed;
 
-        var start_page: i32 = params.page;
-        var end_page: i32 = params.page;
-
-        if (params.all_pages) {
-            var total_pages: c_int = 0;
-            c.gegl_node_get(load_node, "pages", &total_pages, @as(?*anyopaque, null));
-            if (total_pages > 0) {
-                // PDF pages are usually 1-based in GEGL?
-                start_page = 1;
-                end_page = total_pages;
-            }
-        }
-
         const basename = std.fs.path.basename(path);
         var buf: [256]u8 = undefined;
 
-        var current_page = start_page;
-        while (current_page <= end_page) : (current_page += 1) {
+        for (params.pages) |current_page| {
             // Update page property
             c.gegl_node_set(load_node, "page", @as(c_int, current_page), @as(?*anyopaque, null));
 
@@ -2106,10 +2159,10 @@ test "Engine load Pdf" {
     defer std.fs.cwd().deleteFile(filename) catch {};
 
     // Load PDF
+    var pages = [_]i32{1};
     const params = Engine.PdfImportParams{
         .ppi = 72.0,
-        .page = 1,
-        .all_pages = false,
+        .pages = &pages,
     };
     try engine.loadPdf(filename, params);
 
@@ -2119,4 +2172,45 @@ test "Engine load Pdf" {
     // 100x100 at 72 PPI
     try std.testing.expectEqual(extent.*.width, 100);
     try std.testing.expectEqual(extent.*.height, 100);
+}
+
+test "Engine PDF utils" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+
+    // Create a temporary PDF file
+    const filename = "test_utils.pdf";
+    const pdf_content =
+        "%PDF-1.0\n" ++
+        "1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n" ++
+        "2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n" ++
+        "3 0 obj<</Type/Page/MediaBox[0 0 100 100]/Parent 2 0 R/Resources<<>>>>endobj\n" ++
+        "xref\n" ++
+        "0 4\n" ++
+        "0000000000 65535 f \n" ++
+        "0000000009 00000 n \n" ++
+        "0000000053 00000 n \n" ++
+        "0000000102 00000 n \n" ++
+        "trailer<</Size 4/Root 1 0 R>>\n" ++
+        "startxref\n" ++
+        "179\n" ++
+        "%%EOF\n";
+
+    try std.fs.cwd().writeFile(.{ .sub_path = filename, .data = pdf_content });
+    defer std.fs.cwd().deleteFile(filename) catch {};
+
+    // 1. Get Page Count
+    const count = try engine.getPdfPageCount(filename);
+    try std.testing.expectEqual(count, 1);
+
+    // 2. Get Thumbnail
+    // Page 1, Size 50
+    const buf = try engine.getPdfThumbnail(filename, 1, 50);
+    defer c.g_object_unref(buf);
+
+    const extent = c.gegl_buffer_get_extent(buf);
+    // Original 100x100. Target 50. Scale 0.5. Result 50x50.
+    try std.testing.expectEqual(extent.*.width, 50);
+    try std.testing.expectEqual(extent.*.height, 50);
 }
