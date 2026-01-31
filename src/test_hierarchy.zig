@@ -1,12 +1,12 @@
 const std = @import("std");
-const tool_mod = @import("gimp/tool.zig");
-const draw_tool_mod = @import("gimp/draw_tool.zig");
-const color_tool_mod = @import("gimp/color_tool.zig");
-const paint_tool_mod = @import("gimp/paint_tool.zig");
-const brush_tool_mod = @import("gimp/brush_tool.zig");
+const tool_mod = @import("vimp/tool.zig");
+const draw_tool_mod = @import("vimp/draw_tool.zig");
+const color_tool_mod = @import("vimp/color_tool.zig");
+const paint_tool_mod = @import("vimp/paint_tool.zig");
+const brush_tool_mod = @import("vimp/brush_tool.zig");
 
 const c = @cImport({
-    @cDefine("G_LOG_DOMAIN", "\"Gimp-Tool\"");
+    @cDefine("G_LOG_DOMAIN", "\"Vimp-Tool\"");
     @cDefine("GIMP_COMPILATION", "1");
     // We need basic types first
     @cInclude("gtk/gtk.h");
@@ -15,7 +15,7 @@ const c = @cImport({
     @cInclude("babl/babl.h");
 
     // Mock GTK3 types removed in GTK4 to allow GIMP headers to compile
-    @cInclude("gimp/mock_gtk3.h");
+    @cInclude("vimp/mock_gtk3.h");
 
     // GIMP headers
     @cInclude("app/config/config-types.h");
@@ -43,38 +43,38 @@ fn checkOffset(comptime ZigType: type, comptime CType: type, comptime field: []c
     }
 }
 
-test "GimpTool offset verification" {
-    try checkOffset(tool_mod.GimpTool, c.struct__GimpTool, "parent_instance");
-    try checkOffset(tool_mod.GimpTool, c.struct__GimpTool, "tool_info");
-    try checkOffset(tool_mod.GimpTool, c.struct__GimpTool, "ID");
-    try checkOffset(tool_mod.GimpTool, c.struct__GimpTool, "control");
-    try checkOffset(tool_mod.GimpTool, c.struct__GimpTool, "last_pointer_coords");
-    try checkOffset(tool_mod.GimpTool, c.struct__GimpTool, "button_press_coords");
+test "VimpTool offset verification" {
+    try checkOffset(tool_mod.VimpTool, c.struct__GimpTool, "parent_instance");
+    try checkOffset(tool_mod.VimpTool, c.struct__GimpTool, "tool_info");
+    try checkOffset(tool_mod.VimpTool, c.struct__GimpTool, "ID");
+    try checkOffset(tool_mod.VimpTool, c.struct__GimpTool, "control");
+    try checkOffset(tool_mod.VimpTool, c.struct__GimpTool, "last_pointer_coords");
+    try checkOffset(tool_mod.VimpTool, c.struct__GimpTool, "button_press_coords");
 }
 
-test "GimpDrawTool offset verification" {
-    try checkOffset(draw_tool_mod.GimpDrawTool, c.struct__GimpDrawTool, "parent_instance");
-    try checkOffset(draw_tool_mod.GimpDrawTool, c.struct__GimpDrawTool, "display");
-    try checkOffset(draw_tool_mod.GimpDrawTool, c.struct__GimpDrawTool, "widget");
+test "VimpDrawTool offset verification" {
+    try checkOffset(draw_tool_mod.VimpDrawTool, c.struct__GimpDrawTool, "parent_instance");
+    try checkOffset(draw_tool_mod.VimpDrawTool, c.struct__GimpDrawTool, "display");
+    try checkOffset(draw_tool_mod.VimpDrawTool, c.struct__GimpDrawTool, "widget");
 }
 
-test "GimpColorTool offset verification" {
-    try checkOffset(color_tool_mod.GimpColorTool, c.struct__GimpColorTool, "parent_instance");
-    try checkOffset(color_tool_mod.GimpColorTool, c.struct__GimpColorTool, "enabled");
-    try checkOffset(color_tool_mod.GimpColorTool, c.struct__GimpColorTool, "options");
+test "VimpColorTool offset verification" {
+    try checkOffset(color_tool_mod.VimpColorTool, c.struct__GimpColorTool, "parent_instance");
+    try checkOffset(color_tool_mod.VimpColorTool, c.struct__GimpColorTool, "enabled");
+    try checkOffset(color_tool_mod.VimpColorTool, c.struct__GimpColorTool, "options");
 }
 
-test "GimpPaintTool offset verification" {
-    try checkOffset(paint_tool_mod.GimpPaintTool, c.struct__GimpPaintTool, "parent_instance");
-    try checkOffset(paint_tool_mod.GimpPaintTool, c.struct__GimpPaintTool, "core");
-    try checkOffset(paint_tool_mod.GimpPaintTool, c.struct__GimpPaintTool, "cursor_x");
-    try checkOffset(paint_tool_mod.GimpPaintTool, c.struct__GimpPaintTool, "paint_x");
+test "VimpPaintTool offset verification" {
+    try checkOffset(paint_tool_mod.VimpPaintTool, c.struct__GimpPaintTool, "parent_instance");
+    try checkOffset(paint_tool_mod.VimpPaintTool, c.struct__GimpPaintTool, "core");
+    try checkOffset(paint_tool_mod.VimpPaintTool, c.struct__GimpPaintTool, "cursor_x");
+    try checkOffset(paint_tool_mod.VimpPaintTool, c.struct__GimpPaintTool, "paint_x");
 }
 
-test "GimpBrushTool offset verification" {
-    try checkOffset(brush_tool_mod.GimpBrushTool, c.struct__GimpBrushTool, "parent_instance");
-    try checkOffset(brush_tool_mod.GimpBrushTool, c.struct__GimpBrushTool, "boundary");
-    try checkOffset(brush_tool_mod.GimpBrushTool, c.struct__GimpBrushTool, "boundary_hardness");
+test "VimpBrushTool offset verification" {
+    try checkOffset(brush_tool_mod.VimpBrushTool, c.struct__GimpBrushTool, "parent_instance");
+    try checkOffset(brush_tool_mod.VimpBrushTool, c.struct__GimpBrushTool, "boundary");
+    try checkOffset(brush_tool_mod.VimpBrushTool, c.struct__GimpBrushTool, "boundary_hardness");
 }
 
 test {
