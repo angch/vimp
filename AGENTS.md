@@ -94,20 +94,20 @@ term planning.
 
 ## Engineering Notes
 
-### 2026-02-05: GtkEventBox Migration
+### 2026-01-31: GtkEventBox Migration
 - Replaced deprecated `GtkEventBox` with `GtkBox` + `GtkEventController` pattern for `TextStyleEditor` handle.
 - Widgets in GTK4 have their own windows, so `GtkEventBox` is no longer needed.
 - Use `GtkEventControllerMotion` for enter/leave signals.
 - Use `GtkGestureDrag` for drag-and-drop operations.
 - Implementation located in `src/widgets/text_style_editor.zig`.
 
-### 2026-02-05: Basic Blur Filters (Gaussian)
+### 2026-01-31: Basic Blur Filters (Gaussian)
 - Implemented destructive Gaussian Blur on active layer using `gegl:gaussian-blur`.
 - Reused `PaintCommand` for Undo/Redo as it handles buffer swapping.
 - Exposed via "Filters" menu in Header Bar.
 - Validated with `test "Engine gaussian blur"`.
 
-### 2026-02-05: Security Hardening (Cairo/GEGL)
+### 2026-01-31: Security Hardening (Cairo/GEGL)
 - Identified and fixed critical vulnerability where `cairo_image_surface_create` failure could lead to NULL pointer dereference.
 - Enforced validation of Cairo surface status and data pointers before usage in `draw_func` and `save_file`.
 - Added unit test "Cairo error surface check" in `src/engine.zig` to prevent regression.
@@ -149,7 +149,7 @@ term planning.
 - `LayerSnapshot` holds a reference to the `gegl_buffer`, ensuring data persists during Undo/Redo cycles even if the layer is removed from the engine.
 - Verified with unit test `Engine layer undo redo`.
 
-### 2026-02-05: Overlay Feedback (OSD)
+### 2026-01-31: Overlay Feedback (OSD)
 - Implemented `OsdState` and helper functions (`osd_show`, `osd_hide_callback`) in `src/main.zig` to provide transient visual feedback.
 - Used `GtkOverlay` to layer the OSD on top of the `GtkDrawingArea`.
 - Used `GtkRevealer` for fade-in/out animations.
