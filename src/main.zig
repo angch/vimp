@@ -4,6 +4,7 @@ const c = @import("c.zig").c;
 const Engine = @import("engine.zig").Engine;
 const RecentManager = @import("recent.zig").RecentManager;
 const ImportDialogs = @import("widgets/import_dialogs.zig");
+const OpenLocationDialog = @import("widgets/open_location_dialog.zig");
 
 // Global state for simplicity in this phase
 const Tool = enum {
@@ -625,8 +626,119 @@ fn generate_thumbnail(path: [:0]const u8) void {
     };
 }
 
-fn finish_file_open(path: [:0]const u8, as_layers: bool, success: bool) void {
-    if (success) {
+fn download_callback(source: ?*c.GObject, result: ?*c.GAsyncResult, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    _ = source;
+    // user_data is path (allocated)
+    const path_ptr: [*c]u8 = @ptrCast(@alignCast(user_data));
+    const path = std.mem.span(path_ptr);
+    defer std.heap.c_allocator.free(path);
+
+    // Check process status?
+    // Actually we just check if file exists and has size
+    if (std.fs.openFileAbsolute(path, .{})) |file| {
+        const stat = file.stat() catch {
+            show_toast("Download failed (stat error)", .{});
+            file.close();
+            return;
+        };
+        file.close();
+
+        if (stat.size > 0) {
+            // Open it (don't add to recent as it's a temp file)
+            // But usually we want to "import" it.
+            // If we treat it as "Open Location", maybe we DO want it in recent if we supported URI in recent.
+            // But RecentManager expects paths.
+            // For now: add_to_recent = false.
+            // Also as_layers = false for standard open.
+            // Convert path to sentinel-terminated for openFileFromPath
+            const path_z = std.fmt.allocPrintSentinel(std.heap.c_allocator, "{s}", .{path}, 0) catch return;
+            defer std.heap.c_allocator.free(path_z);
+            openFileFromPath(path_z, false, false);
+        } else {
+             show_toast("Download failed (empty file)", .{});
+        }
+    } else |_| {
+         var err: ?*c.GError = null;
+         if (c.g_subprocess_wait_check_finish(@ptrCast(source), result, &err) == 0) {
+            if (err) |e| {
+                show_toast("Download failed: {s}", .{e.*.message});
+                c.g_error_free(e);
+            } else {
+                show_toast("Download failed", .{});
+            }
+         } else {
+             show_toast("Download failed (file missing)", .{});
+         }
+    }
+}
+
+fn downloadAndOpen(uri: [:0]const u8, _: ?*anyopaque) void {
+    // 1. Get Cache Dir
+    const cache_dir = c.g_get_user_cache_dir();
+    if (cache_dir == null) {
+        show_toast("Cannot get cache directory", .{});
+        return;
+    }
+    const cache_span = std.mem.span(cache_dir);
+    const vimp_cache = std.fs.path.join(std.heap.c_allocator, &[_][]const u8{ cache_span, "vimp", "downloads" }) catch return;
+    defer std.heap.c_allocator.free(vimp_cache);
+
+    std.fs.cwd().makePath(vimp_cache) catch |err| switch (err) {
+        error.PathAlreadyExists => {},
+        else => {
+            show_toast("Failed to create cache dir", .{});
+            return;
+        },
+    };
+
+    // 2. Generate Filename (MD5 of URI + Extension)
+    var hash: [16]u8 = undefined;
+    std.crypto.hash.Md5.hash(uri, &hash, .{});
+    const hash_hex = std.fmt.bytesToHex(hash, .lower);
+
+    // Guess extension
+    var ext: []const u8 = ".dat";
+    if (std.mem.lastIndexOf(u8, uri, ".")) |idx| {
+         if (idx < uri.len - 1) {
+             const possible_ext = uri[idx..];
+             if (possible_ext.len <= 5) {
+                 ext = possible_ext;
+             }
+         }
+    }
+
+    const filename = std.fmt.allocPrint(std.heap.c_allocator, "{s}{s}", .{hash_hex, ext}) catch return;
+    defer std.heap.c_allocator.free(filename);
+
+    const dest_path = std.fs.path.joinZ(std.heap.c_allocator, &[_][]const u8{ vimp_cache, filename }) catch return;
+    // Pass ownership of dest_path to callback
+
+    // 3. Start Subprocess (curl)
+    const proc = c.g_subprocess_new(
+        c.G_SUBPROCESS_FLAGS_NONE,
+        null,
+        "curl",
+        "-L",
+        "-f",
+        "-o",
+        dest_path.ptr,
+        uri.ptr,
+        null
+    );
+
+    if (proc == null) {
+        show_toast("Failed to start curl", .{});
+        std.heap.c_allocator.free(dest_path);
+        return;
+    }
+
+    show_toast("Downloading...", .{});
+    c.g_subprocess_wait_check_async(proc, null, @ptrCast(&download_callback), @ptrCast(dest_path));
+    c.g_object_unref(proc);
+}
+
+fn finish_file_open(path: [:0]const u8, as_layers: bool, success: bool, add_to_recent: bool) void {
+    if (success and add_to_recent) {
         recent_manager.add(path) catch |e| {
             std.debug.print("Failed to add to recent: {}\n", .{e});
         };
@@ -665,7 +777,7 @@ fn on_pdf_import(user_data: ?*anyopaque, path: [:0]const u8, params: ?Engine.Pdf
             show_toast("Failed to load PDF: {}", .{e});
             success = false;
         };
-        finish_file_open(path, ctx.as_layers, success);
+        finish_file_open(path, ctx.as_layers, success, true);
     }
     // Else cancelled, do nothing (context is freed by defer)
 }
@@ -684,11 +796,11 @@ fn on_svg_import(user_data: ?*anyopaque, path: [:0]const u8, params: ?Engine.Svg
             show_toast("Failed to load SVG: {}", .{e});
             success = false;
         };
-        finish_file_open(path, ctx.as_layers, success);
+        finish_file_open(path, ctx.as_layers, success, true);
     }
 }
 
-fn openFileFromPath(path: [:0]const u8, as_layers: bool) void {
+fn openFileFromPath(path: [:0]const u8, as_layers: bool, add_to_recent: bool) void {
     const ext = std.fs.path.extension(path);
     const is_pdf = std.ascii.eqlIgnoreCase(ext, ".pdf");
     const is_svg = std.ascii.eqlIgnoreCase(ext, ".svg");
@@ -737,7 +849,7 @@ fn openFileFromPath(path: [:0]const u8, as_layers: bool) void {
         show_toast("Failed to load file: {}", .{e});
         load_success = false;
     };
-    finish_file_open(path, as_layers, load_success);
+    finish_file_open(path, as_layers, load_success, add_to_recent);
 }
 
 fn open_finish(source_object: ?*c.GObject, res: ?*c.GAsyncResult, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
@@ -752,7 +864,7 @@ fn open_finish(source_object: ?*c.GObject, res: ?*c.GAsyncResult, user_data: ?*a
             // Convert to slice for Zig
             const span = std.mem.span(@as([*:0]const u8, @ptrCast(p)));
 
-            openFileFromPath(span, ctx.as_layers);
+            openFileFromPath(span, ctx.as_layers, true);
 
             c.g_free(p);
         }
@@ -844,6 +956,11 @@ fn open_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) 
 fn open_as_layers_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
     open_common(window, true);
+}
+
+fn open_location_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
+    OpenLocationDialog.showOpenLocationDialog(window, @ptrCast(&downloadAndOpen), null);
 }
 
 fn save_surface_to_file(s: *c.cairo_surface_t, filename: [*c]const u8) void {
@@ -1219,9 +1336,9 @@ fn drop_response(
     const resp_span = std.mem.span(response);
 
     if (std.mem.eql(u8, resp_span, "new")) {
-        openFileFromPath(ctx.path, false);
+        openFileFromPath(ctx.path, false, true);
     } else if (std.mem.eql(u8, resp_span, "layer")) {
-        openFileFromPath(ctx.path, true);
+        openFileFromPath(ctx.path, true, true);
     }
     // "cancel" or others do nothing but cleanup
 
@@ -1285,7 +1402,7 @@ fn drop_func(
                 c.gtk_window_present(@ptrCast(dialog));
             } else {
                 const as_layers = (engine.layers.items.len > 0);
-                openFileFromPath(span, as_layers);
+                openFileFromPath(span, as_layers, true);
             }
 
             c.g_free(p);
@@ -1302,7 +1419,7 @@ fn on_recent_row_activated(_: *c.GtkListBox, row: *c.GtkListBoxRow, _: ?*anyopaq
         const path: [*c]const u8 = @ptrCast(p);
         const span = std.mem.span(path);
         // Ensure we don't block if open takes time, but openFileFromPath is synchronous currently except for dialogs
-        openFileFromPath(span, false);
+        openFileFromPath(span, false, true);
     }
 }
 
@@ -1412,6 +1529,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     add_action(app, "new", @ptrCast(&new_activated), null);
     add_action(app, "open", @ptrCast(&open_activated), window);
     add_action(app, "open-as-layers", @ptrCast(&open_as_layers_activated), window);
+    add_action(app, "open-location", @ptrCast(&open_location_activated), window);
     add_action(app, "save", @ptrCast(&save_activated), window);
     add_action(app, "about", @ptrCast(&about_activated), null);
     add_action(app, "quit", @ptrCast(&quit_activated), app);
@@ -1439,6 +1557,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     set_accel(app, "app.new", "<Ctrl>n");
     set_accel(app, "app.open", "<Ctrl>o");
     set_accel(app, "app.open-as-layers", "<Ctrl><Alt>o");
+    set_accel(app, "app.open-location", "<Ctrl>l");
     set_accel(app, "app.save", "<Ctrl>s");
     set_accel(app, "app.undo", "<Ctrl>z");
     set_accel(app, "app.redo", "<Ctrl>y");
@@ -1508,6 +1627,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
 
     // Hamburger Menu (End)
     const menu = c.g_menu_new();
+    c.g_menu_append(menu, "Open Location...", "app.open-location");
     c.g_menu_append(menu, "About Vimp", "app.about");
     c.g_menu_append(menu, "Quit", "app.quit");
 
@@ -1724,6 +1844,11 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.gtk_widget_add_css_class(welcome_open_btn, "pill");
     c.gtk_actionable_set_action_name(@ptrCast(welcome_open_btn), "app.open");
     c.gtk_box_append(@ptrCast(welcome_box), welcome_open_btn);
+
+    const welcome_open_loc_btn = c.gtk_button_new_with_label("Open Location");
+    c.gtk_widget_add_css_class(welcome_open_loc_btn, "pill");
+    c.gtk_actionable_set_action_name(@ptrCast(welcome_open_loc_btn), "app.open-location");
+    c.gtk_box_append(@ptrCast(welcome_box), welcome_open_loc_btn);
 
     // Recent Label
     const recent_label = c.gtk_label_new("Recent Files");
