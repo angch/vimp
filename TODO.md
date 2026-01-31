@@ -40,7 +40,7 @@
 - [x] Implement Welcome Screen (Recent Grid, Empty State Actions)
 - [ ] Implement Recent Files Persistence (Backend for Recent Grid)
 - [ ] Implement Format Specific Import Dialogs (PDF, SVG)
-- [ ] Implement Error Handling (Non-blocking Toasts)
+- [x] Implement Error Handling (Non-blocking Toasts)
 - [ ] Read and generate TODOs from doc/gimp-file-open-spec.md
 - [ ] Read and generate TODOs from doc/ms_paint_spec.md
 
