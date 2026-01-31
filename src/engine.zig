@@ -74,14 +74,23 @@ pub const Engine = struct {
         }
     };
 
+    pub const SelectionCommand = struct {
+        before: ?c.GeglRectangle,
+        before_mode: SelectionMode,
+        after: ?c.GeglRectangle = null,
+        after_mode: SelectionMode = .rectangle,
+    };
+
     pub const Command = union(enum) {
         paint: PaintCommand,
         layer: LayerCommand,
+        selection: SelectionCommand,
 
         pub fn deinit(self: *Command) void {
             switch (self.*) {
                 .paint => |*cmd| cmd.deinit(),
                 .layer => |*cmd| cmd.deinit(),
+                .selection => {},
             }
         }
     };
@@ -183,6 +192,16 @@ pub const Engine = struct {
         self.current_command = Command{ .paint = cmd };
     }
 
+    pub fn beginSelection(self: *Engine) void {
+        if (self.current_command != null) return;
+
+        const cmd = SelectionCommand{
+            .before = self.selection,
+            .before_mode = self.selection_mode,
+        };
+        self.current_command = Command{ .selection = cmd };
+    }
+
     pub fn commitTransaction(self: *Engine) void {
         if (self.current_command) |*cmd| {
             switch (cmd.*) {
@@ -197,6 +216,10 @@ pub const Engine = struct {
                     }
                 },
                 .layer => {}, // Nothing to capture for layer commands
+                .selection => |*s_cmd| {
+                    s_cmd.after = self.selection;
+                    s_cmd.after_mode = self.selection_mode;
+                },
             }
             // Move current_command to undo stack
             self.undo_stack.append(std.heap.c_allocator, self.current_command.?) catch |err| {
@@ -261,6 +284,14 @@ pub const Engine = struct {
                         },
                     }
                 },
+                .selection => |*s_cmd| {
+                    self.setSelectionMode(s_cmd.before_mode);
+                    if (s_cmd.before) |r| {
+                        self.setSelection(r.x, r.y, r.width, r.height);
+                    } else {
+                        self.clearSelection();
+                    }
+                },
             }
 
             self.redo_stack.append(std.heap.c_allocator, mutable_cmd) catch {
@@ -314,6 +345,14 @@ pub const Engine = struct {
                         .lock => |*lock_cmd| {
                             self.toggleLayerLockInternal(lock_cmd.index);
                         },
+                    }
+                },
+                .selection => |*s_cmd| {
+                    self.setSelectionMode(s_cmd.after_mode);
+                    if (s_cmd.after) |r| {
+                        self.setSelection(r.x, r.y, r.width, r.height);
+                    } else {
+                        self.clearSelection();
                     }
                 },
             }
@@ -1353,4 +1392,56 @@ test "Engine layer undo redo" {
     // 6. Redo Remove (Should remove Layer 1)
     engine.redo();
     try std.testing.expectEqual(engine.layers.items.len, 1);
+}
+
+test "Engine selection undo redo" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+
+    // 1. Initial State: No Selection
+    try std.testing.expect(engine.selection == null);
+
+    // 2. Select Rectangle
+    engine.setSelectionMode(.rectangle);
+    engine.beginSelection();
+    engine.setSelection(10, 10, 100, 100);
+    engine.commitTransaction();
+
+    try std.testing.expect(engine.selection != null);
+    if (engine.selection) |s| {
+        try std.testing.expectEqual(s.x, 10);
+        try std.testing.expectEqual(s.width, 100);
+    }
+    try std.testing.expectEqual(engine.undo_stack.items.len, 2); // Initial Layer + Selection
+
+    // 3. Undo -> Should be no selection
+    engine.undo();
+    try std.testing.expect(engine.selection == null);
+
+    // 4. Redo -> Should be Rectangle
+    engine.redo();
+    try std.testing.expect(engine.selection != null);
+    if (engine.selection) |s| {
+        try std.testing.expectEqual(s.x, 10);
+    }
+
+    // 5. Change to Ellipse and Select
+    engine.beginSelection();
+    engine.setSelectionMode(.ellipse);
+    engine.setSelection(50, 50, 50, 50);
+    engine.commitTransaction();
+
+    try std.testing.expectEqual(engine.selection_mode, .ellipse);
+    if (engine.selection) |s| {
+        try std.testing.expectEqual(s.x, 50);
+    }
+
+    // 6. Undo -> Should be Rectangle (from Step 2)
+    engine.undo();
+    try std.testing.expectEqual(engine.selection_mode, .rectangle);
+    if (engine.selection) |s| {
+        try std.testing.expectEqual(s.x, 10);
+    }
 }

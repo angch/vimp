@@ -46,8 +46,8 @@
 - [x] Integrate `drag_begin` / `drag_end` in `src/main.zig` with Engine transactions
 - [x] Implement `PaintCommand` (Snapshot strategy for undoing pixel changes)
 - [x] Implement `BucketFillCommand` (Covered by PaintCommand)
-- [ ] Implement `LayerCommand`s (Add, Remove, Reorder, Visibility, Lock)
-- [ ] Implement `SelectionCommand`s
+- [x] Implement `LayerCommand`s (Add, Remove, Reorder, Visibility, Lock)
+- [x] Implement `SelectionCommand`s
 - [x] Add Undo/Redo actions (Ctrl+Z, Ctrl+Y) and UI buttons in `src/main.zig`
 
 ### Paint Tools
