@@ -572,8 +572,70 @@ fn new_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(
     queue_draw();
 }
 
-fn open_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    std.debug.print("Open activated\n", .{});
+fn open_finish(source_object: ?*c.GObject, res: ?*c.GAsyncResult, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    _ = user_data;
+    var err: ?*c.GError = null;
+    const file = c.gtk_file_dialog_open_finish(@ptrCast(source_object), res, &err);
+    if (file) |f| {
+        const path = c.g_file_get_path(f);
+        if (path) |p| {
+            // Convert to slice for Zig
+            const span = std.mem.span(@as([*:0]const u8, @ptrCast(p)));
+
+            // Call engine load
+            engine.loadFromFile(span) catch |e| {
+                std.debug.print("Failed to load file: {}\n", .{e});
+            };
+
+            c.g_free(p);
+
+            // Refresh UI
+            refresh_layers_ui();
+            refresh_undo_ui();
+            canvas_dirty = true;
+            queue_draw();
+        }
+        c.g_object_unref(f);
+    } else {
+        if (err) |e| {
+            std.debug.print("Error opening: {s}\n", .{e.*.message});
+            c.g_error_free(e);
+        }
+    }
+}
+
+fn open_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
+
+    const dialog = c.gtk_file_dialog_new();
+    c.gtk_file_dialog_set_title(dialog, "Open Image");
+
+    // Filters
+    const filters = c.g_list_store_new(c.gtk_file_filter_get_type());
+
+    const filter_imgs = c.gtk_file_filter_new();
+    c.gtk_file_filter_set_name(filter_imgs, "Images");
+    c.gtk_file_filter_add_pattern(filter_imgs, "*.png");
+    c.gtk_file_filter_add_pattern(filter_imgs, "*.jpg");
+    c.gtk_file_filter_add_pattern(filter_imgs, "*.jpeg");
+    c.gtk_file_filter_add_pattern(filter_imgs, "*.webp");
+    c.gtk_file_filter_add_pattern(filter_imgs, "*.gif");
+    c.gtk_file_filter_add_pattern(filter_imgs, "*.tif");
+    c.gtk_file_filter_add_pattern(filter_imgs, "*.tiff");
+    c.gtk_file_filter_add_pattern(filter_imgs, "*.bmp");
+    c.gtk_file_filter_add_pattern(filter_imgs, "*.avif");
+    c.gtk_file_filter_add_pattern(filter_imgs, "*.ico");
+    c.gtk_file_filter_add_pattern(filter_imgs, "*.tga");
+    c.gtk_file_filter_add_pattern(filter_imgs, "*.xcf"); // Just in case GEGL supports it
+
+    c.g_list_store_append(filters, filter_imgs);
+    c.g_object_unref(filter_imgs);
+
+    c.gtk_file_dialog_set_filters(dialog, @ptrCast(filters));
+    c.g_object_unref(filters);
+
+    c.gtk_file_dialog_open(dialog, window, null, @ptrCast(&open_finish), null);
+    c.g_object_unref(dialog);
 }
 
 fn save_surface_to_file(s: *c.cairo_surface_t, filename: [*c]const u8) void {
@@ -912,7 +974,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     }.func;
 
     add_action(app, "new", @ptrCast(&new_activated), null);
-    add_action(app, "open", @ptrCast(&open_activated), null);
+    add_action(app, "open", @ptrCast(&open_activated), window);
     add_action(app, "save", @ptrCast(&save_activated), window);
     add_action(app, "about", @ptrCast(&about_activated), null);
     add_action(app, "quit", @ptrCast(&quit_activated), app);
