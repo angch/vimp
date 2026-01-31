@@ -19,6 +19,11 @@ pub const Engine = struct {
         ellipse,
     };
 
+    pub const PreviewMode = enum {
+        none,
+        blur,
+    };
+
     pub const PaintCommand = struct {
         layer_idx: usize,
         before: *c.GeglBuffer,
@@ -139,6 +144,12 @@ pub const Engine = struct {
     brush_type: BrushType = .square,
     selection: ?c.GeglRectangle = null,
     selection_mode: SelectionMode = .rectangle,
+
+    // Preview State
+    preview_mode: PreviewMode = .none,
+    preview_radius: f64 = 0.0,
+    split_view_enabled: bool = false,
+    split_x: f64 = 400.0,
 
     sel_cx: f64 = 0,
     sel_cy: f64 = 0,
@@ -400,70 +411,70 @@ pub const Engine = struct {
     }
 
     pub fn rebuildGraph(self: *Engine) void {
-        // 1. Clear old composition chain (but don't destroy layer source nodes!)
-        // The composition nodes are the 'gegl:over' nodes connecting layers.
-        // We need to unlink them or destroy them. Since we created them, we can destroy them?
-        // Wait, if they are children of 'graph', destroying graph destroys them.
-        // But we are not destroying graph.
-        // gegl_node_process works on the graph.
-
-        // We stored the 'over' nodes in composition_nodes.
-        // Let's just destroy them? But they are linked.
-        // Removing them from graph should suffice?
-        // gegl_node_remove_child(graph, node)?
-        // Or simply unref if they are not added to graph?
-        // 'gegl_node_new_child' adds them to graph.
-        // So we should 'gegl_node_remove_child'? Or just disconnect?
-
-        // Let's assume creating new nodes is cheap enough, but we should clean up old ones.
-        // gegl_node_disconnect(node, "input")?
-
-        // Actually, let's just create new ones and let the old ones drift?
-        // No, that leaks memory and clutters graph.
-        // We should destroy the old 'over' nodes.
-
-        // NOTE: In C, we would do g_object_unref?
-        // If gegl_node_new_child was used, the parent holds a ref.
-        // So we need to remove from parent?
-        // c.gegl_node_remove_child(self.graph, node);
-
-        // Since we don't have gegl_node_remove_child in C bindings easily visible here (it exists in GEGL),
-        // let's try to just build new ones and update output_node.
-        // But over time this will grow infinite.
-        // I should find a way to remove them.
-        // 'c.gegl_node_remove_child' might not be in my c.zig?
-        // Check c.zig? Assuming standard GEGL API.
-
-        // Let's assume I can reuse the nodes? No, the number of nodes changes.
-        // I will attempt to remove them.
-        // If c.gegl_node_remove_child is not available, I might need to add it or use g_object_run_dispose?
-
-        // For now, I'll rely on g_object_unref if I can remove them from graph.
-        // But wait, gegl_node_new_child adds reference?
-
-        // Strategy: Just unlink everything and overwrite output_node?
-        // The old nodes will still be in the graph.
-
-        // Let's look at c.zig if possible.
-        // Assuming c.gegl_node_remove_child works if bound.
-
+        // 1. Clear old composition nodes
         for (self.composition_nodes.items) |node| {
             _ = c.gegl_node_remove_child(self.graph, node);
-            // And unref? remove_child usually drops the parent's ref.
-            // If we held a ref in ArrayList (we didn't explicitly ref, just stored pointer),
-            // then we might be dangling if remove_child frees it.
-            // But we probably want to ensure it's gone.
         }
         self.composition_nodes.clearRetainingCapacity();
 
         var current_input = self.base_node;
 
-        for (self.layers.items) |layer| {
+        for (self.layers.items, 0..) |layer, i| {
             if (!layer.visible) continue;
+
+            var source_output = layer.source_node;
+
+            // Preview Logic
+            if (i == self.active_layer_idx and self.preview_mode == .blur) {
+                // 1. Create Blur Node
+                if (c.gegl_node_new_child(self.graph, "operation", "gegl:gaussian-blur", "std-dev-x", self.preview_radius, "std-dev-y", self.preview_radius, @as(?*anyopaque, null))) |blur_node| {
+                    _ = c.gegl_node_connect(blur_node, "input", source_output, "output");
+                    self.composition_nodes.append(std.heap.c_allocator, blur_node) catch {};
+
+                    if (self.split_view_enabled) {
+                        // Split View: Left = Original, Right = Blurred
+                        // Or determined by split_x
+                        const w: f64 = @floatFromInt(self.canvas_width);
+                        const h: f64 = @floatFromInt(self.canvas_height);
+                        const sx = self.split_x;
+
+                        // Left Crop (Original)
+                        // x=0, width=sx
+                        if (c.gegl_node_new_child(self.graph, "operation", "gegl:crop", "x", @as(f64, 0.0), "y", @as(f64, 0.0), "width", sx, "height", h, @as(?*anyopaque, null))) |left_crop| {
+                            _ = c.gegl_node_connect(left_crop, "input", source_output, "output");
+                            self.composition_nodes.append(std.heap.c_allocator, left_crop) catch {};
+
+                            // Right Crop (Blurred)
+                            // x=sx, width=w-sx
+                            if (c.gegl_node_new_child(self.graph, "operation", "gegl:crop", "x", sx, "y", @as(f64, 0.0), "width", w - sx, "height", h, @as(?*anyopaque, null))) |right_crop| {
+                                _ = c.gegl_node_connect(right_crop, "input", blur_node, "output");
+                                self.composition_nodes.append(std.heap.c_allocator, right_crop) catch {};
+
+                                // Combine (Right over Left? No, just 'over' typically puts aux on top of input)
+                                // But here they are disjoint (cropped).
+                                // Order matters for Z-order if they overlapped, but they don't.
+                                // So putting one as input and one as aux is fine.
+                                // Input: Left Crop. Aux: Right Crop.
+
+                                if (c.gegl_node_new_child(self.graph, "operation", "gegl:over", @as(?*anyopaque, null))) |split_over| {
+                                    _ = c.gegl_node_connect(split_over, "input", left_crop, "output");
+                                    _ = c.gegl_node_connect(split_over, "aux", right_crop, "output");
+                                    self.composition_nodes.append(std.heap.c_allocator, split_over) catch {};
+
+                                    source_output = split_over;
+                                }
+                            }
+                        }
+                    } else {
+                        // Full Preview
+                        source_output = blur_node;
+                    }
+                }
+            }
 
             if (c.gegl_node_new_child(self.graph, "operation", "gegl:over", @as(?*anyopaque, null))) |over_node| {
                 _ = c.gegl_node_connect(over_node, "input", current_input, "output");
-                _ = c.gegl_node_connect(over_node, "aux", layer.source_node, "output");
+                _ = c.gegl_node_connect(over_node, "aux", source_output, "output");
 
                 self.composition_nodes.append(std.heap.c_allocator, over_node) catch {};
                 current_input = over_node;
@@ -836,7 +847,6 @@ pub const Engine = struct {
         const format = c.babl_format("R'G'B'A u8");
         const extent = c.gegl_buffer_get_extent(layer.buffer);
         const new_buffer = c.gegl_buffer_new(extent, format);
-        // If allocation fails, we should probably abort transaction?
         if (new_buffer == null) return;
 
         const write_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:write-buffer", "buffer", new_buffer, @as(?*anyopaque, null));
@@ -851,6 +861,30 @@ pub const Engine = struct {
         _ = c.gegl_node_set(layer.source_node, "buffer", new_buffer, @as(?*anyopaque, null));
 
         self.commitTransaction();
+    }
+
+    pub fn setPreviewBlur(self: *Engine, radius: f64) void {
+        self.preview_mode = .blur;
+        self.preview_radius = radius;
+        self.rebuildGraph();
+    }
+
+    pub fn setSplitView(self: *Engine, enabled: bool) void {
+        self.split_view_enabled = enabled;
+        self.rebuildGraph();
+    }
+
+    pub fn commitPreview(self: *Engine) !void {
+        if (self.preview_mode == .blur) {
+            try self.applyGaussianBlur(self.preview_radius);
+        }
+        self.preview_mode = .none;
+        self.rebuildGraph();
+    }
+
+    pub fn cancelPreview(self: *Engine) void {
+        self.preview_mode = .none;
+        self.rebuildGraph();
     }
 
     pub fn setFgColor(self: *Engine, r: u8, g: u8, b: u8, a: u8) void {
@@ -1457,5 +1491,114 @@ test "Engine selection undo redo" {
     try std.testing.expectEqual(engine.selection_mode, .rectangle);
     if (engine.selection) |s| {
         try std.testing.expectEqual(s.x, 10);
+    }
+}
+
+test "Engine split view blur" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+
+    // Set Canvas Size (Standard is 800x600)
+
+    // 1. Paint White Rectangle from x=350 to x=450
+    engine.setFgColor(255, 255, 255, 255);
+    engine.setBrushSize(100);
+    engine.setBrushType(.square);
+    // Paint stroke vertically to fill a rect?
+    // Brush size 100. Center at y=100.
+    // x range: 350..450 means center at 400.
+    // If I paint at 400, 100: square brush extends from 350 to 450.
+    engine.paintStroke(400, 100, 400, 100, 1.0);
+
+    // Verify Sharp Edges before preview
+    {
+        const buf = engine.layers.items[0].buffer;
+        var pixel: [4]u8 = undefined;
+        // x=348 (Outside left) -> Background (0) ? No, buffer starts transparent. Background layer is separate.
+        // Wait, Layer 0 is "Background". setupGraph adds "Background".
+        // Does "Background" start filled?
+        // addLayer creates empty buffer.
+        // So it is Transparent (0).
+        // But setupGraph adds a bg_node (Color) behind layers?
+        // The Engine structure: base_node (Color) -> Over (Layer 0) -> Over (Layer 1)...
+        // Layer 0 buffer is initially transparent.
+        // So checking Layer 0 buffer directly:
+        // If we painted on Layer 0 (active layer), outside rect is transparent.
+        const format = c.babl_format("R'G'B'A u8");
+        c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 348, .y = 100, .width = 1, .height = 1 }, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+        try std.testing.expect(pixel[0] == 0);
+
+        // x=352 (Inside left) -> 255
+        c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 352, .y = 100, .width = 1, .height = 1 }, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+        try std.testing.expect(pixel[0] == 255);
+
+        // x=448 (Inside right) -> 255
+        c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 448, .y = 100, .width = 1, .height = 1 }, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+        try std.testing.expect(pixel[0] == 255);
+
+        // x=452 (Outside right) -> 0
+        c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 452, .y = 100, .width = 1, .height = 1 }, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+        try std.testing.expect(pixel[0] == 0);
+    }
+
+    // 2. Enable Split View Blur
+    engine.setSplitView(true);
+    // Split X is default 400.0.
+    // Left side < 400 is Original.
+    // Right side >= 400 is Blurred.
+
+    engine.setPreviewBlur(10.0);
+
+    // We cannot easily check the graph output via 'gegl_buffer_get' on the layer buffer because layer buffer is NOT modified yet.
+    // The preview is in the composition graph.
+    // We must render via 'blitView' or inspect 'output_node'.
+    // 'blitView' renders to a Cairo buffer (memory).
+
+    var output_buf = try std.ArrayList(u8).initCapacity(std.heap.c_allocator, 800 * 200 * 4);
+    defer output_buf.deinit(std.heap.c_allocator);
+    output_buf.expandToCapacity();
+
+    // Blit a strip: x=340 to 460, y=100.
+    // Let's blit the whole relevant area width 800, height 1 line (y=100).
+    const stride = 800 * 4;
+    engine.blitView(800, 1, output_buf.items.ptr, stride, 1.0, 0.0, 100.0);
+
+    // Check Left Side (Original) - Edge at 350
+    // x=348 should be 0.
+    // x=352 should be 255.
+    // Index = x * 4.
+    {
+        // BlitView output includes background color (Light Gray ~230) because of base_node.
+        // Layer 0 is Transparent outside rect.
+        // So:
+        // x=348 (Outside): Transparent Layer on Gray Background -> Gray (~230).
+        const p_out = output_buf.items[(348 * 4)..];
+        try std.testing.expect(p_out[0] > 200); // Expect Gray, not 0
+
+        // x=352 (Inside): White Layer on Gray Background -> White (255).
+        const p_in = output_buf.items[(352 * 4)..];
+        try std.testing.expect(p_in[0] > 240); // 255
+    }
+
+    // Check Right Side (Blurred)
+    // Background is 230. Rect is 255.
+    // The contrast is low (25 difference).
+    // Blur will blend 255 and 230.
+
+    {
+        // x=455 (5px out).
+        // Original: 230.
+        // Blurred: Blend of 230 and 255.
+        // Should be > 230.
+        const p_out_blur = output_buf.items[(455 * 4)..];
+        try std.testing.expect(p_out_blur[0] >= 229);
+
+        // x=445 (5px in).
+        // Original: 255.
+        // Blurred: < 255.
+        const p_in_blur = output_buf.items[(445 * 4)..];
+        try std.testing.expect(p_in_blur[0] < 255);
     }
 }
