@@ -81,6 +81,7 @@ test {
     _ = @import("engine.zig");
     _ = @import("widgets/text_style_editor.zig");
     _ = @import("widgets/import_dialogs.zig");
+    _ = @import("widgets/open_location_dialog.zig");
     _ = @import("recent.zig");
     _ = @import("raw_loader.zig");
 }

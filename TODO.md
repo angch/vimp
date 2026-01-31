@@ -28,7 +28,7 @@
 
 ### Spec Integration
 
-- [ ] Check and update the TODOs here ensuring that we are on the way towards features described in `doc/gimp-file-open-spec.md`
+- [x] Check and update the TODOs here ensuring that we are on the way towards features described in `doc/gimp-file-open-spec.md`
 - [ ] Check and update the TODOs here ensuring that we support the file formats described in `doc/gimp-file-open-spec.md`
 - [ ] Check and update the TODOs here ensuring that we have features as described `doc/ms_paint_spec.md` *without* conflicting with `doc/gimp-feature-spec-gnome-hig.md`
 
@@ -48,6 +48,9 @@
 - [x] Implement Open Location (URI)
 - [x] Implement Raw Image Import
 - [x] Implement "Open pages as separate images" for PDF
+- [ ] Implement Clipboard Detection for Open Location
+- [ ] Investigate/Implement Preview Pane in File Chooser
+- [ ] Implement File Recovery/Salvage actions
 - [ ] Read and generate TODOs from doc/gimp-file-open-spec.md
 - [ ] Read and generate TODOs from doc/ms_paint_spec.md
 

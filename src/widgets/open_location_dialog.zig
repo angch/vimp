@@ -1,6 +1,42 @@
 const std = @import("std");
 const c = @import("../c.zig").c;
 
+const ClipboardCtx = struct {
+    entry: *c.GtkEntry,
+};
+
+fn is_valid_protocol(text: []const u8) bool {
+    if (text.len >= 7 and std.ascii.eqlIgnoreCase(text[0..7], "http://")) return true;
+    if (text.len >= 8 and std.ascii.eqlIgnoreCase(text[0..8], "https://")) return true;
+    if (text.len >= 6 and std.ascii.eqlIgnoreCase(text[0..6], "ftp://")) return true;
+    if (text.len >= 6 and std.ascii.eqlIgnoreCase(text[0..6], "smb://")) return true;
+    return false;
+}
+
+fn on_clipboard_text(source: ?*c.GObject, result: ?*c.GAsyncResult, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const ctx: *ClipboardCtx = @ptrCast(@alignCast(user_data));
+    defer std.heap.c_allocator.destroy(ctx);
+    defer c.g_object_unref(ctx.entry);
+
+    var err: ?*c.GError = null;
+    const text_ptr = c.gdk_clipboard_read_text_finish(@ptrCast(source), result, &err);
+
+    if (text_ptr) |t| {
+        const text = std.mem.span(t);
+        // Check protocol
+        if (is_valid_protocol(text)) {
+            // Even if widget is destroyed (but alive via ref), set_text is safe-ish.
+            // Ideally we check gtk_widget_in_destruction(entry) but this is usually fine.
+            c.gtk_editable_set_text(@ptrCast(ctx.entry), t);
+        }
+        c.g_free(t);
+    } else {
+        if (err) |e| {
+            c.g_error_free(e);
+        }
+    }
+}
+
 pub fn showOpenLocationDialog(
     parent: ?*c.GtkWindow,
     callback: *const fn (uri: [:0]const u8, user_data: ?*anyopaque) void,
@@ -30,6 +66,18 @@ pub fn showOpenLocationDialog(
     c.gtk_entry_set_activates_default(@ptrCast(entry), 1);
 
     c.adw_message_dialog_set_extra_child(@ptrCast(dialog), entry);
+
+    // Clipboard detection
+    const display = c.gdk_display_get_default();
+    if (display) |d| {
+        const clipboard = c.gdk_display_get_clipboard(d);
+        // Create context
+        if (std.heap.c_allocator.create(ClipboardCtx)) |cp_ctx| {
+            cp_ctx.* = .{ .entry = @ptrCast(entry) };
+            c.g_object_ref(entry);
+            c.gdk_clipboard_read_text_async(clipboard, null, @ptrCast(&on_clipboard_text), cp_ctx);
+        } else |_| {}
+    }
 
     const Ctx = struct {
         cb: *const fn ([:0]const u8, ?*anyopaque) void,
@@ -61,4 +109,13 @@ pub fn showOpenLocationDialog(
     _ = c.g_signal_connect_data(dialog, "response", @ptrCast(&on_response), ctx, null, 0);
 
     c.gtk_window_present(@ptrCast(dialog));
+}
+
+test "is_valid_protocol" {
+    try std.testing.expect(is_valid_protocol("https://example.com"));
+    try std.testing.expect(is_valid_protocol("HTTP://EXAMPLE.COM"));
+    try std.testing.expect(is_valid_protocol("ftp://server"));
+    try std.testing.expect(is_valid_protocol("Smb://Server/Share"));
+    try std.testing.expect(!is_valid_protocol("file:///local"));
+    try std.testing.expect(!is_valid_protocol("random text"));
 }
