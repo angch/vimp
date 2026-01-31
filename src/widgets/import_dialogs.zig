@@ -33,6 +33,7 @@ const PdfDialogContext = struct {
     user_data: ?*anyopaque,
     ppi_spin: *c.GtkWidget,
     flowbox: *c.GtkFlowBox,
+    split_pages_check: *c.GtkWidget,
 };
 
 const SvgDialogContext = struct {
@@ -51,6 +52,7 @@ fn pdf_dialog_response(dialog: *c.AdwMessageDialog, response: [*c]const u8, user
 
     if (std.mem.eql(u8, resp_span, "import")) {
         const ppi = c.gtk_spin_button_get_value(@ptrCast(ctx.ppi_spin));
+        const split_pages = c.gtk_check_button_get_active(@ptrCast(ctx.split_pages_check)) != 0;
 
         var pages = std.ArrayList(i32){};
         defer pages.deinit(std.heap.c_allocator);
@@ -78,6 +80,7 @@ fn pdf_dialog_response(dialog: *c.AdwMessageDialog, response: [*c]const u8, user
         const params = Engine.PdfImportParams{
             .ppi = ppi,
             .pages = pages.items,
+            .split_pages = split_pages,
         };
 
         ctx.callback(ctx.user_data, ctx.path, params);
@@ -155,6 +158,11 @@ pub fn showPdfImportDialog(
     c.gtk_spin_button_set_value(@ptrCast(ppi_spin), 300.0);
     c.gtk_box_append(@ptrCast(ppi_row), ppi_spin);
     c.gtk_box_append(@ptrCast(box), ppi_row);
+
+    // Split Pages Toggle
+    const split_pages_check = c.gtk_check_button_new_with_label("Open pages as separate images");
+    c.gtk_check_button_set_active(@ptrCast(split_pages_check), 0); // Default false
+    c.gtk_box_append(@ptrCast(box), split_pages_check);
 
     // FlowBox for Thumbnails
     const flowbox = c.gtk_flow_box_new();
@@ -241,6 +249,7 @@ pub fn showPdfImportDialog(
         .user_data = user_data,
         .ppi_spin = ppi_spin,
         .flowbox = @ptrCast(flowbox),
+        .split_pages_check = split_pages_check,
     };
 
     _ = c.g_signal_connect_data(dialog, "response", @ptrCast(&pdf_dialog_response), ctx, null, 0);

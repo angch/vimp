@@ -884,7 +884,17 @@ fn on_pdf_import(user_data: ?*anyopaque, path: [:0]const u8, params: ?Engine.Pdf
     defer std.heap.c_allocator.destroy(ctx);
 
     if (params) |p| {
-        if (!ctx.as_layers) {
+        var perform_reset = !ctx.as_layers;
+
+        if (p.split_pages) {
+            if (p.pages.len > 1) {
+                show_toast("Opening multiple pages as separate images is not yet supported. Opening as layers.", .{});
+            }
+            // "Separate Images" implies opening as a new image (since we lack tabs), replacing current.
+            perform_reset = true;
+        }
+
+        if (perform_reset) {
             engine.reset();
         }
 
@@ -893,7 +903,7 @@ fn on_pdf_import(user_data: ?*anyopaque, path: [:0]const u8, params: ?Engine.Pdf
             show_toast("Failed to load PDF: {}", .{e});
             success = false;
         };
-        finish_file_open(path, ctx.as_layers, success, true);
+        finish_file_open(path, !perform_reset, success, true);
     }
     // Else cancelled, do nothing (context is freed by defer)
 }
