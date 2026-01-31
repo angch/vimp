@@ -320,6 +320,7 @@ fn drag_begin(
                 c.gtk_widget_queue_draw(widget);
             } else if (current_tool == .rect_select or current_tool == .ellipse_select) {
                 // Start selection - maybe clear existing?
+                engine.beginSelection();
                 engine.clearSelection();
                 c.gtk_widget_queue_draw(widget);
             } else {
