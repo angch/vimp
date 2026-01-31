@@ -1847,7 +1847,7 @@ test "Engine load from file" {
     engine.setupGraph();
 
     // Create a temporary valid PNG file
-    const filename = "test_image.png";
+    const filename = "test_engine_load.png";
     {
         const rect = c.GeglRectangle{ .x = 0, .y = 0, .width = 10, .height = 10 };
         const format = c.babl_format("R'G'B'A u8");
@@ -1873,7 +1873,7 @@ test "Engine load from file" {
 
     const layer = &engine.layers.items[0];
     const name = std.mem.span(@as([*:0]const u8, @ptrCast(&layer.name)));
-    try std.testing.expectEqualStrings(name, "test_image.png");
+    try std.testing.expectEqualStrings(name, "test_engine_load.png");
 
     const extent = c.gegl_buffer_get_extent(layer.buffer);
     try std.testing.expectEqual(extent.*.width, 10);
