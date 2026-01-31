@@ -12,6 +12,7 @@ const Tool = enum {
     bucket_fill,
     rect_select,
     ellipse_select,
+    unified_transform,
     // pencil, // Reorder if desired, but append is safer for diffs usually
 };
 
@@ -28,6 +29,13 @@ var undo_list_box: ?*c.GtkWidget = null;
 var drawing_area: ?*c.GtkWidget = null;
 var apply_preview_btn: ?*c.GtkWidget = null;
 var discard_preview_btn: ?*c.GtkWidget = null;
+
+var transform_controls_box: ?*c.GtkWidget = null;
+var transform_action_bar: ?*c.GtkWidget = null;
+var transform_x_spin: ?*c.GtkWidget = null;
+var transform_y_spin: ?*c.GtkWidget = null;
+var transform_r_scale: ?*c.GtkWidget = null;
+var transform_s_scale: ?*c.GtkWidget = null;
 
 pub fn main() !void {
     engine.init();
@@ -84,6 +92,45 @@ fn brush_size_changed(
     engine.setBrushSize(size);
 }
 
+fn transform_param_changed(_: *c.GtkWidget, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    if (transform_x_spin == null) return;
+    const x = c.gtk_spin_button_get_value(@ptrCast(transform_x_spin.?));
+    const y = c.gtk_spin_button_get_value(@ptrCast(transform_y_spin.?));
+    const r = c.gtk_range_get_value(@ptrCast(transform_r_scale.?));
+    const s = c.gtk_range_get_value(@ptrCast(transform_s_scale.?));
+
+    engine.setTransformPreview(.{ .x = x, .y = y, .rotate = r, .scale = s });
+    canvas_dirty = true;
+    queue_draw();
+}
+
+fn transform_apply_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    engine.applyTransform() catch |err| {
+        std.debug.print("Apply transform failed: {}\n", .{err});
+    };
+    // Reset UI
+    if (transform_x_spin) |w| c.gtk_spin_button_set_value(@ptrCast(w), 0.0);
+    if (transform_y_spin) |w| c.gtk_spin_button_set_value(@ptrCast(w), 0.0);
+    if (transform_r_scale) |w| c.gtk_range_set_value(@ptrCast(w), 0.0);
+    if (transform_s_scale) |w| c.gtk_range_set_value(@ptrCast(w), 1.0);
+
+    canvas_dirty = true;
+    queue_draw();
+    refresh_undo_ui();
+}
+
+fn transform_cancel_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    engine.cancelPreview();
+    // Reset UI
+    if (transform_x_spin) |w| c.gtk_spin_button_set_value(@ptrCast(w), 0.0);
+    if (transform_y_spin) |w| c.gtk_spin_button_set_value(@ptrCast(w), 0.0);
+    if (transform_r_scale) |w| c.gtk_range_set_value(@ptrCast(w), 0.0);
+    if (transform_s_scale) |w| c.gtk_range_set_value(@ptrCast(w), 1.0);
+
+    canvas_dirty = true;
+    queue_draw();
+}
+
 fn tool_toggled(
     button: *c.GtkToggleButton,
     user_data: ?*anyopaque,
@@ -92,6 +139,10 @@ fn tool_toggled(
         const tool_ptr = @as(*Tool, @ptrCast(@alignCast(user_data)));
         current_tool = tool_ptr.*;
         std.debug.print("Tool switched to: {}\n", .{current_tool});
+
+        const is_transform = (current_tool == .unified_transform);
+        if (transform_controls_box) |b| c.gtk_widget_set_visible(b, if (is_transform) 1 else 0);
+        if (transform_action_bar) |b| c.gtk_widget_set_visible(b, if (is_transform) 1 else 0);
 
         switch (current_tool) {
             .brush => {
@@ -130,6 +181,9 @@ fn tool_toggled(
                 engine.setSelectionMode(.ellipse);
                 osd_show("Ellipse Select");
             },
+            .unified_transform => {
+                osd_show("Unified Transform");
+            },
         }
     }
 }
@@ -163,6 +217,7 @@ var eraser_tool = Tool.eraser;
 var bucket_fill_tool = Tool.bucket_fill;
 var rect_select_tool = Tool.rect_select;
 var ellipse_select_tool = Tool.ellipse_select;
+var unified_transform_tool = Tool.unified_transform;
 
 // View State
 var view_scale: f64 = 1.0;
@@ -1023,6 +1078,10 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     const ellipse_btn = createToolButton(&ellipse_select_tool, "media-record-symbolic", "Ellipse Select", @ptrCast(brush_btn), true);
     c.gtk_box_append(@ptrCast(tools_box), ellipse_btn);
 
+    // Unified Transform
+    const transform_btn = createToolButton(&unified_transform_tool, "object-rotate-right-symbolic", "Unified Transform", @ptrCast(brush_btn), true);
+    c.gtk_box_append(@ptrCast(tools_box), transform_btn);
+
     // Separator
     c.gtk_box_append(@ptrCast(sidebar), c.gtk_separator_new(c.GTK_ORIENTATION_HORIZONTAL));
 
@@ -1039,6 +1098,37 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.gtk_widget_set_hexpand(size_slider, 0);
     c.gtk_box_append(@ptrCast(sidebar), size_slider);
     _ = c.g_signal_connect_data(size_slider, "value-changed", @ptrCast(&brush_size_changed), null, null, 0);
+
+    // Transform Controls
+    const t_controls = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 5);
+    transform_controls_box = t_controls;
+    c.gtk_widget_set_visible(t_controls, 0);
+    c.gtk_box_append(@ptrCast(sidebar), t_controls);
+
+    c.gtk_box_append(@ptrCast(t_controls), c.gtk_label_new("Translate X"));
+    const t_x = c.gtk_spin_button_new_with_range(-1000.0, 1000.0, 1.0);
+    transform_x_spin = t_x;
+    c.gtk_box_append(@ptrCast(t_controls), t_x);
+    _ = c.g_signal_connect_data(t_x, "value-changed", @ptrCast(&transform_param_changed), null, null, 0);
+
+    c.gtk_box_append(@ptrCast(t_controls), c.gtk_label_new("Translate Y"));
+    const t_y = c.gtk_spin_button_new_with_range(-1000.0, 1000.0, 1.0);
+    transform_y_spin = t_y;
+    c.gtk_box_append(@ptrCast(t_controls), t_y);
+    _ = c.g_signal_connect_data(t_y, "value-changed", @ptrCast(&transform_param_changed), null, null, 0);
+
+    c.gtk_box_append(@ptrCast(t_controls), c.gtk_label_new("Rotate (Deg)"));
+    const t_r = c.gtk_scale_new_with_range(c.GTK_ORIENTATION_HORIZONTAL, -180.0, 180.0, 1.0);
+    transform_r_scale = t_r;
+    c.gtk_box_append(@ptrCast(t_controls), t_r);
+    _ = c.g_signal_connect_data(t_r, "value-changed", @ptrCast(&transform_param_changed), null, null, 0);
+
+    c.gtk_box_append(@ptrCast(t_controls), c.gtk_label_new("Scale"));
+    const t_s = c.gtk_scale_new_with_range(c.GTK_ORIENTATION_HORIZONTAL, 0.1, 5.0, 0.1);
+    c.gtk_range_set_value(@ptrCast(t_s), 1.0);
+    transform_s_scale = t_s;
+    c.gtk_box_append(@ptrCast(t_controls), t_s);
+    _ = c.g_signal_connect_data(t_s, "value-changed", @ptrCast(&transform_param_changed), null, null, 0);
 
     // Layers Section
     c.gtk_box_append(@ptrCast(sidebar), c.gtk_separator_new(c.GTK_ORIENTATION_HORIZONTAL));
@@ -1130,6 +1220,26 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.gtk_box_append(@ptrCast(osd_box), osd_label);
 
     c.gtk_overlay_add_overlay(@ptrCast(overlay), osd_revealer);
+
+    // Transform Action Bar
+    const t_action_bar = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 10);
+    transform_action_bar = t_action_bar;
+    c.gtk_widget_set_visible(t_action_bar, 0);
+    c.gtk_widget_set_valign(t_action_bar, c.GTK_ALIGN_START);
+    c.gtk_widget_set_halign(t_action_bar, c.GTK_ALIGN_CENTER);
+    c.gtk_widget_set_margin_top(t_action_bar, 20);
+    c.gtk_widget_add_css_class(t_action_bar, "osd-box");
+
+    const t_apply = c.gtk_button_new_with_label("Apply");
+    c.gtk_widget_add_css_class(t_apply, "suggested-action");
+    c.gtk_box_append(@ptrCast(t_action_bar), t_apply);
+    _ = c.g_signal_connect_data(t_apply, "clicked", @ptrCast(&transform_apply_clicked), null, null, 0);
+
+    const t_cancel = c.gtk_button_new_with_label("Cancel");
+    c.gtk_box_append(@ptrCast(t_action_bar), t_cancel);
+    _ = c.g_signal_connect_data(t_cancel, "clicked", @ptrCast(&transform_cancel_clicked), null, null, 0);
+
+    c.gtk_overlay_add_overlay(@ptrCast(overlay), t_action_bar);
 
     // Store in global state
     osd_state.label = osd_label;

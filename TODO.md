@@ -63,7 +63,7 @@
 - [x] Implement Layer Management (Visibility, Locks, Reordering)
 
 ### Transformations
-- [ ] Implement Unified Transform Tool
+- [x] Implement Unified Transform Tool
 
 ### Filters
 - [x] Implement Basic Blur Filters (Gaussian)

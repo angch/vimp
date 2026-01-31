@@ -161,3 +161,11 @@ term planning.
 - Implemented a `canvas_dirty` flag in `src/main.zig` to avoid expensive GEGL-to-Cairo blitting (`engine.blitView`) when the image content hasn't changed (e.g., during OSD animations or selection overlay repaints).
 - **Rule**: Always manage intermediate surface lifecycle (destroy/recreate) on resize in `draw_func`.
 - **Optimization**: Skip heavy composition steps if only overlay/vector elements need repainting.
+
+### 2026-01-31: Unified Transform Tool
+- Implemented `TransformParams` and `TransformCommand` in `src/engine.zig`.
+- Added support for `gegl:transform` in `rebuildGraph` for live preview.
+- Implemented `applyTransform` for destructive commit using `gegl:transform` and `gegl:write-buffer` (manual blit).
+- Added `Unified Transform` tool to UI with Sidebar controls (Translate, Rotate, Scale) and an Overlay Action Bar (Apply/Cancel).
+- **Note**: `gegl:transform` preview logic assumes rotation/scaling around the layer center.
+- **Gotcha**: `c.gegl_node_new_child` with varargs requires careful handling of string pointers.
