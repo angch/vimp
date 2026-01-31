@@ -21,16 +21,18 @@
 
 ### Alignment (GNOME HIG)
 
-- [x] Migrate to Libadwaita (AdwApplication) for modern styling <!-- id: 3 -->
+- [x] Migrate to Libadwaita (AdwApplication) for modern styling
 - [x] Implement fully functional Header Bar (Hamburger Menu, Primary Actions)
 - [x] Implement Adaptive Layouts (Collapsible Sidebar/Flap)
 - [x] Implement Unified Save/Export Flow
 
 ### Spec Integration
 
-- [x] Read and generate TODOs from doc/gimp-file-open-spec.md
+- [ ] Check and update the TODOs here ensuring that we are on the way towards features described in `doc/gimp-file-open-spec.md`
+- [ ] Check and update the TODOs here ensuring that we support the file formats described in `doc/gimp-file-open-spec.md`
+- [ ] Check and update the TODOs here ensuring that we have features as described `doc/ms_paint_spec.md` *without* conflicting with `doc/gimp-feature-spec-gnome-hig.md`
 
-### File Open Implementation (from gimp-file-open-spec.md)
+### File Open Implementation (from `gimp-file-open-spec.md`)
 
 - [x] Implement Basic File Open (Ctrl+O, Native Dialog, Image Formats)
 - [x] Implement Open as Layers (Ctrl+Alt+O)
