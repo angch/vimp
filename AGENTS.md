@@ -169,3 +169,10 @@ term planning.
 - Added `Unified Transform` tool to UI with Sidebar controls (Translate, Rotate, Scale) and an Overlay Action Bar (Apply/Cancel).
 - **Note**: `gegl:transform` preview logic assumes rotation/scaling around the layer center.
 - **Gotcha**: `c.gegl_node_new_child` with varargs requires careful handling of string pointers.
+
+### 2026-01-31: File Open & Open as Layers
+- Implemented `Ctrl+O` (Open) to reset the engine (clear layers, undo stack) before loading the new file.
+- Implemented `Ctrl+Alt+O` (Open as Layers) to append the loaded file as a new layer without clearing existing content.
+- Added `Engine.reset()` and `Engine.setCanvasSize()` to support these workflows.
+- Refactored `src/main.zig` to use `OpenContext` for passing state to async file dialog callbacks.
+- **Note**: `reset()` clears all layers and resets canvas size to default (800x600). Standard Open resizes canvas to match the loaded image.

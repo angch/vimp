@@ -33,7 +33,7 @@
 ### File Open Implementation (from gimp-file-open-spec.md)
 
 - [x] Implement Basic File Open (Ctrl+O, Native Dialog, Image Formats)
-- [ ] Implement Open as Layers (Ctrl+Alt+O)
+- [x] Implement Open as Layers (Ctrl+Alt+O)
 - [ ] Implement Drag and Drop Open (Canvas Drop Zones)
 - [ ] Implement Welcome Screen (Recent Grid, Empty State Actions)
 - [ ] Implement Format Specific Import Dialogs (PDF, SVG)

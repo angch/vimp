@@ -572,8 +572,15 @@ fn new_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(
     queue_draw();
 }
 
+const OpenContext = struct {
+    window: ?*c.GtkWindow,
+    as_layers: bool,
+};
+
 fn open_finish(source_object: ?*c.GObject, res: ?*c.GAsyncResult, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    _ = user_data;
+    const ctx: *OpenContext = @ptrCast(@alignCast(user_data));
+    defer std.heap.c_allocator.destroy(ctx);
+
     var err: ?*c.GError = null;
     const file = c.gtk_file_dialog_open_finish(@ptrCast(source_object), res, &err);
     if (file) |f| {
@@ -582,10 +589,23 @@ fn open_finish(source_object: ?*c.GObject, res: ?*c.GAsyncResult, user_data: ?*a
             // Convert to slice for Zig
             const span = std.mem.span(@as([*:0]const u8, @ptrCast(p)));
 
+            if (!ctx.as_layers) {
+                engine.reset();
+            }
+
             // Call engine load
             engine.loadFromFile(span) catch |e| {
                 std.debug.print("Failed to load file: {}\n", .{e});
             };
+
+            if (!ctx.as_layers) {
+                // If replacing content, set canvas size to first layer
+                if (engine.layers.items.len > 0) {
+                    const layer = &engine.layers.items[0];
+                    const extent = c.gegl_buffer_get_extent(layer.buffer);
+                    engine.setCanvasSize(extent.*.width, extent.*.height);
+                }
+            }
 
             c.g_free(p);
 
@@ -604,11 +624,13 @@ fn open_finish(source_object: ?*c.GObject, res: ?*c.GAsyncResult, user_data: ?*a
     }
 }
 
-fn open_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
-
+fn open_common(window: ?*c.GtkWindow, as_layers: bool) void {
     const dialog = c.gtk_file_dialog_new();
-    c.gtk_file_dialog_set_title(dialog, "Open Image");
+    if (as_layers) {
+        c.gtk_file_dialog_set_title(dialog, "Open as Layers");
+    } else {
+        c.gtk_file_dialog_set_title(dialog, "Open Image");
+    }
 
     // Filters
     const filters = c.g_list_store_new(c.gtk_file_filter_get_type());
@@ -634,8 +656,21 @@ fn open_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) 
     c.gtk_file_dialog_set_filters(dialog, @ptrCast(filters));
     c.g_object_unref(filters);
 
-    c.gtk_file_dialog_open(dialog, window, null, @ptrCast(&open_finish), null);
+    const ctx = std.heap.c_allocator.create(OpenContext) catch return;
+    ctx.* = .{ .window = window, .as_layers = as_layers };
+
+    c.gtk_file_dialog_open(dialog, window, null, @ptrCast(&open_finish), ctx);
     c.g_object_unref(dialog);
+}
+
+fn open_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
+    open_common(window, false);
+}
+
+fn open_as_layers_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
+    open_common(window, true);
 }
 
 fn save_surface_to_file(s: *c.cairo_surface_t, filename: [*c]const u8) void {
@@ -975,6 +1010,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
 
     add_action(app, "new", @ptrCast(&new_activated), null);
     add_action(app, "open", @ptrCast(&open_activated), window);
+    add_action(app, "open-as-layers", @ptrCast(&open_as_layers_activated), window);
     add_action(app, "save", @ptrCast(&save_activated), window);
     add_action(app, "about", @ptrCast(&about_activated), null);
     add_action(app, "quit", @ptrCast(&quit_activated), app);
@@ -1001,6 +1037,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     set_accel(app, "app.quit", "<Ctrl>q");
     set_accel(app, "app.new", "<Ctrl>n");
     set_accel(app, "app.open", "<Ctrl>o");
+    set_accel(app, "app.open-as-layers", "<Ctrl><Alt>o");
     set_accel(app, "app.save", "<Ctrl>s");
     set_accel(app, "app.undo", "<Ctrl>z");
     set_accel(app, "app.redo", "<Ctrl>y");
