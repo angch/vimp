@@ -490,8 +490,7 @@ pub const Engine = struct {
                     var buf: [256]u8 = undefined;
                     // Order: Translate Center -> Scale -> Rotate -> Translate Back -> Translate Offset
                     // String: "translate(cx+tx, cy+ty) rotate(r) scale(s) translate(-cx, -cy)"
-                    const transform_str = std.fmt.bufPrintZ(&buf, "translate({d}, {d}) rotate({d}) scale({d}) translate({d}, {d})",
-                        .{ cx + tp.x, cy + tp.y, tp.rotate, tp.scale, -cx, -cy }) catch "translate(0,0)";
+                    const transform_str = std.fmt.bufPrintZ(&buf, "translate({d}, {d}) rotate({d}) scale({d}) translate({d}, {d})", .{ cx + tp.x, cy + tp.y, tp.rotate, tp.scale, -cx, -cy }) catch "translate(0,0)";
 
                     if (c.gegl_node_new_child(self.graph, "operation", "gegl:transform", "transform", transform_str.ptr, @as(?*anyopaque, null))) |trans_node| {
                         _ = c.gegl_node_connect(trans_node, "input", source_output, "output");
@@ -544,6 +543,52 @@ pub const Engine = struct {
 
         const index = self.layers.items.len;
         try self.addLayerInternal(buffer, name, true, false, index);
+
+        // Push Undo
+        const cmd = Command{
+            .layer = .{ .add = .{ .index = index, .snapshot = null } },
+        };
+        self.undo_stack.append(std.heap.c_allocator, cmd) catch |err| {
+            std.debug.print("Failed to push undo: {}\n", .{err});
+        };
+        for (self.redo_stack.items) |*r_cmd| r_cmd.deinit();
+        self.redo_stack.clearRetainingCapacity();
+    }
+
+    pub fn loadFromFile(self: *Engine, path: []const u8) !void {
+        // Use a temporary graph to load
+        const temp_graph = c.gegl_node_new();
+        defer c.g_object_unref(temp_graph);
+
+        // path must be null-terminated C string
+        const path_z = try std.heap.c_allocator.dupeZ(u8, path);
+        defer std.heap.c_allocator.free(path_z);
+
+        const load_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:load", "path", path_z.ptr, @as(?*anyopaque, null));
+        if (load_node == null) return error.GeglLoadFailed;
+
+        // Process to get extent
+        const bbox = c.gegl_node_get_bounding_box(load_node);
+        if (bbox.width <= 0 or bbox.height <= 0) return error.InvalidImage;
+
+        // Create new buffer
+        const format = c.babl_format("R'G'B'A u8");
+        const new_buffer = c.gegl_buffer_new(&bbox, format);
+        if (new_buffer == null) return error.GeglBufferFailed;
+
+        const write_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:write-buffer", "buffer", new_buffer, @as(?*anyopaque, null));
+        if (write_node) |wn| {
+            _ = c.gegl_node_link(load_node, wn);
+            _ = c.gegl_node_process(wn);
+        } else {
+            c.g_object_unref(new_buffer);
+            return error.GeglGraphFailed;
+        }
+
+        const basename = std.fs.path.basename(path);
+        const index = self.layers.items.len;
+
+        try self.addLayerInternal(new_buffer.?, basename, true, false, index);
 
         // Push Undo
         const cmd = Command{
@@ -927,8 +972,7 @@ pub const Engine = struct {
         const tp = self.preview_transform;
 
         var buf: [256]u8 = undefined;
-        const transform_str = std.fmt.bufPrintZ(&buf, "translate({d}, {d}) rotate({d}) scale({d}) translate({d}, {d})",
-            .{ cx + tp.x, cy + tp.y, tp.rotate, tp.scale, -cx, -cy }) catch "translate(0,0)";
+        const transform_str = std.fmt.bufPrintZ(&buf, "translate({d}, {d}) rotate({d}) scale({d}) translate({d}, {d})", .{ cx + tp.x, cy + tp.y, tp.rotate, tp.scale, -cx, -cy }) catch "translate(0,0)";
 
         const trans_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:transform", "transform", transform_str.ptr, @as(?*anyopaque, null));
         if (trans_node == null) return;
@@ -1755,4 +1799,44 @@ test "Engine transform apply" {
         c.gegl_buffer_get(buf, &rect_old, 1.0, format, &pixel_old, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
         try std.testing.expectEqual(pixel_old[0], 0);
     }
+}
+
+test "Engine load from file" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+
+    // Create a temporary valid PNG file
+    const filename = "test_image.png";
+    {
+        const rect = c.GeglRectangle{ .x = 0, .y = 0, .width = 10, .height = 10 };
+        const format = c.babl_format("R'G'B'A u8");
+        const buf = c.gegl_buffer_new(&rect, format);
+        defer c.g_object_unref(buf);
+
+        const temp_graph = c.gegl_node_new();
+        defer c.g_object_unref(temp_graph);
+
+        const source = c.gegl_node_new_child(temp_graph, "operation", "gegl:buffer-source", "buffer", buf, @as(?*anyopaque, null));
+        const save = c.gegl_node_new_child(temp_graph, "operation", "gegl:save", "path", filename, @as(?*anyopaque, null));
+
+        if (source != null and save != null) {
+            _ = c.gegl_node_link(source, save);
+            _ = c.gegl_node_process(save);
+        }
+    }
+    defer std.fs.cwd().deleteFile(filename) catch {};
+
+    try engine.loadFromFile(filename);
+
+    try std.testing.expectEqual(engine.layers.items.len, 1);
+
+    const layer = &engine.layers.items[0];
+    const name = std.mem.span(@as([*:0]const u8, @ptrCast(&layer.name)));
+    try std.testing.expectEqualStrings(name, "test_image.png");
+
+    const extent = c.gegl_buffer_get_extent(layer.buffer);
+    try std.testing.expectEqual(extent.*.width, 10);
+    try std.testing.expectEqual(extent.*.height, 10);
 }
