@@ -581,6 +581,7 @@ fn refresh_layers_ui() void {
             i -= 1;
             const idx = i;
             const layer = &engine.layers.items[idx];
+            const user_data: ?*anyopaque = if (idx == 0) null else @ptrFromInt(idx);
 
             const row = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 5);
 
@@ -588,14 +589,14 @@ fn refresh_layers_ui() void {
             const vis_check = c.gtk_check_button_new();
             c.gtk_check_button_set_active(@ptrCast(vis_check), if (layer.visible) 1 else 0);
             c.gtk_widget_set_tooltip_text(vis_check, "Visible");
-            _ = c.g_signal_connect_data(vis_check, "toggled", @ptrCast(&layer_visibility_toggled), @as(*anyopaque, @ptrFromInt(idx)), null, 0);
+            _ = c.g_signal_connect_data(vis_check, "toggled", @ptrCast(&layer_visibility_toggled), user_data, null, 0);
             c.gtk_box_append(@ptrCast(row), vis_check);
 
             // Lock Check
             const lock_check = c.gtk_check_button_new();
             c.gtk_check_button_set_active(@ptrCast(lock_check), if (layer.locked) 1 else 0);
             c.gtk_widget_set_tooltip_text(lock_check, "Lock");
-            _ = c.g_signal_connect_data(lock_check, "toggled", @ptrCast(&layer_lock_toggled), @as(*anyopaque, @ptrFromInt(idx)), null, 0);
+            _ = c.g_signal_connect_data(lock_check, "toggled", @ptrCast(&layer_lock_toggled), user_data, null, 0);
             c.gtk_box_append(@ptrCast(row), lock_check);
 
             // Name Label

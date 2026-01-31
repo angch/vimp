@@ -18,6 +18,5 @@ test:
 	zig build test
 
 clean:
-	rm -rf libs
 	rm -rf zig-out
 	rm -rf .zig-cache
