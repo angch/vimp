@@ -4,11 +4,13 @@ const c = @import("c.zig").c;
 pub const RecentManager = struct {
     paths: std.ArrayList([]u8),
     allocator: std.mem.Allocator,
+    custom_path: ?[]u8 = null,
 
     pub fn init(allocator: std.mem.Allocator) RecentManager {
         return .{
             .paths = std.ArrayList([]u8){},
             .allocator = allocator,
+            .custom_path = null,
         };
     }
 
@@ -17,9 +19,23 @@ pub const RecentManager = struct {
             self.allocator.free(path);
         }
         self.paths.deinit(self.allocator);
+        if (self.custom_path) |p| {
+            self.allocator.free(p);
+        }
+    }
+
+    pub fn setCustomPath(self: *RecentManager, path: []const u8) !void {
+        if (self.custom_path) |p| {
+            self.allocator.free(p);
+        }
+        self.custom_path = try self.allocator.dupe(u8, path);
     }
 
     fn getStoragePath(self: *RecentManager) ![]u8 {
+        if (self.custom_path) |p| {
+            return self.allocator.dupe(u8, p);
+        }
+
         const user_data_dir = c.g_get_user_data_dir();
         if (user_data_dir == null) return error.NoUserDataDir;
 
@@ -135,4 +151,36 @@ test "RecentManager logic" {
     try std.testing.expectEqual(@as(usize, 2), mgr.paths.items.len);
     try std.testing.expectEqualStrings("file1.png", mgr.paths.items[0]); // Moved to front
     try std.testing.expectEqualStrings("file2.png", mgr.paths.items[1]);
+}
+
+test "RecentManager persistence" {
+    const allocator = std.testing.allocator;
+    var tmp_dir = std.testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const tmp_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(tmp_path);
+
+    const db_path = try std.fs.path.join(allocator, &[_][]const u8{ tmp_path, "recent_test.json" });
+    defer allocator.free(db_path);
+
+    {
+        var mgr = RecentManager.init(allocator);
+        defer mgr.deinit();
+        try mgr.setCustomPath(db_path);
+
+        try mgr.add("test_file_1.png");
+        try mgr.add("test_file_2.png");
+    }
+
+    {
+        var mgr = RecentManager.init(allocator);
+        defer mgr.deinit();
+        try mgr.setCustomPath(db_path);
+
+        try mgr.load();
+        try std.testing.expectEqual(@as(usize, 2), mgr.paths.items.len);
+        try std.testing.expectEqualStrings("test_file_2.png", mgr.paths.items[0]);
+        try std.testing.expectEqualStrings("test_file_1.png", mgr.paths.items[1]);
+    }
 }

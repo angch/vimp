@@ -38,7 +38,8 @@
 - [x] Implement Open as Layers (Ctrl+Alt+O)
 - [x] Implement Drag and Drop Open (Canvas Drop Zones)
 - [x] Implement Welcome Screen (Recent Grid, Empty State Actions)
-- [ ] Implement Recent Files Persistence (Backend for Recent Grid)
+- [x] Implement Recent Files Persistence (Backend for Recent Grid)
+- [x] Implement file type filtering in Open Dialog
 - [ ] Implement Format Specific Import Dialogs (PDF, SVG)
 - [x] Implement Error Handling (Non-blocking Toasts)
 - [ ] Read and generate TODOs from doc/gimp-file-open-spec.md
