@@ -97,14 +97,17 @@ fn tool_toggled(
             .brush => {
                 engine.setMode(.paint);
                 engine.setBrushType(.circle);
+                osd_show("Brush");
             },
             .pencil => {
                 engine.setMode(.paint);
                 engine.setBrushType(.square);
+                osd_show("Pencil");
             },
             .airbrush => {
                 engine.setMode(.airbrush);
                 engine.setBrushType(.circle);
+                osd_show("Airbrush");
             },
             .eraser => {
                 engine.setMode(.erase);
@@ -113,13 +116,19 @@ fn tool_toggled(
                 // Let's make eraser square for consistency with typical pixel erasers, or circle.
                 // Let's stick to square for eraser for now as it was default.
                 engine.setBrushType(.square);
+                osd_show("Eraser");
             },
-            .bucket_fill => engine.setMode(.fill),
+            .bucket_fill => {
+                engine.setMode(.fill);
+                osd_show("Bucket Fill");
+            },
             .rect_select => {
                 engine.setSelectionMode(.rectangle);
+                osd_show("Rectangle Select");
             },
             .ellipse_select => {
                 engine.setSelectionMode(.ellipse);
+                osd_show("Ellipse Select");
             },
         }
     }
@@ -159,6 +168,14 @@ var ellipse_select_tool = Tool.ellipse_select;
 var view_scale: f64 = 1.0;
 var view_x: f64 = 0.0;
 var view_y: f64 = 0.0;
+
+const OsdState = struct {
+    label: ?*c.GtkWidget = null,
+    revealer: ?*c.GtkWidget = null,
+    timeout_id: c_uint = 0,
+};
+
+var osd_state: OsdState = .{};
 
 fn draw_func(
     widget: [*c]c.GtkDrawingArea,
@@ -316,6 +333,11 @@ fn scroll_func(
         view_x = (view_x + mouse_x) * zoom_factor - mouse_x;
         view_y = (view_y + mouse_y) * zoom_factor - mouse_y;
         view_scale = new_scale;
+
+        var buf: [32]u8 = undefined;
+        const pct: i32 = @intFromFloat(view_scale * 100.0);
+        const txt = std.fmt.bufPrint(&buf, "Zoom: {d}%", .{pct}) catch "Zoom";
+        osd_show(txt);
     } else {
         // Pan
         // Scroll down (positive dy) -> Move View Down (increase ViewY) -> Content moves Up?
@@ -761,6 +783,30 @@ fn layer_selected(_: *c.GtkListBox, row: ?*c.GtkListBoxRow, _: ?*anyopaque) call
     }
 }
 
+fn osd_hide_callback(user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) c.gboolean {
+    _ = user_data;
+    if (osd_state.revealer) |rev| {
+        c.gtk_revealer_set_reveal_child(@ptrCast(rev), 0);
+    }
+    osd_state.timeout_id = 0;
+    return 0; // G_SOURCE_REMOVE
+}
+
+fn osd_show(text: []const u8) void {
+    if (osd_state.label == null or osd_state.revealer == null) return;
+
+    var buf: [128]u8 = undefined;
+    const slice = std.fmt.bufPrintZ(&buf, "{s}", .{text}) catch return;
+    c.gtk_label_set_text(@ptrCast(osd_state.label), slice.ptr);
+
+    c.gtk_revealer_set_reveal_child(@ptrCast(osd_state.revealer), 1);
+
+    if (osd_state.timeout_id != 0) {
+        _ = c.g_source_remove(osd_state.timeout_id);
+    }
+    osd_state.timeout_id = c.g_timeout_add(1500, @ptrCast(&osd_hide_callback), null);
+}
+
 fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     _ = user_data;
 
@@ -1025,13 +1071,37 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     // Set as content in split view
     c.adw_overlay_split_view_set_content(@ptrCast(split_view), content);
 
+    // Overlay
+    const overlay = c.gtk_overlay_new();
+    c.gtk_box_append(@ptrCast(content), overlay);
+
     // Drawing Area
     const area = c.gtk_drawing_area_new();
     drawing_area = area;
     c.gtk_widget_set_hexpand(area, 1);
     c.gtk_widget_set_vexpand(area, 1);
     c.gtk_drawing_area_set_draw_func(@ptrCast(area), draw_func, null, null);
-    c.gtk_box_append(@ptrCast(content), area);
+    c.gtk_overlay_set_child(@ptrCast(overlay), area);
+
+    // OSD Widget
+    const osd_revealer = c.gtk_revealer_new();
+    c.gtk_widget_set_valign(osd_revealer, c.GTK_ALIGN_END);
+    c.gtk_widget_set_halign(osd_revealer, c.GTK_ALIGN_CENTER);
+    c.gtk_widget_set_margin_bottom(osd_revealer, 40);
+    c.gtk_revealer_set_transition_type(@ptrCast(osd_revealer), c.GTK_REVEALER_TRANSITION_TYPE_CROSSFADE);
+
+    const osd_box = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 0);
+    c.gtk_widget_add_css_class(osd_box, "osd-box");
+    c.gtk_revealer_set_child(@ptrCast(osd_revealer), osd_box);
+
+    const osd_label = c.gtk_label_new("");
+    c.gtk_box_append(@ptrCast(osd_box), osd_label);
+
+    c.gtk_overlay_add_overlay(@ptrCast(overlay), osd_revealer);
+
+    // Store in global state
+    osd_state.label = osd_label;
+    osd_state.revealer = osd_revealer;
 
     // Gestures
     const drag = c.gtk_gesture_drag_new();
@@ -1063,6 +1133,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     const css =
         \\.sidebar { background-color: shade(@theme_bg_color, 0.95); border-right: 1px solid alpha(currentColor, 0.15); padding: 10px; }
         \\.content { background-color: @theme_bg_color; }
+        \\.osd-box { background-color: rgba(0, 0, 0, 0.7); color: white; border-radius: 12px; padding: 8px 16px; font-weight: bold; }
     ;
     // Note: Adwaita handles colors better, using shared variables
     c.gtk_css_provider_load_from_data(css_provider, css, -1);

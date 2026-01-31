@@ -139,6 +139,7 @@ term planning.
 - Updated UI to include a Layers panel with controls and visibility/lock toggles.
 - Gotcha: `std.ArrayList` in Zig 0.15+ behaves like `Unmanaged` (requires allocator for `append`/`deinit` and init via struct literal `{}`).
 - Gotcha: `c.gegl_node_new_child` returns optional pointer, must be handled.
+- Gotcha: `gegl_node_link` failures or graph update issues can cause rendering to stop.
 - Gotcha: When removing layers, old `gegl:over` nodes in the composition chain must be cleaned up (currently removed from graph).
 
 ### 2026-01-31: Layer Undo/Redo System
@@ -147,3 +148,10 @@ term planning.
 - Refactored layer operations to separate internal logic (`addLayerInternal`, etc.) from public API which handles Command creation.
 - `LayerSnapshot` holds a reference to the `gegl_buffer`, ensuring data persists during Undo/Redo cycles even if the layer is removed from the engine.
 - Verified with unit test `Engine layer undo redo`.
+
+### 2026-02-05: Overlay Feedback (OSD)
+- Implemented `OsdState` and helper functions (`osd_show`, `osd_hide_callback`) in `src/main.zig` to provide transient visual feedback.
+- Used `GtkOverlay` to layer the OSD on top of the `GtkDrawingArea`.
+- Used `GtkRevealer` for fade-in/out animations.
+- Integrated OSD with Zoom (percentage feedback) and Tool Switching events.
+- **Pattern**: `GtkOverlay` + `GtkRevealer` is effective for non-blocking notifications in GTK4 apps.

@@ -71,6 +71,6 @@
 
 ### UI Improvements
 - [x] Implement Empty State for Canvas
-- [ ] Implement Overlay Feedback (OSD)
+- [x] Implement Overlay Feedback (OSD)
 - [x] Implement Undo History Panel
 
