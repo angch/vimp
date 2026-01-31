@@ -676,7 +676,7 @@ fn open_common(window: ?*c.GtkWindow, as_layers: bool) void {
     const filters = c.g_list_store_new(c.gtk_file_filter_get_type());
 
     const filter_imgs = c.gtk_file_filter_new();
-    c.gtk_file_filter_set_name(filter_imgs, "Images");
+    c.gtk_file_filter_set_name(filter_imgs, "All Supported Images");
     c.gtk_file_filter_add_pattern(filter_imgs, "*.png");
     c.gtk_file_filter_add_pattern(filter_imgs, "*.jpg");
     c.gtk_file_filter_add_pattern(filter_imgs, "*.jpeg");
@@ -688,10 +688,42 @@ fn open_common(window: ?*c.GtkWindow, as_layers: bool) void {
     c.gtk_file_filter_add_pattern(filter_imgs, "*.avif");
     c.gtk_file_filter_add_pattern(filter_imgs, "*.ico");
     c.gtk_file_filter_add_pattern(filter_imgs, "*.tga");
-    c.gtk_file_filter_add_pattern(filter_imgs, "*.xcf"); // Just in case GEGL supports it
+    c.gtk_file_filter_add_pattern(filter_imgs, "*.xcf");
 
     c.g_list_store_append(filters, filter_imgs);
     c.g_object_unref(filter_imgs);
+
+    // Specific Filters
+    const filter_png = c.gtk_file_filter_new();
+    c.gtk_file_filter_set_name(filter_png, "PNG Image");
+    c.gtk_file_filter_add_pattern(filter_png, "*.png");
+    c.g_list_store_append(filters, filter_png);
+    c.g_object_unref(filter_png);
+
+    const filter_jpg = c.gtk_file_filter_new();
+    c.gtk_file_filter_set_name(filter_jpg, "JPEG Image");
+    c.gtk_file_filter_add_pattern(filter_jpg, "*.jpg");
+    c.gtk_file_filter_add_pattern(filter_jpg, "*.jpeg");
+    c.g_list_store_append(filters, filter_jpg);
+    c.g_object_unref(filter_jpg);
+
+    const filter_webp = c.gtk_file_filter_new();
+    c.gtk_file_filter_set_name(filter_webp, "WebP Image");
+    c.gtk_file_filter_add_pattern(filter_webp, "*.webp");
+    c.g_list_store_append(filters, filter_webp);
+    c.g_object_unref(filter_webp);
+
+    const filter_xcf = c.gtk_file_filter_new();
+    c.gtk_file_filter_set_name(filter_xcf, "GIMP XCF Image");
+    c.gtk_file_filter_add_pattern(filter_xcf, "*.xcf");
+    c.g_list_store_append(filters, filter_xcf);
+    c.g_object_unref(filter_xcf);
+
+    const filter_all = c.gtk_file_filter_new();
+    c.gtk_file_filter_set_name(filter_all, "All Files");
+    c.gtk_file_filter_add_pattern(filter_all, "*");
+    c.g_list_store_append(filters, filter_all);
+    c.g_object_unref(filter_all);
 
     c.gtk_file_dialog_set_filters(dialog, @ptrCast(filters));
     c.g_object_unref(filters);
