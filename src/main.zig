@@ -608,11 +608,29 @@ const ImportContext = struct {
     as_layers: bool,
 };
 
+fn generate_thumbnail(path: [:0]const u8) void {
+    recent_manager.ensureThumbnailDir() catch |e| {
+        std.debug.print("Failed to ensure thumbnail dir: {}\n", .{e});
+        return;
+    };
+
+    const thumb_path = recent_manager.getThumbnailPath(path) catch |e| {
+        std.debug.print("Failed to get thumbnail path: {}\n", .{e});
+        return;
+    };
+    defer std.heap.c_allocator.free(thumb_path);
+
+    engine.saveThumbnail(thumb_path, 96, 96) catch |e| {
+        std.debug.print("Failed to save thumbnail: {}\n", .{e});
+    };
+}
+
 fn finish_file_open(path: [:0]const u8, as_layers: bool, success: bool) void {
     if (success) {
         recent_manager.add(path) catch |e| {
             std.debug.print("Failed to add to recent: {}\n", .{e});
         };
+        generate_thumbnail(path);
         refresh_recent_ui();
     }
 
@@ -1320,8 +1338,28 @@ fn refresh_recent_ui() void {
                 c.gtk_widget_set_margin_start(row_box, 12);
                 c.gtk_widget_set_margin_end(row_box, 12);
 
-                const icon = c.gtk_image_new_from_icon_name("image-x-generic-symbolic");
-                c.gtk_box_append(@ptrCast(row_box), icon);
+                var icon_widget: *c.GtkWidget = undefined;
+                var has_thumb = false;
+
+                if (recent_manager.getThumbnailPath(path)) |tp| {
+                    if (std.fs.openFileAbsolute(tp, .{})) |f| {
+                        f.close();
+                        const tp_z = std.fmt.allocPrintSentinel(std.heap.c_allocator, "{s}", .{tp}, 0) catch null;
+                        if (tp_z) |z| {
+                            icon_widget = c.gtk_image_new_from_file(z);
+                            c.gtk_image_set_pixel_size(@ptrCast(icon_widget), 64);
+                            std.heap.c_allocator.free(z);
+                            has_thumb = true;
+                        }
+                    } else |_| {}
+                    std.heap.c_allocator.free(tp);
+                } else |_| {}
+
+                if (!has_thumb) {
+                    icon_widget = c.gtk_image_new_from_icon_name("image-x-generic-symbolic");
+                    c.gtk_image_set_pixel_size(@ptrCast(icon_widget), 32);
+                }
+                c.gtk_box_append(@ptrCast(row_box), icon_widget);
 
                 const basename = std.fs.path.basename(path);
                 var buf: [256]u8 = undefined;
