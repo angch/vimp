@@ -140,3 +140,10 @@ term planning.
 - Gotcha: `std.ArrayList` in Zig 0.15+ behaves like `Unmanaged` (requires allocator for `append`/`deinit` and init via struct literal `{}`).
 - Gotcha: `c.gegl_node_new_child` returns optional pointer, must be handled.
 - Gotcha: When removing layers, old `gegl:over` nodes in the composition chain must be cleaned up (currently removed from graph).
+
+### 2026-01-31: Layer Undo/Redo System
+- Implemented Undo/Redo for Layer operations: Add, Remove, Reorder, Visibility, Lock.
+- Introduced `LayerCommand` and `LayerSnapshot` structs in `src/engine.zig`.
+- Refactored layer operations to separate internal logic (`addLayerInternal`, etc.) from public API which handles Command creation.
+- `LayerSnapshot` holds a reference to the `gegl_buffer`, ensuring data persists during Undo/Redo cycles even if the layer is removed from the engine.
+- Verified with unit test `Engine layer undo redo`.

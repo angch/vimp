@@ -30,12 +30,58 @@ pub const Engine = struct {
         }
     };
 
+    pub const LayerSnapshot = struct {
+        buffer: *c.GeglBuffer, // Strong reference
+        name: [64]u8,
+        visible: bool,
+        locked: bool,
+
+        pub fn deinit(self: *LayerSnapshot) void {
+            c.g_object_unref(self.buffer);
+        }
+    };
+
+    pub const LayerCommand = union(enum) {
+        add: struct {
+            index: usize,
+            snapshot: ?LayerSnapshot = null,
+        },
+        remove: struct {
+            index: usize,
+            snapshot: ?LayerSnapshot = null,
+        },
+        reorder: struct {
+            from: usize,
+            to: usize,
+        },
+        visibility: struct {
+            index: usize,
+        },
+        lock: struct {
+            index: usize,
+        },
+
+        pub fn deinit(self: *LayerCommand) void {
+            switch (self.*) {
+                .add => |*cmd| {
+                    if (cmd.snapshot) |*s| s.deinit();
+                },
+                .remove => |*cmd| {
+                    if (cmd.snapshot) |*s| s.deinit();
+                },
+                else => {},
+            }
+        }
+    };
+
     pub const Command = union(enum) {
         paint: PaintCommand,
+        layer: LayerCommand,
 
         pub fn deinit(self: *Command) void {
             switch (self.*) {
                 .paint => |*cmd| cmd.deinit(),
+                .layer => |*cmd| cmd.deinit(),
             }
         }
     };
@@ -150,6 +196,7 @@ pub const Engine = struct {
                         }
                     }
                 },
+                .layer => {}, // Nothing to capture for layer commands
             }
             // Move current_command to undo stack
             self.undo_stack.append(std.heap.c_allocator, self.current_command.?) catch |err| {
@@ -170,7 +217,9 @@ pub const Engine = struct {
         if (self.undo_stack.items.len == 0) return;
         const cmd_opt = self.undo_stack.pop();
         if (cmd_opt) |cmd| {
-            switch (cmd) {
+            // Need a mutable copy to update snapshots
+            var mutable_cmd = cmd;
+            switch (mutable_cmd) {
                 .paint => |p_cmd| {
                     if (p_cmd.layer_idx < self.layers.items.len) {
                         const layer = &self.layers.items[p_cmd.layer_idx];
@@ -186,10 +235,35 @@ pub const Engine = struct {
                         }
                     }
                 },
+                .layer => |*l_cmd| {
+                    switch (l_cmd.*) {
+                        .add => |*add_cmd| {
+                            // Undo Add -> Remove
+                            add_cmd.snapshot = self.removeLayerInternal(add_cmd.index);
+                        },
+                        .remove => |*rm_cmd| {
+                            // Undo Remove -> Add (Restore)
+                            if (rm_cmd.snapshot) |*snap| {
+                                self.addLayerInternal(snap.buffer, &snap.name, snap.visible, snap.locked, rm_cmd.index) catch |err| {
+                                    std.debug.print("Failed to undo layer remove: {}\n", .{err});
+                                };
+                                rm_cmd.snapshot = null; // Ownership transferred
+                            }
+                        },
+                        .reorder => |*ord_cmd| {
+                            self.reorderLayerInternal(ord_cmd.to, ord_cmd.from);
+                        },
+                        .visibility => |*vis_cmd| {
+                            self.toggleLayerVisibilityInternal(vis_cmd.index);
+                        },
+                        .lock => |*lock_cmd| {
+                            self.toggleLayerLockInternal(lock_cmd.index);
+                        },
+                    }
+                },
             }
 
-            self.redo_stack.append(std.heap.c_allocator, cmd) catch {
-                var mutable_cmd = cmd;
+            self.redo_stack.append(std.heap.c_allocator, mutable_cmd) catch {
                 mutable_cmd.deinit();
             };
         }
@@ -200,7 +274,9 @@ pub const Engine = struct {
         const cmd_opt = self.redo_stack.pop();
 
         if (cmd_opt) |cmd| {
-            switch (cmd) {
+            // Need a mutable copy to update snapshots
+            var mutable_cmd = cmd;
+            switch (mutable_cmd) {
                 .paint => |p_cmd| {
                     if (p_cmd.layer_idx < self.layers.items.len) {
                         const layer = &self.layers.items[p_cmd.layer_idx];
@@ -214,10 +290,35 @@ pub const Engine = struct {
                         }
                     }
                 },
+                .layer => |*l_cmd| {
+                    switch (l_cmd.*) {
+                        .add => |*add_cmd| {
+                            // Redo Add -> Add (Restore)
+                            if (add_cmd.snapshot) |*snap| {
+                                self.addLayerInternal(snap.buffer, &snap.name, snap.visible, snap.locked, add_cmd.index) catch |err| {
+                                    std.debug.print("Failed to redo layer add: {}\n", .{err});
+                                };
+                                add_cmd.snapshot = null; // Ownership transferred
+                            }
+                        },
+                        .remove => |*rm_cmd| {
+                            // Redo Remove -> Remove
+                            rm_cmd.snapshot = self.removeLayerInternal(rm_cmd.index);
+                        },
+                        .reorder => |*ord_cmd| {
+                            self.reorderLayerInternal(ord_cmd.from, ord_cmd.to);
+                        },
+                        .visibility => |*vis_cmd| {
+                            self.toggleLayerVisibilityInternal(vis_cmd.index);
+                        },
+                        .lock => |*lock_cmd| {
+                            self.toggleLayerLockInternal(lock_cmd.index);
+                        },
+                    }
+                },
             }
 
-            self.undo_stack.append(std.heap.c_allocator, cmd) catch {
-                var mutable_cmd = cmd;
+            self.undo_stack.append(std.heap.c_allocator, mutable_cmd) catch {
                 mutable_cmd.deinit();
             };
         }
@@ -319,71 +420,97 @@ pub const Engine = struct {
         self.output_node = current_input;
     }
 
-    pub fn addLayer(self: *Engine, name: []const u8) !void {
-        const extent = c.GeglRectangle{ .x = 0, .y = 0, .width = self.canvas_width, .height = self.canvas_height };
-        const format = c.babl_format("R'G'B'A u8");
-        const buffer = c.gegl_buffer_new(&extent, format) orelse return error.GeglBufferFailed;
-
+    fn addLayerInternal(self: *Engine, buffer: *c.GeglBuffer, name: []const u8, visible: bool, locked: bool, index: usize) !void {
         const source_node = c.gegl_node_new_child(self.graph, "operation", "gegl:buffer-source", "buffer", buffer, @as(?*anyopaque, null)) orelse return error.GeglNodeFailed;
 
         var layer = Layer{
             .buffer = buffer,
             .source_node = source_node,
-            .visible = true,
-            .locked = false,
+            .visible = visible,
+            .locked = locked,
         };
         // Copy name
         const len = @min(name.len, layer.name.len - 1);
         @memcpy(layer.name[0..len], name[0..len]);
         layer.name[len] = 0; // Null terminate
 
-        try self.layers.append(std.heap.c_allocator, layer);
-        self.active_layer_idx = self.layers.items.len - 1;
+        try self.layers.insert(std.heap.c_allocator, index, layer);
+
+        // Update active index
+        // If we inserted before or at active index, we need to shift active index?
+        // Logic: We usually want to select the new layer.
+        self.active_layer_idx = index;
 
         self.rebuildGraph();
     }
 
-    pub fn removeLayer(self: *Engine, index: usize) void {
-        if (index >= self.layers.items.len) return;
+    pub fn addLayer(self: *Engine, name: []const u8) !void {
+        const extent = c.GeglRectangle{ .x = 0, .y = 0, .width = self.canvas_width, .height = self.canvas_height };
+        const format = c.babl_format("R'G'B'A u8");
+        const buffer = c.gegl_buffer_new(&extent, format) orelse return error.GeglBufferFailed;
 
-        // If removing last layer, be careful?
-        // We should probably ensure at least one layer? Or allow empty?
-        // Allow empty for flexibility, but app might misbehave.
+        const index = self.layers.items.len;
+        try self.addLayerInternal(buffer, name, true, false, index);
 
+        // Push Undo
+        const cmd = Command{
+            .layer = .{ .add = .{ .index = index, .snapshot = null } },
+        };
+        self.undo_stack.append(std.heap.c_allocator, cmd) catch |err| {
+            std.debug.print("Failed to push undo: {}\n", .{err});
+        };
+        for (self.redo_stack.items) |*r_cmd| r_cmd.deinit();
+        self.redo_stack.clearRetainingCapacity();
+    }
+
+    fn removeLayerInternal(self: *Engine, index: usize) LayerSnapshot {
         const layer = self.layers.orderedRemove(index);
 
-        // Clean up
+        // Clean up node but keep buffer
         _ = c.gegl_node_remove_child(self.graph, layer.source_node);
-        c.g_object_unref(layer.buffer);
 
         // Update active index
         if (self.active_layer_idx >= self.layers.items.len) {
             if (self.layers.items.len > 0) {
                 self.active_layer_idx = self.layers.items.len - 1;
             } else {
-                self.active_layer_idx = 0; // Or invalid
+                self.active_layer_idx = 0;
             }
         }
 
         self.rebuildGraph();
+
+        return LayerSnapshot{
+            .buffer = layer.buffer,
+            .name = layer.name,
+            .visible = layer.visible,
+            .locked = layer.locked,
+        };
     }
 
-    pub fn reorderLayer(self: *Engine, from: usize, to: usize) void {
-        if (from >= self.layers.items.len or to >= self.layers.items.len) return;
-        if (from == to) return;
+    pub fn removeLayer(self: *Engine, index: usize) void {
+        if (index >= self.layers.items.len) return;
+        var snapshot = self.removeLayerInternal(index);
 
+        // Push Undo
+        const cmd = Command{
+            .layer = .{ .remove = .{ .index = index, .snapshot = snapshot } },
+        };
+        self.undo_stack.append(std.heap.c_allocator, cmd) catch |err| {
+            std.debug.print("Failed to push undo: {}\n", .{err});
+            snapshot.deinit(); // Prevent leak
+        };
+        for (self.redo_stack.items) |*r_cmd| r_cmd.deinit();
+        self.redo_stack.clearRetainingCapacity();
+    }
+
+    fn reorderLayerInternal(self: *Engine, from: usize, to: usize) void {
         const layer = self.layers.orderedRemove(from);
         self.layers.insert(std.heap.c_allocator, to, layer) catch {
-            // Put it back?
-            // This shouldn't fail if capacity is enough, but insert might alloc.
-            // If it fails, we lost the layer?
-            // Let's assume panic on OOM for now or handle better.
-            // Pushing back to end is safer if insert fails?
             self.layers.append(std.heap.c_allocator, layer) catch {};
             return;
         };
 
-        // Update active index if it moved
         if (self.active_layer_idx == from) {
             self.active_layer_idx = to;
         } else if (from < self.active_layer_idx and to >= self.active_layer_idx) {
@@ -395,22 +522,66 @@ pub const Engine = struct {
         self.rebuildGraph();
     }
 
+    pub fn reorderLayer(self: *Engine, from: usize, to: usize) void {
+        if (from >= self.layers.items.len or to >= self.layers.items.len) return;
+        if (from == to) return;
+        self.reorderLayerInternal(from, to);
+
+        // Push Undo
+        const cmd = Command{
+            .layer = .{ .reorder = .{ .from = from, .to = to } },
+        };
+        self.undo_stack.append(std.heap.c_allocator, cmd) catch |err| {
+            std.debug.print("Failed to push undo: {}\n", .{err});
+        };
+        for (self.redo_stack.items) |*r_cmd| r_cmd.deinit();
+        self.redo_stack.clearRetainingCapacity();
+    }
+
     pub fn setActiveLayer(self: *Engine, index: usize) void {
         if (index < self.layers.items.len) {
             self.active_layer_idx = index;
         }
     }
 
+    fn toggleLayerVisibilityInternal(self: *Engine, index: usize) void {
+        self.layers.items[index].visible = !self.layers.items[index].visible;
+        self.rebuildGraph();
+    }
+
     pub fn toggleLayerVisibility(self: *Engine, index: usize) void {
         if (index < self.layers.items.len) {
-            self.layers.items[index].visible = !self.layers.items[index].visible;
-            self.rebuildGraph();
+            self.toggleLayerVisibilityInternal(index);
+
+            // Push Undo
+            const cmd = Command{
+                .layer = .{ .visibility = .{ .index = index } },
+            };
+            self.undo_stack.append(std.heap.c_allocator, cmd) catch |err| {
+                std.debug.print("Failed to push undo: {}\n", .{err});
+            };
+            for (self.redo_stack.items) |*r_cmd| r_cmd.deinit();
+            self.redo_stack.clearRetainingCapacity();
         }
+    }
+
+    fn toggleLayerLockInternal(self: *Engine, index: usize) void {
+        self.layers.items[index].locked = !self.layers.items[index].locked;
     }
 
     pub fn toggleLayerLock(self: *Engine, index: usize) void {
         if (index < self.layers.items.len) {
-            self.layers.items[index].locked = !self.layers.items[index].locked;
+            self.toggleLayerLockInternal(index);
+
+            // Push Undo
+            const cmd = Command{
+                .layer = .{ .lock = .{ .index = index } },
+            };
+            self.undo_stack.append(std.heap.c_allocator, cmd) catch |err| {
+                std.debug.print("Failed to push undo: {}\n", .{err});
+            };
+            for (self.redo_stack.items) |*r_cmd| r_cmd.deinit();
+            self.redo_stack.clearRetainingCapacity();
         }
     }
 
@@ -1137,4 +1308,49 @@ test "Benchmark bucket fill ellipse" {
     const duration = timer.read();
 
     std.debug.print("\nBenchmark bucket fill ellipse: {d} ms\n", .{@divFloor(duration, std.time.ns_per_ms)});
+}
+
+test "Engine layer undo redo" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+
+    // 0. Initial state: Background layer only
+    try std.testing.expectEqual(engine.layers.items.len, 1);
+    // setupGraph adds "Background", which pushes to undo stack.
+    // Let's clear undo stack to start fresh for this test logic
+    for (engine.undo_stack.items) |*cmd| cmd.deinit();
+    engine.undo_stack.clearRetainingCapacity();
+
+    // 1. Add Layer 1
+    try engine.addLayer("Layer 1");
+    try std.testing.expectEqual(engine.layers.items.len, 2);
+    try std.testing.expectEqual(engine.undo_stack.items.len, 1);
+
+    // 2. Undo Add (Should remove Layer 1)
+    engine.undo();
+    try std.testing.expectEqual(engine.layers.items.len, 1);
+    try std.testing.expectEqual(engine.undo_stack.items.len, 0);
+    try std.testing.expectEqual(engine.redo_stack.items.len, 1);
+
+    // 3. Redo Add (Should restore Layer 1)
+    engine.redo();
+    try std.testing.expectEqual(engine.layers.items.len, 2);
+    try std.testing.expectEqual(engine.undo_stack.items.len, 1);
+    try std.testing.expectEqual(engine.redo_stack.items.len, 0);
+
+    // 4. Remove Layer 1 (Index 1)
+    engine.removeLayer(1);
+    try std.testing.expectEqual(engine.layers.items.len, 1);
+    try std.testing.expectEqual(engine.undo_stack.items.len, 2); // Add + Remove
+
+    // 5. Undo Remove (Should restore Layer 1)
+    engine.undo();
+    try std.testing.expectEqual(engine.layers.items.len, 2);
+    try std.testing.expect(std.mem.startsWith(u8, &engine.layers.items[1].name, "Layer 1"));
+
+    // 6. Redo Remove (Should remove Layer 1)
+    engine.redo();
+    try std.testing.expectEqual(engine.layers.items.len, 1);
 }
