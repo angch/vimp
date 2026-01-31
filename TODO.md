@@ -29,6 +29,7 @@
 ### Spec Integration
 
 - [ ] Read and generate TODOs from doc/gimp-file-open-spec.md
+- [ ] Read and generate TODOs from doc/ms_paint_spec.md
 
 ## Higher priority
 
