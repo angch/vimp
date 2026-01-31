@@ -26,6 +26,8 @@ var current_tool: Tool = .brush;
 var layers_list_box: ?*c.GtkWidget = null;
 var undo_list_box: ?*c.GtkWidget = null;
 var drawing_area: ?*c.GtkWidget = null;
+var apply_preview_btn: ?*c.GtkWidget = null;
+var discard_preview_btn: ?*c.GtkWidget = null;
 
 pub fn main() !void {
     engine.init();
@@ -555,24 +557,52 @@ fn redo_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv
     refresh_undo_ui();
 }
 
+fn refresh_header_ui() void {
+    if (apply_preview_btn) |btn| {
+        c.gtk_widget_set_visible(btn, if (engine.preview_mode != .none) 1 else 0);
+    }
+    if (discard_preview_btn) |btn| {
+        c.gtk_widget_set_visible(btn, if (engine.preview_mode != .none) 1 else 0);
+    }
+}
+
 fn blur_small_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    engine.applyGaussianBlur(5.0) catch |err| {
-        std.debug.print("Blur failed: {}\n", .{err});
-    };
+    engine.setPreviewBlur(5.0);
+    refresh_header_ui();
     queue_draw();
 }
 
 fn blur_medium_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    engine.applyGaussianBlur(10.0) catch |err| {
-        std.debug.print("Blur failed: {}\n", .{err});
-    };
+    engine.setPreviewBlur(10.0);
+    refresh_header_ui();
     queue_draw();
 }
 
 fn blur_large_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    engine.applyGaussianBlur(20.0) catch |err| {
-        std.debug.print("Blur failed: {}\n", .{err});
+    engine.setPreviewBlur(20.0);
+    refresh_header_ui();
+    queue_draw();
+}
+
+fn apply_preview_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    engine.commitPreview() catch |err| {
+        std.debug.print("Commit preview failed: {}\n", .{err});
     };
+    refresh_header_ui();
+    queue_draw();
+    refresh_undo_ui();
+}
+
+fn discard_preview_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    engine.cancelPreview();
+    refresh_header_ui();
+    queue_draw();
+}
+
+fn split_view_change_state(action: *c.GSimpleAction, value: *c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const enabled = c.g_variant_get_boolean(value) != 0;
+    engine.setSplitView(enabled);
+    c.g_simple_action_set_state(action, value);
     queue_draw();
 }
 
@@ -731,6 +761,13 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     add_action(app, "blur-small", @ptrCast(&blur_small_activated), null);
     add_action(app, "blur-medium", @ptrCast(&blur_medium_activated), null);
     add_action(app, "blur-large", @ptrCast(&blur_large_activated), null);
+    add_action(app, "apply-preview", @ptrCast(&apply_preview_activated), null);
+    add_action(app, "discard-preview", @ptrCast(&discard_preview_activated), null);
+
+    // Split View Action (Stateful)
+    const split_action = c.g_simple_action_new_stateful("split-view", null, c.g_variant_new_boolean(0));
+    _ = c.g_signal_connect_data(split_action, "change-state", @ptrCast(&split_view_change_state), null, null, 0);
+    c.g_action_map_add_action(@ptrCast(app), @ptrCast(split_action));
 
     // Keyboard Shortcuts
     const set_accel = struct {
@@ -796,6 +833,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.g_menu_append(filters_menu, "Blur (5px)", "app.blur-small");
     c.g_menu_append(filters_menu, "Blur (10px)", "app.blur-medium");
     c.g_menu_append(filters_menu, "Blur (20px)", "app.blur-large");
+    c.g_menu_append(filters_menu, "Split View", "app.split-view");
 
     const filters_btn = c.gtk_menu_button_new();
     c.gtk_menu_button_set_label(@ptrCast(filters_btn), "Filters");

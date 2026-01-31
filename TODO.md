@@ -67,7 +67,7 @@
 
 ### Filters
 - [x] Implement Basic Blur Filters (Gaussian)
-- [ ] Implement On-Canvas Preview ("Split View")
+- [x] Implement On-Canvas Preview ("Split View")
 
 ### UI Improvements
 - [ ] Implement Empty State for Canvas
