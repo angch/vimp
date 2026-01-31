@@ -823,6 +823,56 @@ pub const Engine = struct {
         self.redo_stack.clearRetainingCapacity();
     }
 
+    pub fn saveThumbnail(self: *Engine, path: []const u8, width: c_int, height: c_int) !void {
+        if (self.output_node == null) return;
+        if (self.graph == null) return;
+
+        // 1. Calculate Scale
+        const bbox = c.gegl_node_get_bounding_box(self.output_node);
+        if (bbox.width <= 0 or bbox.height <= 0) return;
+
+        const w_f: f64 = @floatFromInt(bbox.width);
+        const h_f: f64 = @floatFromInt(bbox.height);
+        const target_w: f64 = @floatFromInt(width);
+        const target_h: f64 = @floatFromInt(height);
+
+        const scale_x = target_w / w_f;
+        const scale_y = target_h / h_f;
+        const scale = @min(scale_x, scale_y);
+
+        // 2. Create Nodes
+        const scale_node = c.gegl_node_new_child(self.graph, "operation", "gegl:scale-ratio",
+            "x", scale,
+            "y", scale,
+            "sampler", c.GEGL_SAMPLER_NEAREST,
+            @as(?*anyopaque, null));
+
+        if (scale_node == null) return error.GeglGraphFailed;
+
+        const path_z = try std.heap.c_allocator.dupeZ(u8, path);
+        defer std.heap.c_allocator.free(path_z);
+
+        const save_node = c.gegl_node_new_child(self.graph, "operation", "gegl:save",
+            "path", path_z.ptr,
+            @as(?*anyopaque, null));
+
+        if (save_node == null) {
+            _ = c.gegl_node_remove_child(self.graph, scale_node);
+            return error.GeglGraphFailed;
+        }
+
+        // 3. Link: output -> scale -> save
+        _ = c.gegl_node_connect(scale_node, "input", self.output_node, "output");
+        _ = c.gegl_node_connect(save_node, "input", scale_node, "output");
+
+        // 4. Process
+        _ = c.gegl_node_process(save_node);
+
+        // 5. Cleanup
+        _ = c.gegl_node_remove_child(self.graph, save_node);
+        _ = c.gegl_node_remove_child(self.graph, scale_node);
+    }
+
     fn removeLayerInternal(self: *Engine, index: usize) LayerSnapshot {
         const layer = self.layers.orderedRemove(index);
 
@@ -2213,4 +2263,30 @@ test "Engine PDF utils" {
     // Original 100x100. Target 50. Scale 0.5. Result 50x50.
     try std.testing.expectEqual(extent.*.width, 50);
     try std.testing.expectEqual(extent.*.height, 50);
+}
+
+test "Engine saveThumbnail" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+    try engine.addLayer("Background");
+
+    // Paint something red
+    engine.setFgColor(255, 0, 0, 255);
+    engine.paintStroke(100, 100, 100, 100, 1.0);
+
+    const thumb_path = "test_thumb.png";
+    defer std.fs.cwd().deleteFile(thumb_path) catch {};
+
+    try engine.saveThumbnail(thumb_path, 64, 64);
+
+    // Verify file exists and has size > 0
+    const file = try std.fs.cwd().openFile(thumb_path, .{});
+    const stat = try file.stat();
+    try std.testing.expect(stat.size > 0);
+    file.close();
+
+    // Ideally verify dimensions, but requires loading it back.
+    // We trust gegl:scale-ratio + save for now.
 }

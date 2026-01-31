@@ -31,6 +31,50 @@ pub const RecentManager = struct {
         self.custom_path = try self.allocator.dupe(u8, path);
     }
 
+    pub fn ensureThumbnailDir(self: *RecentManager) !void {
+        if (self.custom_path) |_| return;
+
+        const user_data_dir = c.g_get_user_data_dir();
+        if (user_data_dir == null) return error.NoUserDataDir;
+
+        const dir_span = std.mem.span(user_data_dir);
+
+        // Ensure vimp dir
+        const vimp_dir = try std.fs.path.join(self.allocator, &[_][]const u8{ dir_span, "vimp" });
+        defer self.allocator.free(vimp_dir);
+        std.fs.makeDirAbsolute(vimp_dir) catch |err| switch (err) {
+            error.PathAlreadyExists => {},
+            else => return err,
+        };
+
+        // Ensure thumbnails dir
+        const thumb_dir = try std.fs.path.join(self.allocator, &[_][]const u8{ vimp_dir, "thumbnails" });
+        defer self.allocator.free(thumb_dir);
+        std.fs.makeDirAbsolute(thumb_dir) catch |err| switch (err) {
+            error.PathAlreadyExists => {},
+            else => return err,
+        };
+    }
+
+    pub fn getThumbnailPath(self: *RecentManager, path: []const u8) ![]u8 {
+        var hash: [16]u8 = undefined;
+        std.crypto.hash.Md5.hash(path, &hash, .{});
+        const hash_hex = std.fmt.bytesToHex(hash, .lower);
+        const filename = try std.fmt.allocPrint(self.allocator, "{s}.png", .{hash_hex});
+        defer self.allocator.free(filename);
+
+        if (self.custom_path) |p| {
+            const dir = std.fs.path.dirname(p) orelse ".";
+            return std.fs.path.join(self.allocator, &[_][]const u8{ dir, filename });
+        }
+
+        const user_data_dir = c.g_get_user_data_dir();
+        if (user_data_dir == null) return error.NoUserDataDir;
+
+        const dir_span = std.mem.span(user_data_dir);
+        return std.fs.path.join(self.allocator, &[_][]const u8{ dir_span, "vimp", "thumbnails", filename });
+    }
+
     fn getStoragePath(self: *RecentManager) ![]u8 {
         if (self.custom_path) |p| {
             return self.allocator.dupe(u8, p);
@@ -183,4 +227,25 @@ test "RecentManager persistence" {
         try std.testing.expectEqualStrings("test_file_2.png", mgr.paths.items[0]);
         try std.testing.expectEqualStrings("test_file_1.png", mgr.paths.items[1]);
     }
+}
+
+test "RecentManager thumbnail path" {
+    const allocator = std.testing.allocator;
+    var mgr = RecentManager.init(allocator);
+    defer mgr.deinit();
+
+    // Set custom path to trick getThumbnailPath into test mode
+    try mgr.setCustomPath("/tmp/recent.json");
+
+    const path = "/home/user/image.png";
+    const thumb_path = try mgr.getThumbnailPath(path);
+    defer allocator.free(thumb_path);
+
+    // MD5 of /home/user/image.png
+    // 922daaac580aeb39b9ef8d17ae9ebe9d
+    const expected_hash = "922daaac580aeb39b9ef8d17ae9ebe9d";
+    _ = expected_hash;
+    const expected = "/tmp/922daaac580aeb39b9ef8d17ae9ebe9d.png";
+
+    try std.testing.expectEqualStrings(expected, thumb_path);
 }

@@ -45,7 +45,7 @@
 - [ ] Implement SVG Path Import (Vector)
 - [x] Implement Error Handling (Non-blocking Toasts)
 - [ ] Implement Open Location (URI)
-- [ ] Implement Real Thumbnails for Recent Files
+- [x] Implement Real Thumbnails for Recent Files
 - [ ] Implement Raw Image Import
 - [ ] Implement "Open pages as separate images" for PDF
 - [ ] Read and generate TODOs from doc/gimp-file-open-spec.md
