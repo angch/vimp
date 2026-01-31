@@ -82,4 +82,5 @@ test {
     _ = @import("widgets/text_style_editor.zig");
     _ = @import("widgets/import_dialogs.zig");
     _ = @import("recent.zig");
+    _ = @import("raw_loader.zig");
 }
