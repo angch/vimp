@@ -685,7 +685,7 @@ fn openFileFromPath(path: [:0]const u8, as_layers: bool) void {
             if (root) |r| parent_window = @ptrCast(@alignCast(r));
         }
 
-        ImportDialogs.showPdfImportDialog(parent_window, path, &on_pdf_import, ctx) catch |e| {
+        ImportDialogs.showPdfImportDialog(parent_window, &engine, path, &on_pdf_import, ctx) catch |e| {
             show_toast("Failed to show import dialog: {}", .{e});
             std.heap.c_allocator.destroy(ctx);
         };
