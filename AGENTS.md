@@ -19,6 +19,7 @@ Goal: Upgrade GIMP concepts to a modern stack (Zig, GTK4, GEGL/Babl).
 - `scripts/`: Utility scripts (setup, vendoring).
 - `libs/`: Vendored libraries (GEGL/Babl) - *Do not modify manually unless necessary*.
 - `tasks/` & `prd.json`: Ralph Agent workflow files.
+- `ref/gimp`: Clone of the GIMP repository for reference and tests. **Ignored by git**.
 
 ## Development Workflow
 
@@ -32,6 +33,15 @@ Goal: Upgrade GIMP concepts to a modern stack (Zig, GTK4, GEGL/Babl).
 - `build.zig` automatically handles `GEGL_PATH`, `BABL_PATH`, and `LD_LIBRARY_PATH` when running via `zig build run` or `zig build test`.
 - If running binaries directly, ensure these environment variables are set (see `build.zig` for details).
 - Development environment setup script is available at `setup.sh` (wraps `scripts/setup_dev_machine.sh` logic and library setup).
+
+### Reference Code & Porting
+- The directory `ref/gimp` contains a partial or full clone of the GIMP repository (setup by `setup.sh`).
+- This directory is **ignored by git**.
+- If a task requires modifying code within `ref/gimp` (e.g., fixing deprecations or bugs in the reference implementation to make it compatible or testable), you **must create a patch file**.
+  - Make your changes in `ref/gimp`.
+  - Run `git diff path/to/changed/file > my-change.patch` from the `ref/gimp` directory (or adjusted path).
+  - Save the patch file in the project root.
+  - Submit the patch file.
 
 ## Coding Conventions
 
@@ -48,6 +58,13 @@ Goal: Upgrade GIMP concepts to a modern stack (Zig, GTK4, GEGL/Babl).
 - **Engine (src/engine.zig)**: Handles the GEGL graph, buffers, and image operations.
   - *Threading*: GEGL init/exit is not thread-safe. `Engine` handles this with a mutex for initialization if needed.
   - *Data Flow*: GUI inputs -> Engine methods -> Engine updates GEGL buffer -> GUI requests draw -> Engine blits to Cairo surface -> GUI paints Surface.
+
+### GTK4 Migration Patterns
+- **GtkAccelGroup**: `GtkAccelGroup` is deprecated in GTK4.
+  - **Replacement**: Use `GtkShortcutController`.
+  - **Setup**: Create a `GtkShortcutController`, set scope to `GTK_SHORTCUT_SCOPE_MANAGED` (for window/dialog scope), and add it to the widget with `gtk_widget_add_controller`.
+  - **Callbacks**: Replace `GtkAccelGroupActivate` callbacks (`void func(GtkAccelGroup*, GObject*, guint, GdkModifierType, gpointer)`) with `GtkShortcutFunc` callbacks (`gboolean func(GtkWidget*, GVariant*, gpointer)`).
+  - **Mapping**: Use `gtk_application_get_accels_for_action` to get accelerator strings, parse them with `gtk_shortcut_trigger_parse_string`, and bind them to actions using `gtk_callback_action_new`.
 
 ## Agent Protocol
 
