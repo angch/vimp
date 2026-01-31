@@ -36,7 +36,7 @@
 
 - [x] Implement Basic File Open (Ctrl+O, Native Dialog, Image Formats)
 - [x] Implement Open as Layers (Ctrl+Alt+O)
-- [ ] Implement Drag and Drop Open (Canvas Drop Zones)
+- [x] Implement Drag and Drop Open (Canvas Drop Zones)
 - [ ] Implement Welcome Screen (Recent Grid, Empty State Actions)
 - [ ] Implement Format Specific Import Dialogs (PDF, SVG)
 - [ ] Implement Error Handling (Non-blocking Toasts)
