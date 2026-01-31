@@ -41,9 +41,13 @@
 - [x] Implement Recent Files Persistence (Backend for Recent Grid)
 - [x] Implement file type filtering in Open Dialog
 - [x] Implement Format Specific Import Dialogs (PDF, SVG)
-- [ ] Implement PDF Import Page Selection (Thumbnails)
-- [ ] Implement SVG Path Import
+- [x] Implement PDF Import Page Selection (Thumbnails)
+- [ ] Implement SVG Path Import (Vector)
 - [x] Implement Error Handling (Non-blocking Toasts)
+- [ ] Implement Open Location (URI)
+- [ ] Implement Real Thumbnails for Recent Files
+- [ ] Implement Raw Image Import
+- [ ] Implement "Open pages as separate images" for PDF
 - [ ] Read and generate TODOs from doc/gimp-file-open-spec.md
 - [ ] Read and generate TODOs from doc/ms_paint_spec.md
 
@@ -94,4 +98,3 @@
 - [x] Implement Empty State for Canvas
 - [x] Implement Overlay Feedback (OSD)
 - [x] Implement Undo History Panel
-

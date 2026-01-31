@@ -23,7 +23,7 @@ fn createTextureFromBuffer(buf: *c.GeglBuffer) ?*c.GdkTexture {
     defer c.g_bytes_unref(bytes);
 
     // Using GDK_MEMORY_R8G8B8A8 (Non-premultiplied sRGB with Alpha)
-    const texture = c.gdk_memory_texture_new(w, h, c.GDK_MEMORY_R8G8B8A8, bytes, stride);
+    const texture = c.gdk_memory_texture_new(w, h, c.GDK_MEMORY_R8G8B8A8, bytes, @intCast(stride));
     return texture;
 }
 
@@ -52,19 +52,19 @@ fn pdf_dialog_response(dialog: *c.AdwMessageDialog, response: [*c]const u8, user
     if (std.mem.eql(u8, resp_span, "import")) {
         const ppi = c.gtk_spin_button_get_value(@ptrCast(ctx.ppi_spin));
 
-        var pages = std.ArrayList(i32).init(std.heap.c_allocator);
-        defer pages.deinit();
+        var pages = std.ArrayList(i32){};
+        defer pages.deinit(std.heap.c_allocator);
 
         const selection = c.gtk_flow_box_get_selected_children(ctx.flowbox);
         if (selection) |list| {
              var l = list;
              while (l != null) {
-                 const child: *c.GtkFlowBoxChild = @ptrCast(l.*.data);
+                 const child: *c.GtkFlowBoxChild = @ptrCast(@alignCast(l.*.data));
                  const widget = c.gtk_flow_box_child_get_child(child);
                  const page_ptr = c.g_object_get_data(@ptrCast(widget), "page-num");
                  if (page_ptr) |p| {
                      const page_num: i32 = @intCast(@intFromPtr(p));
-                     pages.append(page_num) catch {};
+                     pages.append(std.heap.c_allocator, page_num) catch {};
                  }
                  l = l.*.next;
              }
@@ -72,7 +72,7 @@ fn pdf_dialog_response(dialog: *c.AdwMessageDialog, response: [*c]const u8, user
         }
 
         if (pages.items.len == 0) {
-             pages.append(1) catch {};
+             pages.append(std.heap.c_allocator, 1) catch {};
         }
 
         const params = Engine.PdfImportParams{
@@ -115,6 +115,16 @@ fn svg_dialog_response(dialog: *c.AdwMessageDialog, response: [*c]const u8, user
     std.heap.c_allocator.free(ctx.path);
     std.heap.c_allocator.destroy(ctx);
     c.gtk_window_destroy(@ptrCast(dialog));
+}
+
+fn select_all_clicked(_: *c.GtkButton, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const flowbox: *c.GtkFlowBox = @ptrCast(@alignCast(user_data));
+    c.gtk_flow_box_select_all(flowbox);
+}
+
+fn select_none_clicked(_: *c.GtkButton, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const flowbox: *c.GtkFlowBox = @ptrCast(@alignCast(user_data));
+    c.gtk_flow_box_unselect_all(flowbox);
 }
 
 pub fn showPdfImportDialog(
@@ -160,6 +170,20 @@ pub fn showPdfImportDialog(
 
     c.gtk_box_append(@ptrCast(box), scrolled);
 
+    // Selection Buttons
+    const btn_box = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 10);
+    c.gtk_widget_set_halign(btn_box, c.GTK_ALIGN_CENTER);
+
+    const select_all_btn = c.gtk_button_new_with_label("Select All");
+    _ = c.g_signal_connect_data(select_all_btn, "clicked", @ptrCast(&select_all_clicked), flowbox, null, 0);
+    c.gtk_box_append(@ptrCast(btn_box), select_all_btn);
+
+    const select_none_btn = c.gtk_button_new_with_label("Clear Selection");
+    _ = c.g_signal_connect_data(select_none_btn, "clicked", @ptrCast(&select_none_clicked), flowbox, null, 0);
+    c.gtk_box_append(@ptrCast(btn_box), select_none_btn);
+
+    c.gtk_box_append(@ptrCast(box), btn_box);
+
     // Populate Thumbnails
     var page: i32 = 1;
     // Limit total pages to prevent freeze if huge PDF?
@@ -187,7 +211,7 @@ pub fn showPdfImportDialog(
                 c.gtk_box_append(@ptrCast(item_box), label);
 
                 c.gtk_flow_box_append(@ptrCast(flowbox), item_box);
-                c.g_object_set_data(@ptrCast(item_box), "page-num", @ptrFromInt(page));
+                c.g_object_set_data(@ptrCast(item_box), "page-num", @ptrFromInt(@as(usize, @intCast(page))));
             }
         } else |_| {}
     }
