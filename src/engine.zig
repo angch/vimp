@@ -2,6 +2,17 @@ const std = @import("std");
 const c = @import("c.zig").c;
 
 pub const Engine = struct {
+    pub const PdfImportParams = struct {
+        ppi: f64,
+        page: i32,
+        all_pages: bool,
+    };
+
+    pub const SvgImportParams = struct {
+        width: i32,
+        height: i32,
+    };
+
     pub const Mode = enum {
         paint,
         erase,
@@ -590,6 +601,125 @@ pub const Engine = struct {
         self.undo_stack.append(std.heap.c_allocator, cmd) catch |err| {
             std.debug.print("Failed to push undo: {}\n", .{err});
         };
+        for (self.redo_stack.items) |*r_cmd| r_cmd.deinit();
+        self.redo_stack.clearRetainingCapacity();
+    }
+
+    pub fn loadPdf(self: *Engine, path: []const u8, params: PdfImportParams) !void {
+        const temp_graph = c.gegl_node_new();
+        defer c.g_object_unref(temp_graph);
+
+        const path_z = try std.heap.c_allocator.dupeZ(u8, path);
+        defer std.heap.c_allocator.free(path_z);
+
+        // Try gegl:pdf-load, fall back to gegl:load if not explicit but we prefer specific ops
+        const load_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:pdf-load",
+            "path", path_z.ptr,
+            "ppi", @as(c_int, @intFromFloat(params.ppi)), // PPI is usually int or double? Property check said ppi.
+            "page", @as(c_int, params.page),
+            @as(?*anyopaque, null));
+
+        if (load_node == null) return error.GeglLoadFailed;
+
+        var start_page: i32 = params.page;
+        var end_page: i32 = params.page;
+
+        if (params.all_pages) {
+            var total_pages: c_int = 0;
+            c.gegl_node_get(load_node, "pages", &total_pages, @as(?*anyopaque, null));
+            if (total_pages > 0) {
+                // PDF pages are usually 1-based in GEGL?
+                start_page = 1;
+                end_page = total_pages;
+            }
+        }
+
+        const basename = std.fs.path.basename(path);
+        var buf: [256]u8 = undefined;
+
+        var current_page = start_page;
+        while (current_page <= end_page) : (current_page += 1) {
+            // Update page property
+            c.gegl_node_set(load_node, "page", @as(c_int, current_page), @as(?*anyopaque, null));
+
+            // Must re-link or re-process.
+            // Create a write buffer for this page
+            const bbox = c.gegl_node_get_bounding_box(load_node);
+            if (bbox.width <= 0 or bbox.height <= 0) {
+                // Skip empty pages?
+                continue;
+            }
+
+            const format = c.babl_format("R'G'B'A u8");
+            const new_buffer = c.gegl_buffer_new(&bbox, format);
+            if (new_buffer == null) continue;
+
+            const write_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:write-buffer", "buffer", new_buffer, @as(?*anyopaque, null));
+            if (write_node) |wn| {
+                _ = c.gegl_node_link(load_node, wn);
+                _ = c.gegl_node_process(wn);
+                _ = c.gegl_node_remove_child(temp_graph, wn); // Clean up write node
+            } else {
+                c.g_object_unref(new_buffer);
+                continue;
+            }
+
+            const name = std.fmt.bufPrintZ(&buf, "{s} - Page {d}", .{basename, current_page}) catch "Page";
+            const index = self.layers.items.len;
+            try self.addLayerInternal(new_buffer.?, name, true, false, index);
+
+             // Push Undo
+            const cmd = Command{
+                .layer = .{ .add = .{ .index = index, .snapshot = null } },
+            };
+            self.undo_stack.append(std.heap.c_allocator, cmd) catch {};
+            for (self.redo_stack.items) |*r_cmd| r_cmd.deinit();
+            self.redo_stack.clearRetainingCapacity();
+        }
+    }
+
+    pub fn loadSvg(self: *Engine, path: []const u8, params: SvgImportParams) !void {
+        const temp_graph = c.gegl_node_new();
+        defer c.g_object_unref(temp_graph);
+
+        const path_z = try std.heap.c_allocator.dupeZ(u8, path);
+        defer std.heap.c_allocator.free(path_z);
+
+        const load_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:svg-load", "path", path_z.ptr, @as(?*anyopaque, null));
+        if (load_node == null) return error.GeglLoadFailed;
+
+        if (params.width > 0) {
+             c.gegl_node_set(load_node, "width", @as(c_int, params.width), @as(?*anyopaque, null));
+        }
+        if (params.height > 0) {
+             c.gegl_node_set(load_node, "height", @as(c_int, params.height), @as(?*anyopaque, null));
+        }
+
+        const bbox = c.gegl_node_get_bounding_box(load_node);
+        if (bbox.width <= 0 or bbox.height <= 0) return error.InvalidImage;
+
+        const format = c.babl_format("R'G'B'A u8");
+        const new_buffer = c.gegl_buffer_new(&bbox, format);
+        if (new_buffer == null) return error.GeglBufferFailed;
+
+        const write_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:write-buffer", "buffer", new_buffer, @as(?*anyopaque, null));
+        if (write_node) |wn| {
+            _ = c.gegl_node_link(load_node, wn);
+            _ = c.gegl_node_process(wn);
+        } else {
+             c.g_object_unref(new_buffer);
+             return error.GeglGraphFailed;
+        }
+
+        const basename = std.fs.path.basename(path);
+        const index = self.layers.items.len;
+        try self.addLayerInternal(new_buffer.?, basename, true, false, index);
+
+        // Push Undo
+        const cmd = Command{
+            .layer = .{ .add = .{ .index = index, .snapshot = null } },
+        };
+        self.undo_stack.append(std.heap.c_allocator, cmd) catch {};
         for (self.redo_stack.items) |*r_cmd| r_cmd.deinit();
         self.redo_stack.clearRetainingCapacity();
     }
@@ -1900,4 +2030,49 @@ test "Engine reset and resize" {
     engine.setCanvasSize(100, 200);
     try std.testing.expectEqual(engine.canvas_width, 100);
     try std.testing.expectEqual(engine.canvas_height, 200);
+}
+
+test "Engine load Svg" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+
+    // Create a temporary SVG file
+    const filename = "test_image.svg";
+    const svg_content =
+        \\<svg width="100" height="100" xmlns="http://www.w3.org/2000/svg">
+        \\  <rect width="100" height="100" fill="red" />
+        \\</svg>
+    ;
+    try std.fs.cwd().writeFile(.{ .sub_path = filename, .data = svg_content });
+    defer std.fs.cwd().deleteFile(filename) catch {};
+
+    // 1. Load with default params (Native size)
+    {
+        const params = Engine.SvgImportParams{ .width = 0, .height = 0 };
+        try engine.loadSvg(filename, params);
+
+        try std.testing.expectEqual(engine.layers.items.len, 1);
+        const layer = &engine.layers.items[0];
+        const extent = c.gegl_buffer_get_extent(layer.buffer);
+        // Expect 100x100
+        try std.testing.expectEqual(extent.*.width, 100);
+        try std.testing.expectEqual(extent.*.height, 100);
+    }
+
+    engine.reset();
+
+    // 2. Load with custom size
+    {
+        const params = Engine.SvgImportParams{ .width = 200, .height = 200 };
+        try engine.loadSvg(filename, params);
+
+        try std.testing.expectEqual(engine.layers.items.len, 1);
+        const layer = &engine.layers.items[0];
+        const extent = c.gegl_buffer_get_extent(layer.buffer);
+        // Expect 200x200
+        try std.testing.expectEqual(extent.*.width, 200);
+        try std.testing.expectEqual(extent.*.height, 200);
+    }
 }
