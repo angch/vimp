@@ -46,7 +46,7 @@
 - [x] Implement Error Handling (Non-blocking Toasts)
 - [x] Implement Real Thumbnails for Recent Files
 - [x] Implement Open Location (URI)
-- [ ] Implement Raw Image Import
+- [x] Implement Raw Image Import
 - [ ] Implement "Open pages as separate images" for PDF
 - [ ] Read and generate TODOs from doc/gimp-file-open-spec.md
 - [ ] Read and generate TODOs from doc/ms_paint_spec.md

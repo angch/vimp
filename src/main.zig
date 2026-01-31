@@ -5,6 +5,7 @@ const Engine = @import("engine.zig").Engine;
 const RecentManager = @import("recent.zig").RecentManager;
 const ImportDialogs = @import("widgets/import_dialogs.zig");
 const OpenLocationDialog = @import("widgets/open_location_dialog.zig");
+const RawLoader = @import("raw_loader.zig").RawLoader;
 
 // Global state for simplicity in this phase
 const Tool = enum {
@@ -627,7 +628,6 @@ fn generate_thumbnail(path: [:0]const u8) void {
 }
 
 fn download_callback(source: ?*c.GObject, result: ?*c.GAsyncResult, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    _ = source;
     // user_data is path (allocated)
     const path_ptr: [*c]u8 = @ptrCast(@alignCast(user_data));
     const path = std.mem.span(path_ptr);
@@ -723,7 +723,7 @@ fn downloadAndOpen(uri: [:0]const u8, _: ?*anyopaque) void {
         "-o",
         dest_path.ptr,
         uri.ptr,
-        null
+        @as(?*anyopaque, null)
     );
 
     if (proc == null) {
@@ -735,6 +735,122 @@ fn downloadAndOpen(uri: [:0]const u8, _: ?*anyopaque) void {
     show_toast("Downloading...", .{});
     c.g_subprocess_wait_check_async(proc, null, @ptrCast(&download_callback), @ptrCast(dest_path));
     c.g_object_unref(proc);
+}
+
+const RawContext = struct {
+    original_path: [:0]const u8,
+    temp_path: [:0]const u8,
+    as_layers: bool,
+    add_to_recent: bool,
+};
+
+fn raw_conversion_callback(source: ?*c.GObject, result: ?*c.GAsyncResult, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const ctx: *RawContext = @ptrCast(@alignCast(user_data));
+    defer {
+        std.heap.c_allocator.free(ctx.original_path);
+        std.heap.c_allocator.free(ctx.temp_path);
+        std.heap.c_allocator.destroy(ctx);
+    }
+
+    var err: ?*c.GError = null;
+    if (c.g_subprocess_wait_check_finish(@ptrCast(source), result, &err) != 0) {
+        // Success
+        // Open the temp file
+        openFileFromPath(ctx.temp_path, ctx.as_layers, false);
+
+        // Clean up temp file
+        std.fs.deleteFileAbsolute(ctx.temp_path) catch |e| {
+            std.debug.print("Failed to delete temp file: {}\n", .{e});
+        };
+
+        // Add ORIGINAL path to recent, if needed
+        if (ctx.add_to_recent) {
+            recent_manager.add(ctx.original_path) catch {};
+            // Generate thumbnail for original path using current engine state
+            generate_thumbnail(ctx.original_path);
+            refresh_recent_ui();
+        }
+    } else {
+        if (err) |e| {
+            show_toast("Raw conversion failed: {s}", .{e.*.message});
+            c.g_error_free(e);
+        } else {
+             show_toast("Raw conversion failed", .{});
+        }
+    }
+}
+
+fn convertRawAndOpen(path: [:0]const u8, as_layers: bool, add_to_recent: bool) void {
+    const tool = RawLoader.findRawTool();
+    if (tool == .none) {
+        show_toast("No RAW developer found (install Darktable or RawTherapee)", .{});
+        return;
+    }
+
+    const allocator = std.heap.c_allocator;
+
+    // Generate temp output path
+    const stem = std.fs.path.stem(path);
+    const rnd = std.time.nanoTimestamp();
+    const out_name = std.fmt.allocPrint(allocator, "{s}_{d}.png", .{stem, rnd}) catch return;
+    defer allocator.free(out_name);
+
+    const tmp_dir_c = c.g_get_tmp_dir();
+    const tmp_dir = std.mem.span(tmp_dir_c);
+
+    const out_path = std.fs.path.joinZ(allocator, &[_][]const u8{ tmp_dir, out_name }) catch return;
+
+    const path_dup = allocator.dupeZ(u8, path) catch {
+        allocator.free(out_path);
+        return;
+    };
+
+    const ctx = allocator.create(RawContext) catch {
+         allocator.free(out_path);
+         allocator.free(path_dup);
+         return;
+    };
+    ctx.* = .{
+        .original_path = path_dup,
+        .temp_path = out_path,
+        .as_layers = as_layers,
+        .add_to_recent = add_to_recent,
+    };
+
+    var proc: ?*c.GSubprocess = null;
+
+    if (tool == .darktable) {
+        proc = c.g_subprocess_new(
+            c.G_SUBPROCESS_FLAGS_NONE,
+            null,
+            "darktable-cli",
+            path.ptr,
+            out_path.ptr,
+            @as(?*anyopaque, null)
+        );
+    } else if (tool == .rawtherapee) {
+        proc = c.g_subprocess_new(
+            c.G_SUBPROCESS_FLAGS_NONE,
+            null,
+            "rawtherapee-cli",
+            "-o",
+            out_path.ptr,
+            "-c",
+            path.ptr,
+            @as(?*anyopaque, null)
+        );
+    }
+
+    if (proc) |p| {
+        show_toast("Developing RAW image...", .{});
+        c.g_subprocess_wait_check_async(p, null, @ptrCast(&raw_conversion_callback), ctx);
+        c.g_object_unref(p);
+    } else {
+        show_toast("Failed to start RAW conversion process", .{});
+        allocator.free(out_path);
+        allocator.free(path_dup);
+        allocator.destroy(ctx);
+    }
 }
 
 fn finish_file_open(path: [:0]const u8, as_layers: bool, success: bool, add_to_recent: bool) void {
@@ -804,6 +920,11 @@ fn openFileFromPath(path: [:0]const u8, as_layers: bool, add_to_recent: bool) vo
     const ext = std.fs.path.extension(path);
     const is_pdf = std.ascii.eqlIgnoreCase(ext, ".pdf");
     const is_svg = std.ascii.eqlIgnoreCase(ext, ".svg");
+
+    if (RawLoader.isRawFile(path)) {
+        convertRawAndOpen(path, as_layers, add_to_recent);
+        return;
+    }
 
     if (is_pdf) {
         const ctx = std.heap.c_allocator.create(ImportContext) catch return;
