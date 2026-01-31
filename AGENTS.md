@@ -14,6 +14,7 @@ Goal: Upgrade GIMP concepts to a modern stack (Zig, GTK4, GEGL/Babl).
 - `src/main.zig`: Application entry point and GUI logic.
 - `src/engine.zig`: Image processing engine (wrapper around GEGL).
 - `src/c.zig`: C import definitions (GTK, GEGL, Babl, Adwaita).
+- `src/widgets/`: GTK4 widget implementations (ported from GIMP).
 - `build.zig`: Build configuration and test definitions.
 - `scripts/`: Utility scripts (setup, vendoring).
 - `libs/`: Vendored libraries (GEGL/Babl) - *Do not modify manually unless necessary*.
@@ -24,7 +25,7 @@ Goal: Upgrade GIMP concepts to a modern stack (Zig, GTK4, GEGL/Babl).
 ### Build & Run
 - **Build**: `zig build`
 - **Run**: `zig build run`
-- **Test**: `zig build test` (Runs both unit tests and engine tests).
+- **Test**: `zig build test` (Runs unit tests, engine tests, and widget tests).
 
 ### Environment
 - The project uses vendored headers/libs for GEGL/Babl in `libs/`.
@@ -40,7 +41,7 @@ Goal: Upgrade GIMP concepts to a modern stack (Zig, GTK4, GEGL/Babl).
 - **Memory Management**: GTK/GEGL objects are reference-counted.
   - Use `c.g_object_unref(obj)` when you own a reference and are done with it.
   - Be careful with signal callbacks; generally `user_data` can pass pointers to Zig structs.
-- **Signals**: Use `c.g_signal_connect_data` to connect signals to Zig functions. The callback must have `callconv(std.builtin.CallingConvention.c)`.
+- **Signals**: Use `c.g_signal_connect_data` to connect signals to Zig functions. The callback must have `callconv(std.builtin.CallingConvention.c)` or `callconv(.c)`.
 
 ### Architecture
 - **GUI (src/main.zig)**: Handles windowing, inputs, and drawing the canvas (via Cairo).
@@ -71,6 +72,13 @@ following GNOME HIG. This is detailed in the file
 term planning.
 
 ## Engineering Notes
+
+### 2026-02-05: GtkEventBox Migration
+- Replaced deprecated `GtkEventBox` with `GtkBox` + `GtkEventController` pattern for `TextStyleEditor` handle.
+- Widgets in GTK4 have their own windows, so `GtkEventBox` is no longer needed.
+- Use `GtkEventControllerMotion` for enter/leave signals.
+- Use `GtkGestureDrag` for drag-and-drop operations.
+- Implementation located in `src/widgets/text_style_editor.zig`.
 
 ### 2026-02-05: Basic Blur Filters (Gaussian)
 - Implemented destructive Gaussian Blur on active layer using `gegl:gaussian-blur`.
