@@ -67,7 +67,7 @@
 - [x] Implement Layer Management (Visibility, Locks, Reordering)
 
 ### Transformations
-- [ ] Implement Unified Transform Tool
+- [x] Implement Unified Transform Tool
 
 ### Filters
 - [x] Implement Basic Blur Filters (Gaussian)
@@ -75,6 +75,6 @@
 
 ### UI Improvements
 - [x] Implement Empty State for Canvas
-- [ ] Implement Overlay Feedback (OSD)
+- [x] Implement Overlay Feedback (OSD)
 - [x] Implement Undo History Panel
 

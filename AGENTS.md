@@ -94,20 +94,20 @@ term planning.
 
 ## Engineering Notes
 
-### 2026-02-05: GtkEventBox Migration
+### 2026-01-31: GtkEventBox Migration
 - Replaced deprecated `GtkEventBox` with `GtkBox` + `GtkEventController` pattern for `TextStyleEditor` handle.
 - Widgets in GTK4 have their own windows, so `GtkEventBox` is no longer needed.
 - Use `GtkEventControllerMotion` for enter/leave signals.
 - Use `GtkGestureDrag` for drag-and-drop operations.
 - Implementation located in `src/widgets/text_style_editor.zig`.
 
-### 2026-02-05: Basic Blur Filters (Gaussian)
+### 2026-01-31: Basic Blur Filters (Gaussian)
 - Implemented destructive Gaussian Blur on active layer using `gegl:gaussian-blur`.
 - Reused `PaintCommand` for Undo/Redo as it handles buffer swapping.
 - Exposed via "Filters" menu in Header Bar.
 - Validated with `test "Engine gaussian blur"`.
 
-### 2026-02-05: Security Hardening (Cairo/GEGL)
+### 2026-01-31: Security Hardening (Cairo/GEGL)
 - Identified and fixed critical vulnerability where `cairo_image_surface_create` failure could lead to NULL pointer dereference.
 - Enforced validation of Cairo surface status and data pointers before usage in `draw_func` and `save_file`.
 - Added unit test "Cairo error surface check" in `src/engine.zig` to prevent regression.
@@ -139,6 +139,7 @@ term planning.
 - Updated UI to include a Layers panel with controls and visibility/lock toggles.
 - Gotcha: `std.ArrayList` in Zig 0.15+ behaves like `Unmanaged` (requires allocator for `append`/`deinit` and init via struct literal `{}`).
 - Gotcha: `c.gegl_node_new_child` returns optional pointer, must be handled.
+- Gotcha: `gegl_node_link` failures or graph update issues can cause rendering to stop.
 - Gotcha: When removing layers, old `gegl:over` nodes in the composition chain must be cleaned up (currently removed from graph).
 
 ### 2026-01-31: Layer Undo/Redo System
@@ -147,3 +148,24 @@ term planning.
 - Refactored layer operations to separate internal logic (`addLayerInternal`, etc.) from public API which handles Command creation.
 - `LayerSnapshot` holds a reference to the `gegl_buffer`, ensuring data persists during Undo/Redo cycles even if the layer is removed from the engine.
 - Verified with unit test `Engine layer undo redo`.
+
+### 2026-01-31: Overlay Feedback (OSD)
+- Implemented `OsdState` and helper functions (`osd_show`, `osd_hide_callback`) in `src/main.zig` to provide transient visual feedback.
+- Used `GtkOverlay` to layer the OSD on top of the `GtkDrawingArea`.
+- Used `GtkRevealer` for fade-in/out animations.
+- Integrated OSD with Zoom (percentage feedback) and Tool Switching events.
+- **Pattern**: `GtkOverlay` + `GtkRevealer` is effective for non-blocking notifications in GTK4 apps.
+
+### 2026-01-31: Rendering Optimization & Resize Handling
+- Fixed an issue where the intermediate Cairo surface in `src/main.zig` was not resized when the window/widget size changed, leading to clipping or artifacts.
+- Implemented a `canvas_dirty` flag in `src/main.zig` to avoid expensive GEGL-to-Cairo blitting (`engine.blitView`) when the image content hasn't changed (e.g., during OSD animations or selection overlay repaints).
+- **Rule**: Always manage intermediate surface lifecycle (destroy/recreate) on resize in `draw_func`.
+- **Optimization**: Skip heavy composition steps if only overlay/vector elements need repainting.
+
+### 2026-01-31: Unified Transform Tool
+- Implemented `TransformParams` and `TransformCommand` in `src/engine.zig`.
+- Added support for `gegl:transform` in `rebuildGraph` for live preview.
+- Implemented `applyTransform` for destructive commit using `gegl:transform` and `gegl:write-buffer` (manual blit).
+- Added `Unified Transform` tool to UI with Sidebar controls (Translate, Rotate, Scale) and an Overlay Action Bar (Apply/Cancel).
+- **Note**: `gegl:transform` preview logic assumes rotation/scaling around the layer center.
+- **Gotcha**: `c.gegl_node_new_child` with varargs requires careful handling of string pointers.

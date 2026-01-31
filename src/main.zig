@@ -12,6 +12,7 @@ const Tool = enum {
     bucket_fill,
     rect_select,
     ellipse_select,
+    unified_transform,
     // pencil, // Reorder if desired, but append is safer for diffs usually
 };
 
@@ -28,6 +29,13 @@ var undo_list_box: ?*c.GtkWidget = null;
 var drawing_area: ?*c.GtkWidget = null;
 var apply_preview_btn: ?*c.GtkWidget = null;
 var discard_preview_btn: ?*c.GtkWidget = null;
+
+var transform_controls_box: ?*c.GtkWidget = null;
+var transform_action_bar: ?*c.GtkWidget = null;
+var transform_x_spin: ?*c.GtkWidget = null;
+var transform_y_spin: ?*c.GtkWidget = null;
+var transform_r_scale: ?*c.GtkWidget = null;
+var transform_s_scale: ?*c.GtkWidget = null;
 
 pub fn main() !void {
     engine.init();
@@ -84,6 +92,45 @@ fn brush_size_changed(
     engine.setBrushSize(size);
 }
 
+fn transform_param_changed(_: *c.GtkWidget, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    if (transform_x_spin == null) return;
+    const x = c.gtk_spin_button_get_value(@ptrCast(transform_x_spin.?));
+    const y = c.gtk_spin_button_get_value(@ptrCast(transform_y_spin.?));
+    const r = c.gtk_range_get_value(@ptrCast(transform_r_scale.?));
+    const s = c.gtk_range_get_value(@ptrCast(transform_s_scale.?));
+
+    engine.setTransformPreview(.{ .x = x, .y = y, .rotate = r, .scale = s });
+    canvas_dirty = true;
+    queue_draw();
+}
+
+fn transform_apply_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    engine.applyTransform() catch |err| {
+        std.debug.print("Apply transform failed: {}\n", .{err});
+    };
+    // Reset UI
+    if (transform_x_spin) |w| c.gtk_spin_button_set_value(@ptrCast(w), 0.0);
+    if (transform_y_spin) |w| c.gtk_spin_button_set_value(@ptrCast(w), 0.0);
+    if (transform_r_scale) |w| c.gtk_range_set_value(@ptrCast(w), 0.0);
+    if (transform_s_scale) |w| c.gtk_range_set_value(@ptrCast(w), 1.0);
+
+    canvas_dirty = true;
+    queue_draw();
+    refresh_undo_ui();
+}
+
+fn transform_cancel_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    engine.cancelPreview();
+    // Reset UI
+    if (transform_x_spin) |w| c.gtk_spin_button_set_value(@ptrCast(w), 0.0);
+    if (transform_y_spin) |w| c.gtk_spin_button_set_value(@ptrCast(w), 0.0);
+    if (transform_r_scale) |w| c.gtk_range_set_value(@ptrCast(w), 0.0);
+    if (transform_s_scale) |w| c.gtk_range_set_value(@ptrCast(w), 1.0);
+
+    canvas_dirty = true;
+    queue_draw();
+}
+
 fn tool_toggled(
     button: *c.GtkToggleButton,
     user_data: ?*anyopaque,
@@ -93,18 +140,25 @@ fn tool_toggled(
         current_tool = tool_ptr.*;
         std.debug.print("Tool switched to: {}\n", .{current_tool});
 
+        const is_transform = (current_tool == .unified_transform);
+        if (transform_controls_box) |b| c.gtk_widget_set_visible(b, if (is_transform) 1 else 0);
+        if (transform_action_bar) |b| c.gtk_widget_set_visible(b, if (is_transform) 1 else 0);
+
         switch (current_tool) {
             .brush => {
                 engine.setMode(.paint);
                 engine.setBrushType(.circle);
+                osd_show("Brush");
             },
             .pencil => {
                 engine.setMode(.paint);
                 engine.setBrushType(.square);
+                osd_show("Pencil");
             },
             .airbrush => {
                 engine.setMode(.airbrush);
                 engine.setBrushType(.circle);
+                osd_show("Airbrush");
             },
             .eraser => {
                 engine.setMode(.erase);
@@ -113,13 +167,22 @@ fn tool_toggled(
                 // Let's make eraser square for consistency with typical pixel erasers, or circle.
                 // Let's stick to square for eraser for now as it was default.
                 engine.setBrushType(.square);
+                osd_show("Eraser");
             },
-            .bucket_fill => engine.setMode(.fill),
+            .bucket_fill => {
+                engine.setMode(.fill);
+                osd_show("Bucket Fill");
+            },
             .rect_select => {
                 engine.setSelectionMode(.rectangle);
+                osd_show("Rectangle Select");
             },
             .ellipse_select => {
                 engine.setSelectionMode(.ellipse);
+                osd_show("Ellipse Select");
+            },
+            .unified_transform => {
+                osd_show("Unified Transform");
             },
         }
     }
@@ -154,11 +217,21 @@ var eraser_tool = Tool.eraser;
 var bucket_fill_tool = Tool.bucket_fill;
 var rect_select_tool = Tool.rect_select;
 var ellipse_select_tool = Tool.ellipse_select;
+var unified_transform_tool = Tool.unified_transform;
 
 // View State
 var view_scale: f64 = 1.0;
 var view_x: f64 = 0.0;
 var view_y: f64 = 0.0;
+
+const OsdState = struct {
+    label: ?*c.GtkWidget = null,
+    revealer: ?*c.GtkWidget = null,
+    timeout_id: c_uint = 0,
+};
+
+var osd_state: OsdState = .{};
+var canvas_dirty: bool = true;
 
 fn draw_func(
     widget: [*c]c.GtkDrawingArea,
@@ -170,6 +243,16 @@ fn draw_func(
     _ = user_data;
     _ = widget;
 
+    if (surface) |s| {
+        const s_width = c.cairo_image_surface_get_width(s);
+        const s_height = c.cairo_image_surface_get_height(s);
+        if (s_width != width or s_height != height) {
+            c.cairo_surface_destroy(s);
+            surface = null;
+            canvas_dirty = true;
+        }
+    }
+
     if (surface == null) {
         if (width > 0 and height > 0) {
             const s = c.cairo_image_surface_create(c.CAIRO_FORMAT_ARGB32, width, height);
@@ -179,6 +262,7 @@ fn draw_func(
                 return;
             }
             surface = s;
+            canvas_dirty = true;
         } else {
             return;
         }
@@ -193,7 +277,7 @@ fn draw_func(
             return;
         }
 
-        if (engine.layers.items.len > 0) {
+        if (engine.layers.items.len > 0 and canvas_dirty) {
             c.cairo_surface_flush(s);
             const data = c.cairo_image_surface_get_data(s);
             if (data == null) {
@@ -208,6 +292,7 @@ fn draw_func(
             engine.blitView(s_width, s_height, data, stride, view_scale, view_x, view_y);
 
             c.cairo_surface_mark_dirty(s);
+            canvas_dirty = false;
         }
     }
 
@@ -316,6 +401,12 @@ fn scroll_func(
         view_x = (view_x + mouse_x) * zoom_factor - mouse_x;
         view_y = (view_y + mouse_y) * zoom_factor - mouse_y;
         view_scale = new_scale;
+        canvas_dirty = true;
+
+        var buf: [32]u8 = undefined;
+        const pct: i32 = @intFromFloat(view_scale * 100.0);
+        const txt = std.fmt.bufPrint(&buf, "Zoom: {d}%", .{pct}) catch "Zoom";
+        osd_show(txt);
     } else {
         // Pan
         // Scroll down (positive dy) -> Move View Down (increase ViewY) -> Content moves Up?
@@ -325,6 +416,7 @@ fn scroll_func(
         const speed = 20.0;
         view_x += dx * speed;
         view_y += dy * speed;
+        canvas_dirty = true;
     }
 
     c.gtk_widget_queue_draw(widget);
@@ -362,6 +454,7 @@ fn drag_begin(
                     std.debug.print("Bucket fill failed: {}\n", .{err});
                 };
                 engine.commitTransaction();
+                canvas_dirty = true;
                 c.gtk_widget_queue_draw(widget);
             } else if (current_tool == .rect_select or current_tool == .ellipse_select) {
                 // Start selection - maybe clear existing?
@@ -404,6 +497,7 @@ fn drag_update(
 
         view_x -= dx;
         view_y -= dy;
+        canvas_dirty = true;
 
         c.gtk_widget_queue_draw(widget);
     } else if (button == 1) {
@@ -443,6 +537,7 @@ fn drag_update(
 
         // Default pressure 1.0 for now
         engine.paintStroke(c_prev_x, c_prev_y, c_curr_x, c_curr_y, 1.0);
+        canvas_dirty = true;
         c.gtk_widget_queue_draw(widget);
     }
 
@@ -473,6 +568,7 @@ fn new_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(
     };
     refresh_layers_ui();
     refresh_undo_ui();
+    canvas_dirty = true;
     queue_draw();
 }
 
@@ -574,12 +670,14 @@ fn quit_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) 
 
 fn undo_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     engine.undo();
+    canvas_dirty = true;
     queue_draw();
     refresh_undo_ui();
 }
 
 fn redo_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     engine.redo();
+    canvas_dirty = true;
     queue_draw();
     refresh_undo_ui();
 }
@@ -596,18 +694,21 @@ fn refresh_header_ui() void {
 fn blur_small_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     engine.setPreviewBlur(5.0);
     refresh_header_ui();
+    canvas_dirty = true;
     queue_draw();
 }
 
 fn blur_medium_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     engine.setPreviewBlur(10.0);
     refresh_header_ui();
+    canvas_dirty = true;
     queue_draw();
 }
 
 fn blur_large_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     engine.setPreviewBlur(20.0);
     refresh_header_ui();
+    canvas_dirty = true;
     queue_draw();
 }
 
@@ -616,6 +717,7 @@ fn apply_preview_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque)
         std.debug.print("Commit preview failed: {}\n", .{err});
     };
     refresh_header_ui();
+    canvas_dirty = true;
     queue_draw();
     refresh_undo_ui();
 }
@@ -623,6 +725,7 @@ fn apply_preview_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque)
 fn discard_preview_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     engine.cancelPreview();
     refresh_header_ui();
+    canvas_dirty = true;
     queue_draw();
 }
 
@@ -630,6 +733,7 @@ fn split_view_change_state(action: *c.GSimpleAction, value: *c.GVariant, _: ?*an
     const enabled = c.g_variant_get_boolean(value) != 0;
     engine.setSplitView(enabled);
     c.g_simple_action_set_state(action, value);
+    canvas_dirty = true;
     queue_draw();
 }
 
@@ -704,6 +808,7 @@ fn refresh_layers_ui() void {
 fn layer_visibility_toggled(_: *c.GtkCheckButton, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     const idx = @intFromPtr(user_data);
     engine.toggleLayerVisibility(idx);
+    canvas_dirty = true;
     queue_draw();
     refresh_undo_ui();
 }
@@ -718,6 +823,7 @@ fn layer_add_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.Calli
     engine.addLayer("New Layer") catch return;
     refresh_layers_ui();
     refresh_undo_ui();
+    canvas_dirty = true;
     queue_draw();
 }
 
@@ -725,6 +831,7 @@ fn layer_remove_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.Ca
     engine.removeLayer(engine.active_layer_idx);
     refresh_layers_ui();
     refresh_undo_ui();
+    canvas_dirty = true;
     queue_draw();
 }
 
@@ -734,6 +841,7 @@ fn layer_up_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.Callin
         engine.reorderLayer(idx, idx + 1);
         refresh_layers_ui();
         refresh_undo_ui();
+        canvas_dirty = true;
         queue_draw();
     }
 }
@@ -744,6 +852,7 @@ fn layer_down_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.Call
         engine.reorderLayer(idx, idx - 1);
         refresh_layers_ui();
         refresh_undo_ui();
+        canvas_dirty = true;
         queue_draw();
     }
 }
@@ -759,6 +868,30 @@ fn layer_selected(_: *c.GtkListBox, row: ?*c.GtkListBoxRow, _: ?*anyopaque) call
             }
         }
     }
+}
+
+fn osd_hide_callback(user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) c.gboolean {
+    _ = user_data;
+    if (osd_state.revealer) |rev| {
+        c.gtk_revealer_set_reveal_child(@ptrCast(rev), 0);
+    }
+    osd_state.timeout_id = 0;
+    return 0; // G_SOURCE_REMOVE
+}
+
+fn osd_show(text: []const u8) void {
+    if (osd_state.label == null or osd_state.revealer == null) return;
+
+    var buf: [128]u8 = undefined;
+    const slice = std.fmt.bufPrintZ(&buf, "{s}", .{text}) catch return;
+    c.gtk_label_set_text(@ptrCast(osd_state.label), slice.ptr);
+
+    c.gtk_revealer_set_reveal_child(@ptrCast(osd_state.revealer), 1);
+
+    if (osd_state.timeout_id != 0) {
+        _ = c.g_source_remove(osd_state.timeout_id);
+    }
+    osd_state.timeout_id = c.g_timeout_add(1500, @ptrCast(&osd_hide_callback), null);
 }
 
 fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
@@ -945,6 +1078,10 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     const ellipse_btn = createToolButton(&ellipse_select_tool, "media-record-symbolic", "Ellipse Select", @ptrCast(brush_btn), true);
     c.gtk_box_append(@ptrCast(tools_box), ellipse_btn);
 
+    // Unified Transform
+    const transform_btn = createToolButton(&unified_transform_tool, "object-rotate-right-symbolic", "Unified Transform", @ptrCast(brush_btn), true);
+    c.gtk_box_append(@ptrCast(tools_box), transform_btn);
+
     // Separator
     c.gtk_box_append(@ptrCast(sidebar), c.gtk_separator_new(c.GTK_ORIENTATION_HORIZONTAL));
 
@@ -961,6 +1098,37 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.gtk_widget_set_hexpand(size_slider, 0);
     c.gtk_box_append(@ptrCast(sidebar), size_slider);
     _ = c.g_signal_connect_data(size_slider, "value-changed", @ptrCast(&brush_size_changed), null, null, 0);
+
+    // Transform Controls
+    const t_controls = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 5);
+    transform_controls_box = t_controls;
+    c.gtk_widget_set_visible(t_controls, 0);
+    c.gtk_box_append(@ptrCast(sidebar), t_controls);
+
+    c.gtk_box_append(@ptrCast(t_controls), c.gtk_label_new("Translate X"));
+    const t_x = c.gtk_spin_button_new_with_range(-1000.0, 1000.0, 1.0);
+    transform_x_spin = t_x;
+    c.gtk_box_append(@ptrCast(t_controls), t_x);
+    _ = c.g_signal_connect_data(t_x, "value-changed", @ptrCast(&transform_param_changed), null, null, 0);
+
+    c.gtk_box_append(@ptrCast(t_controls), c.gtk_label_new("Translate Y"));
+    const t_y = c.gtk_spin_button_new_with_range(-1000.0, 1000.0, 1.0);
+    transform_y_spin = t_y;
+    c.gtk_box_append(@ptrCast(t_controls), t_y);
+    _ = c.g_signal_connect_data(t_y, "value-changed", @ptrCast(&transform_param_changed), null, null, 0);
+
+    c.gtk_box_append(@ptrCast(t_controls), c.gtk_label_new("Rotate (Deg)"));
+    const t_r = c.gtk_scale_new_with_range(c.GTK_ORIENTATION_HORIZONTAL, -180.0, 180.0, 1.0);
+    transform_r_scale = t_r;
+    c.gtk_box_append(@ptrCast(t_controls), t_r);
+    _ = c.g_signal_connect_data(t_r, "value-changed", @ptrCast(&transform_param_changed), null, null, 0);
+
+    c.gtk_box_append(@ptrCast(t_controls), c.gtk_label_new("Scale"));
+    const t_s = c.gtk_scale_new_with_range(c.GTK_ORIENTATION_HORIZONTAL, 0.1, 5.0, 0.1);
+    c.gtk_range_set_value(@ptrCast(t_s), 1.0);
+    transform_s_scale = t_s;
+    c.gtk_box_append(@ptrCast(t_controls), t_s);
+    _ = c.g_signal_connect_data(t_s, "value-changed", @ptrCast(&transform_param_changed), null, null, 0);
 
     // Layers Section
     c.gtk_box_append(@ptrCast(sidebar), c.gtk_separator_new(c.GTK_ORIENTATION_HORIZONTAL));
@@ -1025,13 +1193,57 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     // Set as content in split view
     c.adw_overlay_split_view_set_content(@ptrCast(split_view), content);
 
+    // Overlay
+    const overlay = c.gtk_overlay_new();
+    c.gtk_box_append(@ptrCast(content), overlay);
+
     // Drawing Area
     const area = c.gtk_drawing_area_new();
     drawing_area = area;
     c.gtk_widget_set_hexpand(area, 1);
     c.gtk_widget_set_vexpand(area, 1);
     c.gtk_drawing_area_set_draw_func(@ptrCast(area), draw_func, null, null);
-    c.gtk_box_append(@ptrCast(content), area);
+    c.gtk_overlay_set_child(@ptrCast(overlay), area);
+
+    // OSD Widget
+    const osd_revealer = c.gtk_revealer_new();
+    c.gtk_widget_set_valign(osd_revealer, c.GTK_ALIGN_END);
+    c.gtk_widget_set_halign(osd_revealer, c.GTK_ALIGN_CENTER);
+    c.gtk_widget_set_margin_bottom(osd_revealer, 40);
+    c.gtk_revealer_set_transition_type(@ptrCast(osd_revealer), c.GTK_REVEALER_TRANSITION_TYPE_CROSSFADE);
+
+    const osd_box = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 0);
+    c.gtk_widget_add_css_class(osd_box, "osd-box");
+    c.gtk_revealer_set_child(@ptrCast(osd_revealer), osd_box);
+
+    const osd_label = c.gtk_label_new("");
+    c.gtk_box_append(@ptrCast(osd_box), osd_label);
+
+    c.gtk_overlay_add_overlay(@ptrCast(overlay), osd_revealer);
+
+    // Transform Action Bar
+    const t_action_bar = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 10);
+    transform_action_bar = t_action_bar;
+    c.gtk_widget_set_visible(t_action_bar, 0);
+    c.gtk_widget_set_valign(t_action_bar, c.GTK_ALIGN_START);
+    c.gtk_widget_set_halign(t_action_bar, c.GTK_ALIGN_CENTER);
+    c.gtk_widget_set_margin_top(t_action_bar, 20);
+    c.gtk_widget_add_css_class(t_action_bar, "osd-box");
+
+    const t_apply = c.gtk_button_new_with_label("Apply");
+    c.gtk_widget_add_css_class(t_apply, "suggested-action");
+    c.gtk_box_append(@ptrCast(t_action_bar), t_apply);
+    _ = c.g_signal_connect_data(t_apply, "clicked", @ptrCast(&transform_apply_clicked), null, null, 0);
+
+    const t_cancel = c.gtk_button_new_with_label("Cancel");
+    c.gtk_box_append(@ptrCast(t_action_bar), t_cancel);
+    _ = c.g_signal_connect_data(t_cancel, "clicked", @ptrCast(&transform_cancel_clicked), null, null, 0);
+
+    c.gtk_overlay_add_overlay(@ptrCast(overlay), t_action_bar);
+
+    // Store in global state
+    osd_state.label = osd_label;
+    osd_state.revealer = osd_revealer;
 
     // Gestures
     const drag = c.gtk_gesture_drag_new();
@@ -1063,6 +1275,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     const css =
         \\.sidebar { background-color: shade(@theme_bg_color, 0.95); border-right: 1px solid alpha(currentColor, 0.15); padding: 10px; }
         \\.content { background-color: @theme_bg_color; }
+        \\.osd-box { background-color: rgba(0, 0, 0, 0.7); color: white; border-radius: 12px; padding: 8px 16px; font-weight: bold; }
     ;
     // Note: Adwaita handles colors better, using shared variables
     c.gtk_css_provider_load_from_data(css_provider, css, -1);
