@@ -86,6 +86,20 @@ pub const Engine = struct {
         layer: LayerCommand,
         selection: SelectionCommand,
 
+        pub fn description(self: Command) [:0]const u8 {
+            switch (self) {
+                .paint => return "Paint Stroke",
+                .layer => |l_cmd| switch (l_cmd) {
+                    .add => return "Add Layer",
+                    .remove => return "Remove Layer",
+                    .reorder => return "Reorder Layer",
+                    .visibility => return "Toggle Visibility",
+                    .lock => return "Toggle Lock",
+                },
+                .selection => return "Selection Change",
+            }
+        }
+
         pub fn deinit(self: *Command) void {
             switch (self.*) {
                 .paint => |*cmd| cmd.deinit(),
