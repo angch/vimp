@@ -2,6 +2,7 @@ const std = @import("std");
 
 const c = @import("c.zig").c;
 const Engine = @import("engine.zig").Engine;
+const RecentManager = @import("recent.zig").RecentManager;
 
 // Global state for simplicity in this phase
 const Tool = enum {
@@ -17,6 +18,7 @@ const Tool = enum {
 };
 
 var engine: Engine = .{};
+var recent_manager: RecentManager = undefined;
 var surface: ?*c.cairo_surface_t = null;
 var prev_x: f64 = 0;
 var prev_y: f64 = 0;
@@ -25,6 +27,7 @@ var mouse_y: f64 = 0;
 var current_tool: Tool = .brush;
 
 var layers_list_box: ?*c.GtkWidget = null;
+var recent_list_box: ?*c.GtkWidget = null;
 var undo_list_box: ?*c.GtkWidget = null;
 var drawing_area: ?*c.GtkWidget = null;
 var apply_preview_btn: ?*c.GtkWidget = null;
@@ -601,6 +604,13 @@ fn openFileFromPath(path: [:0]const u8, as_layers: bool) void {
         load_success = false;
     };
 
+    if (load_success) {
+        recent_manager.add(path) catch |e| {
+            std.debug.print("Failed to add to recent: {}\n", .{e});
+        };
+        refresh_recent_ui();
+    }
+
     if (load_success and !as_layers) {
         // If replacing content, set canvas size to first layer
         if (engine.layers.items.len > 0) {
@@ -1143,8 +1153,84 @@ fn drop_func(
     return 0;
 }
 
+fn on_recent_row_activated(_: *c.GtkListBox, row: *c.GtkListBoxRow, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const data = c.g_object_get_data(@ptrCast(row), "file-path");
+    if (data) |p| {
+        const path: [*c]const u8 = @ptrCast(p);
+        const span = std.mem.span(path);
+        // Ensure we don't block if open takes time, but openFileFromPath is synchronous currently except for dialogs
+        openFileFromPath(span, false);
+    }
+}
+
+fn refresh_recent_ui() void {
+    if (recent_list_box) |box| {
+        // Clear
+        var child = c.gtk_widget_get_first_child(@ptrCast(box));
+        while (child != null) {
+            const next = c.gtk_widget_get_next_sibling(child);
+            c.gtk_list_box_remove(@ptrCast(box), child);
+            child = next;
+        }
+
+        // Add recent files
+        if (recent_manager.paths.items.len == 0) {
+            const label = c.gtk_label_new("(No recent files)");
+            c.gtk_widget_add_css_class(label, "dim-label");
+            c.gtk_widget_set_margin_top(label, 10);
+            c.gtk_widget_set_margin_bottom(label, 10);
+            // Insert as a non-activatable row or just a child?
+            // ListBox expects rows.
+            const row = c.gtk_list_box_row_new();
+            c.gtk_list_box_row_set_child(@ptrCast(row), label);
+            c.gtk_list_box_row_set_activatable(@ptrCast(row), 0);
+            c.gtk_list_box_append(@ptrCast(box), row);
+        } else {
+            for (recent_manager.paths.items) |path| {
+                const row = c.gtk_list_box_row_new();
+
+                const row_box = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 12);
+                c.gtk_widget_set_margin_top(row_box, 8);
+                c.gtk_widget_set_margin_bottom(row_box, 8);
+                c.gtk_widget_set_margin_start(row_box, 12);
+                c.gtk_widget_set_margin_end(row_box, 12);
+
+                const icon = c.gtk_image_new_from_icon_name("image-x-generic-symbolic");
+                c.gtk_box_append(@ptrCast(row_box), icon);
+
+                const basename = std.fs.path.basename(path);
+                var buf: [256]u8 = undefined;
+                const label_text = std.fmt.bufPrintZ(&buf, "{s}", .{basename}) catch "File";
+
+                const label = c.gtk_label_new(label_text.ptr);
+                c.gtk_widget_set_hexpand(label, 1);
+                c.gtk_widget_set_halign(label, c.GTK_ALIGN_START);
+                c.gtk_box_append(@ptrCast(row_box), label);
+
+                // Show full path as tooltip
+                var path_buf: [1024]u8 = undefined;
+                const path_z = std.fmt.bufPrintZ(&path_buf, "{s}", .{path}) catch "File";
+                c.gtk_widget_set_tooltip_text(row, path_z.ptr);
+
+                c.gtk_list_box_row_set_child(@ptrCast(row), row_box);
+                c.gtk_list_box_append(@ptrCast(box), row);
+
+                // Attach data
+                const path_dup = std.fmt.allocPrintSentinel(std.heap.c_allocator, "{s}", .{path}, 0) catch continue;
+                c.g_object_set_data_full(@ptrCast(row), "file-path", @ptrCast(path_dup), @ptrCast(&c.g_free));
+            }
+        }
+    }
+}
+
 fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     _ = user_data;
+
+    // Init recent manager
+    recent_manager = RecentManager.init(std.heap.c_allocator);
+    recent_manager.load() catch |err| {
+         std.debug.print("Failed to load recent files: {}\n", .{err});
+    };
 
     // Use AdwApplicationWindow
     const window = c.adw_application_window_new(app);
@@ -1471,15 +1557,28 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.gtk_actionable_set_action_name(@ptrCast(welcome_open_btn), "app.open");
     c.gtk_box_append(@ptrCast(welcome_box), welcome_open_btn);
 
-    // Recent Label (Placeholder)
+    // Recent Label
     const recent_label = c.gtk_label_new("Recent Files");
     c.gtk_widget_set_margin_top(recent_label, 20);
     c.gtk_widget_add_css_class(recent_label, "dim-label");
     c.gtk_box_append(@ptrCast(welcome_box), recent_label);
 
-    const recent_placeholder = c.gtk_label_new("(No recent files)");
-    c.gtk_widget_add_css_class(recent_placeholder, "caption");
-    c.gtk_box_append(@ptrCast(welcome_box), recent_placeholder);
+    // Recent List
+    const recent_scrolled = c.gtk_scrolled_window_new();
+    c.gtk_widget_set_vexpand(recent_scrolled, 1);
+    c.gtk_widget_set_size_request(recent_scrolled, 400, 250);
+
+    const recent_list = c.gtk_list_box_new();
+    c.gtk_list_box_set_selection_mode(@ptrCast(recent_list), c.GTK_SELECTION_NONE);
+    c.gtk_widget_add_css_class(recent_list, "boxed-list");
+
+    c.gtk_scrolled_window_set_child(@ptrCast(recent_scrolled), recent_list);
+    c.gtk_box_append(@ptrCast(welcome_box), recent_scrolled);
+
+    recent_list_box = recent_list;
+    _ = c.g_signal_connect_data(recent_list, "row-activated", @ptrCast(&on_recent_row_activated), null, null, 0);
+
+    refresh_recent_ui();
 
     c.adw_status_page_set_child(@ptrCast(welcome_page), welcome_box);
     _ = c.gtk_stack_add_named(@ptrCast(stack), welcome_page, "welcome");

@@ -80,4 +80,5 @@ test "VimpBrushTool offset verification" {
 test {
     _ = @import("engine.zig");
     _ = @import("widgets/text_style_editor.zig");
+    _ = @import("recent.zig");
 }
