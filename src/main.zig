@@ -1029,6 +1029,34 @@ fn osd_show(text: []const u8) void {
     osd_state.timeout_id = c.g_timeout_add(1500, @ptrCast(&osd_hide_callback), null);
 }
 
+const DropConfirmContext = struct {
+    path: [:0]u8,
+};
+
+fn drop_response(
+    dialog: *c.AdwMessageDialog,
+    response: [*c]const u8,
+    user_data: ?*anyopaque,
+) callconv(std.builtin.CallingConvention.c) void {
+    const ctx: *DropConfirmContext = @ptrCast(@alignCast(user_data));
+    // We must clean up context and path regardless of choice
+    const allocator = std.heap.c_allocator;
+    defer allocator.destroy(ctx);
+    defer allocator.free(ctx.path);
+
+    const resp_span = std.mem.span(response);
+
+    if (std.mem.eql(u8, resp_span, "new")) {
+        openFileFromPath(ctx.path, false);
+    } else if (std.mem.eql(u8, resp_span, "layer")) {
+        openFileFromPath(ctx.path, true);
+    }
+    // "cancel" or others do nothing but cleanup
+
+    // Destroy the dialog
+    c.gtk_window_destroy(@ptrCast(dialog));
+}
+
 fn drop_func(
     target: *c.GtkDropTarget,
     value: *const c.GValue,
@@ -1039,7 +1067,9 @@ fn drop_func(
     _ = target;
     _ = x;
     _ = y;
-    _ = user_data;
+
+    // Check if we have a window handle
+    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
 
     const file_obj = c.g_value_get_object(value);
     if (file_obj) |obj| {
@@ -1048,8 +1078,45 @@ fn drop_func(
         const path = c.g_file_get_path(file);
         if (path) |p| {
             const span = std.mem.span(@as([*:0]const u8, @ptrCast(p)));
-            const as_layers = (engine.layers.items.len > 0);
-            openFileFromPath(span, as_layers);
+
+            // Logic: If layers exist AND we have a window to show dialog on -> Ask User
+            if (engine.layers.items.len > 0 and window != null) {
+                const allocator = std.heap.c_allocator;
+                // Copy path
+                const path_copy = allocator.dupeZ(u8, span) catch {
+                    c.g_free(p);
+                    return 0;
+                };
+
+                const ctx = allocator.create(DropConfirmContext) catch {
+                    allocator.free(path_copy);
+                    c.g_free(p);
+                    return 0;
+                };
+                ctx.* = .{ .path = path_copy };
+
+                const dialog = c.adw_message_dialog_new(
+                    window.?,
+                    "Import Image",
+                    "How would you like to open this image?",
+                );
+
+                c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "Cancel");
+                c.adw_message_dialog_add_response(@ptrCast(dialog), "new", "Open as New Image");
+                c.adw_message_dialog_add_response(@ptrCast(dialog), "layer", "Add as Layer");
+
+                c.adw_message_dialog_set_default_response(@ptrCast(dialog), "layer");
+                c.adw_message_dialog_set_close_response(@ptrCast(dialog), "cancel");
+
+                _ = c.g_signal_connect_data(dialog, "response", @ptrCast(&drop_response), ctx, null, 0);
+
+                c.gtk_window_present(@ptrCast(dialog));
+
+            } else {
+                const as_layers = (engine.layers.items.len > 0);
+                openFileFromPath(span, as_layers);
+            }
+
             c.g_free(p);
             return 1;
         }
@@ -1413,7 +1480,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
 
     // Drop Target
     const drop_target = c.gtk_drop_target_new(c.g_file_get_type(), c.GDK_ACTION_COPY);
-    _ = c.g_signal_connect_data(drop_target, "drop", @ptrCast(&drop_func), null, null, 0);
+    _ = c.g_signal_connect_data(drop_target, "drop", @ptrCast(&drop_func), window, null, 0);
     c.gtk_widget_add_controller(area, @ptrCast(drop_target));
 
     // Gestures
