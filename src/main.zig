@@ -36,6 +36,7 @@ var transform_x_spin: ?*c.GtkWidget = null;
 var transform_y_spin: ?*c.GtkWidget = null;
 var transform_r_scale: ?*c.GtkWidget = null;
 var transform_s_scale: ?*c.GtkWidget = null;
+var main_stack: ?*c.GtkWidget = null;
 
 pub fn main() !void {
     engine.init();
@@ -184,6 +185,16 @@ fn tool_toggled(
             .unified_transform => {
                 osd_show("Unified Transform");
             },
+        }
+    }
+}
+
+fn update_view_mode() void {
+    if (main_stack) |stack| {
+        if (engine.layers.items.len > 0) {
+            c.gtk_stack_set_visible_child_name(@ptrCast(stack), "canvas");
+        } else {
+            c.gtk_stack_set_visible_child_name(@ptrCast(stack), "welcome");
         }
     }
 }
@@ -568,6 +579,7 @@ fn new_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(
     };
     refresh_layers_ui();
     refresh_undo_ui();
+    update_view_mode();
     canvas_dirty = true;
     queue_draw();
 }
@@ -601,6 +613,7 @@ fn openFileFromPath(path: [:0]const u8, as_layers: bool) void {
     // Refresh UI
     refresh_layers_ui();
     refresh_undo_ui();
+    update_view_mode();
     canvas_dirty = true;
     queue_draw();
 }
@@ -805,6 +818,8 @@ fn quit_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) 
 
 fn undo_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     engine.undo();
+    refresh_layers_ui(); // Layers might change
+    update_view_mode();
     canvas_dirty = true;
     queue_draw();
     refresh_undo_ui();
@@ -812,6 +827,8 @@ fn undo_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv
 
 fn redo_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     engine.redo();
+    refresh_layers_ui(); // Layers might change
+    update_view_mode();
     canvas_dirty = true;
     queue_draw();
     refresh_undo_ui();
@@ -966,6 +983,7 @@ fn layer_remove_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.Ca
     engine.removeLayer(engine.active_layer_idx);
     refresh_layers_ui();
     refresh_undo_ui();
+    update_view_mode();
     canvas_dirty = true;
     queue_draw();
 }
@@ -1426,9 +1444,49 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     // Set as content in split view
     c.adw_overlay_split_view_set_content(@ptrCast(split_view), content);
 
-    // Overlay
+    // Stack
+    const stack = c.gtk_stack_new();
+    main_stack = stack;
+    c.gtk_widget_set_vexpand(stack, 1);
+    c.gtk_widget_set_hexpand(stack, 1);
+    c.gtk_box_append(@ptrCast(content), stack);
+
+    // Welcome Page
+    const welcome_page = c.adw_status_page_new();
+    c.adw_status_page_set_icon_name(@ptrCast(welcome_page), "camera-photo-symbolic");
+    c.adw_status_page_set_title(@ptrCast(welcome_page), "Welcome to Vimp");
+    c.adw_status_page_set_description(@ptrCast(welcome_page), "Create a new image or open an existing one to get started.");
+
+    const welcome_box = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 10);
+    c.gtk_widget_set_halign(welcome_box, c.GTK_ALIGN_CENTER);
+
+    const welcome_new_btn = c.gtk_button_new_with_label("New Image");
+    c.gtk_widget_add_css_class(welcome_new_btn, "pill");
+    c.gtk_widget_add_css_class(welcome_new_btn, "suggested-action");
+    c.gtk_actionable_set_action_name(@ptrCast(welcome_new_btn), "app.new");
+    c.gtk_box_append(@ptrCast(welcome_box), welcome_new_btn);
+
+    const welcome_open_btn = c.gtk_button_new_with_label("Open Image");
+    c.gtk_widget_add_css_class(welcome_open_btn, "pill");
+    c.gtk_actionable_set_action_name(@ptrCast(welcome_open_btn), "app.open");
+    c.gtk_box_append(@ptrCast(welcome_box), welcome_open_btn);
+
+    // Recent Label (Placeholder)
+    const recent_label = c.gtk_label_new("Recent Files");
+    c.gtk_widget_set_margin_top(recent_label, 20);
+    c.gtk_widget_add_css_class(recent_label, "dim-label");
+    c.gtk_box_append(@ptrCast(welcome_box), recent_label);
+
+    const recent_placeholder = c.gtk_label_new("(No recent files)");
+    c.gtk_widget_add_css_class(recent_placeholder, "caption");
+    c.gtk_box_append(@ptrCast(welcome_box), recent_placeholder);
+
+    c.adw_status_page_set_child(@ptrCast(welcome_page), welcome_box);
+    _ = c.gtk_stack_add_named(@ptrCast(stack), welcome_page, "welcome");
+
+    // Overlay (Canvas)
     const overlay = c.gtk_overlay_new();
-    c.gtk_box_append(@ptrCast(content), overlay);
+    _ = c.gtk_stack_add_named(@ptrCast(stack), overlay, "canvas");
 
     // Drawing Area
     const area = c.gtk_drawing_area_new();
@@ -1507,6 +1565,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     // Refresh Layers UI initially
     refresh_layers_ui();
     refresh_undo_ui();
+    update_view_mode();
 
     // CSS Styling
     const css_provider = c.gtk_css_provider_new();
