@@ -38,6 +38,8 @@
 - [ ] Implement Welcome Screen (Recent Grid, Empty State Actions)
 - [ ] Implement Format Specific Import Dialogs (PDF, SVG)
 - [ ] Implement Error Handling (Non-blocking Toasts)
+- [ ] Read and generate TODOs from doc/gimp-file-open-spec.md
+- [ ] Read and generate TODOs from doc/ms_paint_spec.md
 
 ## Higher priority
 
