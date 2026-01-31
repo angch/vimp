@@ -69,6 +69,11 @@ pub const Engine = struct {
     selection: ?c.GeglRectangle = null,
     selection_mode: SelectionMode = .rectangle,
 
+    sel_cx: f64 = 0,
+    sel_cy: f64 = 0,
+    sel_inv_rx_sq: f64 = 0,
+    sel_inv_ry_sq: f64 = 0,
+
     // GEGL is not thread-safe for init/exit, and tests run in parallel.
     // We must serialize access to the GEGL global state.
     var gegl_mutex = std.Thread.Mutex{};
@@ -409,14 +414,10 @@ pub const Engine = struct {
             if (x < sel.x or x >= sel.x + sel.width or y < sel.y or y >= sel.y + sel.height) return false;
 
             if (self.selection_mode == .ellipse) {
-                const cx = @as(f64, @floatFromInt(sel.x)) + @as(f64, @floatFromInt(sel.width)) / 2.0;
-                const cy = @as(f64, @floatFromInt(sel.y)) + @as(f64, @floatFromInt(sel.height)) / 2.0;
-                const rx = @as(f64, @floatFromInt(sel.width)) / 2.0;
-                const ry = @as(f64, @floatFromInt(sel.height)) / 2.0;
-                const dx_p = @as(f64, @floatFromInt(x)) + 0.5 - cx;
-                const dy_p = @as(f64, @floatFromInt(y)) + 0.5 - cy;
+                const dx_p = @as(f64, @floatFromInt(x)) + 0.5 - self.sel_cx;
+                const dy_p = @as(f64, @floatFromInt(y)) + 0.5 - self.sel_cy;
 
-                if ((dx_p * dx_p) / (rx * rx) + (dy_p * dy_p) / (ry * ry) > 1.0) return false;
+                if ((dx_p * dx_p) * self.sel_inv_rx_sq + (dy_p * dy_p) * self.sel_inv_ry_sq > 1.0) return false;
             }
         }
         return true;
@@ -645,6 +646,25 @@ pub const Engine = struct {
 
     pub fn setSelection(self: *Engine, x: c_int, y: c_int, w: c_int, h: c_int) void {
         self.selection = c.GeglRectangle{ .x = x, .y = y, .width = w, .height = h };
+
+        const width_f = @as(f64, @floatFromInt(w));
+        const height_f = @as(f64, @floatFromInt(h));
+        const rx = width_f / 2.0;
+        const ry = height_f / 2.0;
+        self.sel_cx = @as(f64, @floatFromInt(x)) + rx;
+        self.sel_cy = @as(f64, @floatFromInt(y)) + ry;
+
+        if (rx > 0.0) {
+            self.sel_inv_rx_sq = 1.0 / (rx * rx);
+        } else {
+            self.sel_inv_rx_sq = 0.0;
+        }
+
+        if (ry > 0.0) {
+            self.sel_inv_ry_sq = 1.0 / (ry * ry);
+        } else {
+            self.sel_inv_ry_sq = 0.0;
+        }
     }
 
     pub fn clearSelection(self: *Engine) void {
@@ -1092,4 +1112,24 @@ test "Engine gaussian blur" {
         // I will assert it changes.
         try std.testing.expect(pixel[0] > 10);
     }
+}
+
+test "Benchmark bucket fill ellipse" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+    engine.setFgColor(255, 0, 0, 255);
+
+    // Set an ellipse selection covering most of the canvas
+    engine.setSelectionMode(.ellipse);
+    engine.setSelection(50, 50, 700, 500);
+
+    var timer = try std.time.Timer.start();
+    // Fill inside the ellipse at center
+    // Center of 50+700/2 = 400. 50+500/2 = 300.
+    try engine.bucketFill(400, 300);
+    const duration = timer.read();
+
+    std.debug.print("\nBenchmark bucket fill ellipse: {d} ms\n", .{@divFloor(duration, std.time.ns_per_ms)});
 }
