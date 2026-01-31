@@ -577,6 +577,34 @@ const OpenContext = struct {
     as_layers: bool,
 };
 
+fn openFileFromPath(path: [:0]const u8, as_layers: bool) void {
+    if (!as_layers) {
+        engine.reset();
+    }
+
+    var load_success = true;
+    // Call engine load
+    engine.loadFromFile(path) catch |e| {
+        std.debug.print("Failed to load file: {}\n", .{e});
+        load_success = false;
+    };
+
+    if (load_success and !as_layers) {
+        // If replacing content, set canvas size to first layer
+        if (engine.layers.items.len > 0) {
+            const layer = &engine.layers.items[0];
+            const extent = c.gegl_buffer_get_extent(layer.buffer);
+            engine.setCanvasSize(extent.*.width, extent.*.height);
+        }
+    }
+
+    // Refresh UI
+    refresh_layers_ui();
+    refresh_undo_ui();
+    canvas_dirty = true;
+    queue_draw();
+}
+
 fn open_finish(source_object: ?*c.GObject, res: ?*c.GAsyncResult, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     const ctx: *OpenContext = @ptrCast(@alignCast(user_data));
     defer std.heap.c_allocator.destroy(ctx);
@@ -589,31 +617,9 @@ fn open_finish(source_object: ?*c.GObject, res: ?*c.GAsyncResult, user_data: ?*a
             // Convert to slice for Zig
             const span = std.mem.span(@as([*:0]const u8, @ptrCast(p)));
 
-            if (!ctx.as_layers) {
-                engine.reset();
-            }
-
-            // Call engine load
-            engine.loadFromFile(span) catch |e| {
-                std.debug.print("Failed to load file: {}\n", .{e});
-            };
-
-            if (!ctx.as_layers) {
-                // If replacing content, set canvas size to first layer
-                if (engine.layers.items.len > 0) {
-                    const layer = &engine.layers.items[0];
-                    const extent = c.gegl_buffer_get_extent(layer.buffer);
-                    engine.setCanvasSize(extent.*.width, extent.*.height);
-                }
-            }
+            openFileFromPath(span, ctx.as_layers);
 
             c.g_free(p);
-
-            // Refresh UI
-            refresh_layers_ui();
-            refresh_undo_ui();
-            canvas_dirty = true;
-            queue_draw();
         }
         c.g_object_unref(f);
     } else {
@@ -737,7 +743,7 @@ fn save_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) 
 }
 
 test "save surface" {
-    const s = c.cairo_image_surface_create(c.CAIRO_FORMAT_ARGB32, 10, 10);
+    const s = c.cairo_image_surface_create(c.CAIRO_FORMAT_ARGB32, 10, 10) orelse return error.CairoFailed;
     defer c.cairo_surface_destroy(s);
     save_surface_to_file(s, "test_save.png");
     // Verify file exists
@@ -747,6 +753,38 @@ test "save surface" {
     };
     file.close();
     std.fs.cwd().deleteFile("test_save.png") catch {};
+}
+
+test "openFileFromPath integration" {
+    // Setup Engine manually since main() is not called
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+
+    // Create a dummy PNG file
+    const s = c.cairo_image_surface_create(c.CAIRO_FORMAT_ARGB32, 100, 100) orelse return error.CairoFailed;
+    defer c.cairo_surface_destroy(s);
+    // Fill with something to ensure it's not empty/transparent if that matters
+    const cr = c.cairo_create(s);
+    c.cairo_set_source_rgb(cr, 1.0, 0.0, 0.0);
+    c.cairo_paint(cr);
+    c.cairo_destroy(cr);
+
+    const test_file = "test_drop.png";
+    save_surface_to_file(s, test_file);
+    defer std.fs.cwd().deleteFile(test_file) catch {};
+
+    // 1. Open New
+    openFileFromPath(test_file, false);
+    try std.testing.expectEqual(@as(usize, 1), engine.layers.items.len);
+    try std.testing.expectEqualStrings("test_drop.png", std.mem.span(@as([*:0]const u8, @ptrCast(&engine.layers.items[0].name))));
+
+    // 2. Add as Layer
+    openFileFromPath(test_file, true);
+    try std.testing.expectEqual(@as(usize, 2), engine.layers.items.len);
+    // The second layer name might be "test_drop.png" or similar
+    // Note: layers are appended. Items[0] is bottom (first loaded), items[1] is top (second loaded).
+    try std.testing.expectEqualStrings("test_drop.png", std.mem.span(@as([*:0]const u8, @ptrCast(&engine.layers.items[1].name))));
 }
 
 fn about_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
@@ -989,6 +1027,35 @@ fn osd_show(text: []const u8) void {
         _ = c.g_source_remove(osd_state.timeout_id);
     }
     osd_state.timeout_id = c.g_timeout_add(1500, @ptrCast(&osd_hide_callback), null);
+}
+
+fn drop_func(
+    target: *c.GtkDropTarget,
+    value: *const c.GValue,
+    x: f64,
+    y: f64,
+    user_data: ?*anyopaque,
+) callconv(std.builtin.CallingConvention.c) c.gboolean {
+    _ = target;
+    _ = x;
+    _ = y;
+    _ = user_data;
+
+    const file_obj = c.g_value_get_object(value);
+    if (file_obj) |obj| {
+        // Safe cast as we requested G_TYPE_FILE
+        const file: *c.GFile = @ptrCast(obj);
+        const path = c.g_file_get_path(file);
+        if (path) |p| {
+            const span = std.mem.span(@as([*:0]const u8, @ptrCast(p)));
+            const as_layers = (engine.layers.items.len > 0);
+            openFileFromPath(span, as_layers);
+            c.g_free(p);
+            return 1;
+        }
+    }
+
+    return 0;
 }
 
 fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
@@ -1343,6 +1410,11 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     // Store in global state
     osd_state.label = osd_label;
     osd_state.revealer = osd_revealer;
+
+    // Drop Target
+    const drop_target = c.gtk_drop_target_new(c.g_file_get_type(), c.GDK_ACTION_COPY);
+    _ = c.g_signal_connect_data(drop_target, "drop", @ptrCast(&drop_func), null, null, 0);
+    c.gtk_widget_add_controller(area, @ptrCast(drop_target));
 
     // Gestures
     const drag = c.gtk_gesture_drag_new();
