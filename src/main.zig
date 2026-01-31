@@ -3,6 +3,7 @@ const std = @import("std");
 const c = @import("c.zig").c;
 const Engine = @import("engine.zig").Engine;
 const RecentManager = @import("recent.zig").RecentManager;
+const ImportDialogs = @import("widgets/import_dialogs.zig");
 
 // Global state for simplicity in this phase
 const Tool = enum {
@@ -603,26 +604,19 @@ const OpenContext = struct {
     as_layers: bool,
 };
 
-fn openFileFromPath(path: [:0]const u8, as_layers: bool) void {
-    if (!as_layers) {
-        engine.reset();
-    }
+const ImportContext = struct {
+    as_layers: bool,
+};
 
-    var load_success = true;
-    // Call engine load
-    engine.loadFromFile(path) catch |e| {
-        show_toast("Failed to load file: {}", .{e});
-        load_success = false;
-    };
-
-    if (load_success) {
+fn finish_file_open(path: [:0]const u8, as_layers: bool, success: bool) void {
+    if (success) {
         recent_manager.add(path) catch |e| {
             std.debug.print("Failed to add to recent: {}\n", .{e});
         };
         refresh_recent_ui();
     }
 
-    if (load_success and !as_layers) {
+    if (success and !as_layers) {
         // If replacing content, set canvas size to first layer
         if (engine.layers.items.len > 0) {
             const layer = &engine.layers.items[0];
@@ -637,6 +631,95 @@ fn openFileFromPath(path: [:0]const u8, as_layers: bool) void {
     update_view_mode();
     canvas_dirty = true;
     queue_draw();
+}
+
+fn on_pdf_import(user_data: ?*anyopaque, path: [:0]const u8, params: ?Engine.PdfImportParams) void {
+    const ctx: *ImportContext = @ptrCast(@alignCast(user_data));
+    defer std.heap.c_allocator.destroy(ctx);
+
+    if (params) |p| {
+        if (!ctx.as_layers) {
+            engine.reset();
+        }
+
+        var success = true;
+        engine.loadPdf(path, p) catch |e| {
+            show_toast("Failed to load PDF: {}", .{e});
+            success = false;
+        };
+        finish_file_open(path, ctx.as_layers, success);
+    }
+    // Else cancelled, do nothing (context is freed by defer)
+}
+
+fn on_svg_import(user_data: ?*anyopaque, path: [:0]const u8, params: ?Engine.SvgImportParams) void {
+    const ctx: *ImportContext = @ptrCast(@alignCast(user_data));
+    defer std.heap.c_allocator.destroy(ctx);
+
+    if (params) |p| {
+        if (!ctx.as_layers) {
+            engine.reset();
+        }
+
+        var success = true;
+        engine.loadSvg(path, p) catch |e| {
+            show_toast("Failed to load SVG: {}", .{e});
+            success = false;
+        };
+        finish_file_open(path, ctx.as_layers, success);
+    }
+}
+
+fn openFileFromPath(path: [:0]const u8, as_layers: bool) void {
+    const ext = std.fs.path.extension(path);
+    const is_pdf = std.ascii.eqlIgnoreCase(ext, ".pdf");
+    const is_svg = std.ascii.eqlIgnoreCase(ext, ".svg");
+
+    if (is_pdf) {
+        const ctx = std.heap.c_allocator.create(ImportContext) catch return;
+        ctx.* = .{ .as_layers = as_layers };
+
+        var parent_window: ?*c.GtkWindow = null;
+        if (main_stack) |s| {
+            const root = c.gtk_widget_get_root(@ptrCast(s));
+            if (root) |r| parent_window = @ptrCast(@alignCast(r));
+        }
+
+        ImportDialogs.showPdfImportDialog(parent_window, path, &on_pdf_import, ctx) catch |e| {
+            show_toast("Failed to show import dialog: {}", .{e});
+            std.heap.c_allocator.destroy(ctx);
+        };
+        return;
+    }
+
+    if (is_svg) {
+        const ctx = std.heap.c_allocator.create(ImportContext) catch return;
+        ctx.* = .{ .as_layers = as_layers };
+
+        var parent_window: ?*c.GtkWindow = null;
+        if (main_stack) |s| {
+            const root = c.gtk_widget_get_root(@ptrCast(s));
+            if (root) |r| parent_window = @ptrCast(@alignCast(r));
+        }
+
+        ImportDialogs.showSvgImportDialog(parent_window, path, &on_svg_import, ctx) catch |e| {
+            show_toast("Failed to show import dialog: {}", .{e});
+            std.heap.c_allocator.destroy(ctx);
+        };
+        return;
+    }
+
+    if (!as_layers) {
+        engine.reset();
+    }
+
+    var load_success = true;
+    // Call engine load
+    engine.loadFromFile(path) catch |e| {
+        show_toast("Failed to load file: {}", .{e});
+        load_success = false;
+    };
+    finish_file_open(path, as_layers, load_success);
 }
 
 fn open_finish(source_object: ?*c.GObject, res: ?*c.GAsyncResult, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
