@@ -40,7 +40,9 @@
 - [x] Implement Welcome Screen (Recent Grid, Empty State Actions)
 - [x] Implement Recent Files Persistence (Backend for Recent Grid)
 - [x] Implement file type filtering in Open Dialog
-- [ ] Implement Format Specific Import Dialogs (PDF, SVG)
+- [x] Implement Format Specific Import Dialogs (PDF, SVG)
+- [ ] Implement PDF Import Page Selection (Thumbnails)
+- [ ] Implement SVG Path Import
 - [x] Implement Error Handling (Non-blocking Toasts)
 - [ ] Read and generate TODOs from doc/gimp-file-open-spec.md
 - [ ] Read and generate TODOs from doc/ms_paint_spec.md

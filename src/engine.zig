@@ -615,7 +615,7 @@ pub const Engine = struct {
         // Try gegl:pdf-load, fall back to gegl:load if not explicit but we prefer specific ops
         const load_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:pdf-load",
             "path", path_z.ptr,
-            "ppi", @as(c_int, @intFromFloat(params.ppi)), // PPI is usually int or double? Property check said ppi.
+            "ppi", @as(f64, params.ppi),
             "page", @as(c_int, params.page),
             @as(?*anyopaque, null));
 
@@ -2075,4 +2075,48 @@ test "Engine load Svg" {
         try std.testing.expectEqual(extent.*.width, 200);
         try std.testing.expectEqual(extent.*.height, 200);
     }
+}
+
+test "Engine load Pdf" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+
+    // Create a temporary PDF file
+    const filename = "test_image.pdf";
+    // Minimal PDF 1.0 with 20-byte xref entries
+    const pdf_content =
+        "%PDF-1.0\n" ++
+        "1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n" ++
+        "2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n" ++
+        "3 0 obj<</Type/Page/MediaBox[0 0 100 100]/Parent 2 0 R/Resources<<>>>>endobj\n" ++
+        "xref\n" ++
+        "0 4\n" ++
+        "0000000000 65535 f \n" ++
+        "0000000009 00000 n \n" ++
+        "0000000053 00000 n \n" ++
+        "0000000102 00000 n \n" ++
+        "trailer<</Size 4/Root 1 0 R>>\n" ++
+        "startxref\n" ++
+        "179\n" ++
+        "%%EOF\n";
+
+    try std.fs.cwd().writeFile(.{ .sub_path = filename, .data = pdf_content });
+    defer std.fs.cwd().deleteFile(filename) catch {};
+
+    // Load PDF
+    const params = Engine.PdfImportParams{
+        .ppi = 72.0,
+        .page = 1,
+        .all_pages = false,
+    };
+    try engine.loadPdf(filename, params);
+
+    try std.testing.expectEqual(engine.layers.items.len, 1);
+    const layer = &engine.layers.items[0];
+    const extent = c.gegl_buffer_get_extent(layer.buffer);
+    // 100x100 at 72 PPI
+    try std.testing.expectEqual(extent.*.width, 100);
+    try std.testing.expectEqual(extent.*.height, 100);
 }
