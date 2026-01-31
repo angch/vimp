@@ -1,5 +1,6 @@
 const std = @import("std");
 const c = @import("c.zig").c;
+const SvgLoader = @import("svg_loader.zig");
 
 pub const Engine = struct {
     pub const PdfImportParams = struct {
@@ -11,6 +12,12 @@ pub const Engine = struct {
     pub const SvgImportParams = struct {
         width: i32,
         height: i32,
+        import_paths: bool = false,
+    };
+
+    pub const VectorPath = struct {
+        name: []u8,
+        path: *c.GeglPath,
     };
 
     pub const Mode = enum {
@@ -156,6 +163,8 @@ pub const Engine = struct {
     redo_stack: std.ArrayList(Command) = undefined,
     current_command: ?Command = null,
 
+    paths: std.ArrayList(VectorPath) = undefined,
+
     fill_buffer: std.ArrayList(u8) = undefined,
 
     canvas_width: c_int = 800,
@@ -195,6 +204,7 @@ pub const Engine = struct {
         self.composition_nodes = std.ArrayList(*c.GeglNode){};
         self.undo_stack = std.ArrayList(Command){};
         self.redo_stack = std.ArrayList(Command){};
+        self.paths = std.ArrayList(VectorPath){};
         self.fill_buffer = std.ArrayList(u8){};
         self.current_command = null;
         self.graph = null;
@@ -223,6 +233,12 @@ pub const Engine = struct {
         if (self.current_command) |*cmd| cmd.deinit();
 
         self.fill_buffer.deinit(std.heap.c_allocator);
+
+        for (self.paths.items) |*vp| {
+            std.heap.c_allocator.free(vp.name);
+            c.g_object_unref(vp.path);
+        }
+        self.paths.deinit(std.heap.c_allocator);
 
         self.composition_nodes.deinit(std.heap.c_allocator);
         for (self.layers.items) |layer| {
@@ -732,7 +748,37 @@ pub const Engine = struct {
         }
     }
 
+    pub fn loadSvgPaths(self: *Engine, path: []const u8) !void {
+        var parsed_paths = try SvgLoader.parseSvgPaths(std.heap.c_allocator, path);
+        defer {
+            for (parsed_paths.items) |*p| p.deinit(std.heap.c_allocator);
+            parsed_paths.deinit(std.heap.c_allocator);
+        }
+
+        for (parsed_paths.items) |*pp| {
+            const gpath = c.gegl_path_new();
+            if (gpath == null) continue;
+
+            const d_z = try std.heap.c_allocator.dupeZ(u8, pp.d);
+            defer std.heap.c_allocator.free(d_z);
+
+            c.gegl_path_parse_string(gpath, d_z.ptr);
+
+            const name_str = if (pp.id) |id| id else "Path";
+            const name_owned = try std.heap.c_allocator.dupe(u8, name_str);
+
+            try self.paths.append(std.heap.c_allocator, .{
+                .name = name_owned,
+                .path = gpath.?,
+            });
+        }
+    }
+
     pub fn loadSvg(self: *Engine, path: []const u8, params: SvgImportParams) !void {
+        if (params.import_paths) {
+            try self.loadSvgPaths(path);
+        }
+
         const temp_graph = c.gegl_node_new();
         defer c.g_object_unref(temp_graph);
 
@@ -2290,4 +2336,38 @@ test "Engine saveThumbnail" {
 
     // Ideally verify dimensions, but requires loading it back.
     // We trust gegl:scale-ratio + save for now.
+}
+
+test "Engine load SVG paths" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+
+    const filename = "test_paths.svg";
+    const svg_content =
+        \\<svg width="100" height="100" xmlns="http://www.w3.org/2000/svg">
+        \\  <path id="p1" d="M 0 0 L 10 10" />
+        \\  <path d="M 20 20 L 30 30" />
+        \\</svg>
+    ;
+    try std.fs.cwd().writeFile(.{ .sub_path = filename, .data = svg_content });
+    defer std.fs.cwd().deleteFile(filename) catch {};
+
+    const params = Engine.SvgImportParams{
+        .width = 0,
+        .height = 0,
+        .import_paths = true,
+    };
+
+    try engine.loadSvg(filename, params);
+
+    // Assert paths loaded
+    try std.testing.expectEqual(engine.paths.items.len, 2);
+
+    const p1 = &engine.paths.items[0];
+    try std.testing.expectEqualStrings("p1", p1.name);
+
+    const p2 = &engine.paths.items[1];
+    try std.testing.expectEqualStrings("Path", p2.name);
 }

@@ -42,6 +42,7 @@ const SvgDialogContext = struct {
     user_data: ?*anyopaque,
     width_spin: *c.GtkWidget,
     height_spin: *c.GtkWidget,
+    paths_check: *c.GtkWidget,
 };
 
 // Response Handlers
@@ -102,10 +103,12 @@ fn svg_dialog_response(dialog: *c.AdwMessageDialog, response: [*c]const u8, user
     if (std.mem.eql(u8, resp_span, "import")) {
         const w_val = c.gtk_spin_button_get_value(@ptrCast(ctx.width_spin));
         const h_val = c.gtk_spin_button_get_value(@ptrCast(ctx.height_spin));
+        const import_paths = c.gtk_check_button_get_active(@ptrCast(ctx.paths_check)) != 0;
 
         const params = Engine.SvgImportParams{
             .width = @intFromFloat(w_val),
             .height = @intFromFloat(h_val),
+            .import_paths = import_paths,
         };
 
         ctx.callback(ctx.user_data, ctx.path, params);
@@ -291,6 +294,11 @@ pub fn showSvgImportDialog(
     c.gtk_box_append(@ptrCast(h_row), h_spin);
     c.gtk_box_append(@ptrCast(box), h_row);
 
+    // Import Paths Check
+    const paths_check = c.gtk_check_button_new_with_label("Import paths");
+    c.gtk_check_button_set_active(@ptrCast(paths_check), 0);
+    c.gtk_box_append(@ptrCast(box), paths_check);
+
     c.adw_message_dialog_set_extra_child(@ptrCast(dialog), box);
 
     c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "Cancel");
@@ -305,6 +313,7 @@ pub fn showSvgImportDialog(
         .user_data = user_data,
         .width_spin = w_spin,
         .height_spin = h_spin,
+        .paths_check = paths_check,
     };
 
     _ = c.g_signal_connect_data(dialog, "response", @ptrCast(&svg_dialog_response), ctx, null, 0);

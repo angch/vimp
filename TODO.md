@@ -42,7 +42,7 @@
 - [x] Implement file type filtering in Open Dialog
 - [x] Implement Format Specific Import Dialogs (PDF, SVG)
 - [x] Implement PDF Import Page Selection (Thumbnails)
-- [ ] Implement SVG Path Import (Vector)
+- [x] Implement SVG Path Import (Vector)
 - [x] Implement Error Handling (Non-blocking Toasts)
 - [x] Implement Real Thumbnails for Recent Files
 - [x] Implement Open Location (URI)
