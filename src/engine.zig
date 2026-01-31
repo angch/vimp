@@ -176,14 +176,35 @@ pub const Engine = struct {
         gegl_mutex.lock();
         // Accept null args for generic initialization
         c.gegl_init(null, null);
+        self.initData();
+    }
+
+    fn initData(self: *Engine) void {
         self.layers = std.ArrayList(Layer){};
         self.composition_nodes = std.ArrayList(*c.GeglNode){};
         self.undo_stack = std.ArrayList(Command){};
         self.redo_stack = std.ArrayList(Command){};
         self.fill_buffer = std.ArrayList(u8){};
+        self.current_command = null;
+        self.graph = null;
+        self.output_node = null;
+        self.base_node = null;
+
+        // Reset state
+        self.active_layer_idx = 0;
+        self.selection = null;
+        self.preview_mode = .none;
+        self.canvas_width = 800;
+        self.canvas_height = 600;
     }
 
     pub fn deinit(self: *Engine) void {
+        self.cleanupData();
+        // c.gegl_exit();
+        gegl_mutex.unlock();
+    }
+
+    fn cleanupData(self: *Engine) void {
         for (self.undo_stack.items) |*cmd| cmd.deinit();
         self.undo_stack.deinit(std.heap.c_allocator);
         for (self.redo_stack.items) |*cmd| cmd.deinit();
@@ -207,8 +228,24 @@ pub const Engine = struct {
         if (self.graph) |g| {
             c.g_object_unref(g);
         }
-        // c.gegl_exit();
-        gegl_mutex.unlock();
+        self.graph = null;
+    }
+
+    pub fn reset(self: *Engine) void {
+        self.cleanupData();
+        self.initData();
+        self.setupGraph();
+    }
+
+    pub fn setCanvasSize(self: *Engine, width: c_int, height: c_int) void {
+        self.canvas_width = width;
+        self.canvas_height = height;
+        if (self.base_node) |node| {
+            const w_f: f64 = @floatFromInt(width);
+            const h_f: f64 = @floatFromInt(height);
+            _ = c.gegl_node_set(node, "width", w_f, "height", h_f, @as(?*anyopaque, null));
+        }
+        self.rebuildGraph();
     }
 
     pub fn beginTransaction(self: *Engine) void {
@@ -426,7 +463,9 @@ pub const Engine = struct {
         const bg_node = c.gegl_node_new_child(self.graph, "operation", "gegl:color", "value", bg_color, @as(?*anyopaque, null));
 
         // A crop node to give the background finite dimensions
-        const bg_crop = c.gegl_node_new_child(self.graph, "operation", "gegl:crop", "width", @as(f64, 800.0), "height", @as(f64, 600.0), @as(?*anyopaque, null));
+        const w_f: f64 = @floatFromInt(self.canvas_width);
+        const h_f: f64 = @floatFromInt(self.canvas_height);
+        const bg_crop = c.gegl_node_new_child(self.graph, "operation", "gegl:crop", "width", w_f, "height", h_f, @as(?*anyopaque, null));
 
         _ = c.gegl_node_link_many(bg_node, bg_crop, @as(?*anyopaque, null));
 
@@ -1839,4 +1878,26 @@ test "Engine load from file" {
     const extent = c.gegl_buffer_get_extent(layer.buffer);
     try std.testing.expectEqual(extent.*.width, 10);
     try std.testing.expectEqual(extent.*.height, 10);
+}
+
+test "Engine reset and resize" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+
+    // Add layer, change state
+    try engine.addLayer("Test");
+    engine.setActiveLayer(0);
+
+    // Reset
+    engine.reset();
+
+    try std.testing.expectEqual(engine.layers.items.len, 0);
+    try std.testing.expectEqual(engine.canvas_width, 800);
+
+    // Resize
+    engine.setCanvasSize(100, 200);
+    try std.testing.expectEqual(engine.canvas_width, 100);
+    try std.testing.expectEqual(engine.canvas_height, 200);
 }
