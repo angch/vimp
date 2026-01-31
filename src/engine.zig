@@ -5,6 +5,7 @@ pub const Engine = struct {
     pub const PdfImportParams = struct {
         ppi: f64,
         pages: []const i32,
+        split_pages: bool = false,
     };
 
     pub const SvgImportParams = struct {

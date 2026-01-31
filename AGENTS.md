@@ -176,3 +176,11 @@ term planning.
 - Added `Engine.reset()` and `Engine.setCanvasSize()` to support these workflows.
 - Refactored `src/main.zig` to use `OpenContext` for passing state to async file dialog callbacks.
 - **Note**: `reset()` clears all layers and resets canvas size to default (800x600). Standard Open resizes canvas to match the loaded image.
+
+### 2026-01-31: PDF Import "Separate Images"
+- Implemented UI toggle "Open pages as separate images" in PDF import dialog.
+- Current architecture supports only single-document interface (SDI).
+- **Behavior**:
+  - If single page selected + "Separate Images": Resets engine and loads page (Standard "Open").
+  - If multiple pages selected + "Separate Images": Shows warning toast and falls back to "Open as Layers" (appending to current or new image), as creating multiple windows/tabs is not supported yet.
+- **Future**: When MDI/Tabs are supported, `on_pdf_import` should be updated to spawn new instances for each page.
