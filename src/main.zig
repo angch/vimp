@@ -1283,6 +1283,46 @@ fn discard_preview_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaqu
     queue_draw();
 }
 
+fn invert_colors_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    engine.invertColors() catch |err| {
+        show_toast("Invert colors failed: {}", .{err});
+        return;
+    };
+    refresh_undo_ui();
+    canvas_dirty = true;
+    queue_draw();
+}
+
+fn flip_horizontal_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    engine.flipHorizontal() catch |err| {
+        show_toast("Flip horizontal failed: {}", .{err});
+        return;
+    };
+    refresh_undo_ui();
+    canvas_dirty = true;
+    queue_draw();
+}
+
+fn flip_vertical_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    engine.flipVertical() catch |err| {
+        show_toast("Flip vertical failed: {}", .{err});
+        return;
+    };
+    refresh_undo_ui();
+    canvas_dirty = true;
+    queue_draw();
+}
+
+fn rotate_90_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    engine.rotate90() catch |err| {
+        show_toast("Rotate 90 failed: {}", .{err});
+        return;
+    };
+    refresh_undo_ui();
+    canvas_dirty = true;
+    queue_draw();
+}
+
 fn split_view_change_state(action: *c.GSimpleAction, value: *c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     const enabled = c.g_variant_get_boolean(value) != 0;
     engine.setSplitView(enabled);
@@ -1671,6 +1711,10 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     add_action(app, "blur-large", @ptrCast(&blur_large_activated), null);
     add_action(app, "apply-preview", @ptrCast(&apply_preview_activated), null);
     add_action(app, "discard-preview", @ptrCast(&discard_preview_activated), null);
+    add_action(app, "invert-colors", @ptrCast(&invert_colors_activated), null);
+    add_action(app, "flip-horizontal", @ptrCast(&flip_horizontal_activated), null);
+    add_action(app, "flip-vertical", @ptrCast(&flip_vertical_activated), null);
+    add_action(app, "rotate-90", @ptrCast(&rotate_90_activated), null);
 
     // Split View Action (Stateful)
     const split_action = c.g_simple_action_new_stateful("split-view", null, c.g_variant_new_boolean(0));
@@ -1692,6 +1736,8 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     set_accel(app, "app.save", "<Ctrl>s");
     set_accel(app, "app.undo", "<Ctrl>z");
     set_accel(app, "app.redo", "<Ctrl>y");
+    set_accel(app, "app.invert-colors", "<Ctrl>i");
+    set_accel(app, "app.rotate-90", "<Ctrl>r");
 
     const toolbar_view = c.adw_toolbar_view_new();
     c.adw_application_window_set_content(@ptrCast(window), toolbar_view);
@@ -1742,6 +1788,19 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.gtk_actionable_set_action_name(@ptrCast(redo_btn), "app.redo");
     c.gtk_widget_set_tooltip_text(redo_btn, "Redo");
     c.adw_header_bar_pack_start(@ptrCast(header_bar), redo_btn);
+
+    // Image Menu
+    const image_menu = c.g_menu_new();
+    c.g_menu_append(image_menu, "Invert Colors", "app.invert-colors");
+    c.g_menu_append(image_menu, "Flip Horizontal", "app.flip-horizontal");
+    c.g_menu_append(image_menu, "Flip Vertical", "app.flip-vertical");
+    c.g_menu_append(image_menu, "Rotate 90° CW", "app.rotate-90");
+
+    const image_btn = c.gtk_menu_button_new();
+    c.gtk_menu_button_set_label(@ptrCast(image_btn), "Image");
+    c.gtk_menu_button_set_menu_model(@ptrCast(image_btn), @ptrCast(@alignCast(image_menu)));
+    c.gtk_widget_set_tooltip_text(image_btn, "Image Operations");
+    c.adw_header_bar_pack_start(@ptrCast(header_bar), image_btn);
 
     // Filters Menu
     const filters_menu = c.g_menu_new();
