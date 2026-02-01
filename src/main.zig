@@ -28,6 +28,7 @@ const Tool = enum {
     gradient,
     line,
     curve,
+    polygon,
     // pencil, // Reorder if desired, but append is safer for diffs usually
 };
 
@@ -224,6 +225,13 @@ fn tool_toggled(
                 engine.setBrushType(.circle);
                 osd_show("Line Tool");
             },
+            .polygon => {
+                engine.setMode(.paint);
+                engine.setBrushType(.circle);
+                osd_show("Polygon Tool (Click to add points, click start to close)");
+                polygon_active = false;
+                polygon_points.clearRetainingCapacity();
+            },
         }
     }
 }
@@ -284,6 +292,7 @@ var color_picker_tool = Tool.color_picker;
 var gradient_tool = Tool.gradient;
 var line_tool = Tool.line;
 var curve_tool = Tool.curve;
+var polygon_tool = Tool.polygon;
 
 // Curve Tool State
 const Point = struct { x: f64, y: f64 };
@@ -292,6 +301,10 @@ var curve_p1: Point = .{ .x = 0, .y = 0 };
 var curve_p2: Point = .{ .x = 0, .y = 0 };
 var curve_p3: Point = .{ .x = 0, .y = 0 };
 var curve_p4: Point = .{ .x = 0, .y = 0 };
+
+// Polygon Tool State
+var polygon_points: std.ArrayList(Engine.Point) = undefined;
+var polygon_active: bool = false;
 
 // View State
 var view_scale: f64 = 1.0;
@@ -579,6 +592,38 @@ fn draw_func(
                     c.cairo_fill(cr_ctx);
 
                     c.cairo_restore(cr_ctx);
+                } else if (shape.type == .polygon) {
+                    if (shape.points) |pts| {
+                        if (pts.len > 0) {
+                            c.cairo_save(cr_ctx);
+
+                            const first = pts[0];
+                            const sx = first.x * view_scale - view_x;
+                            const sy = first.y * view_scale - view_y;
+                            c.cairo_move_to(cr_ctx, sx, sy);
+
+                            var i: usize = 1;
+                            while (i < pts.len) : (i += 1) {
+                                const p = pts[i];
+                                const px = p.x * view_scale - view_x;
+                                const py = p.y * view_scale - view_y;
+                                c.cairo_line_to(cr_ctx, px, py);
+                            }
+
+                            const fg = engine.fg_color;
+                            c.cairo_set_source_rgba(cr_ctx, @as(f64, @floatFromInt(fg[0])) / 255.0, @as(f64, @floatFromInt(fg[1])) / 255.0, @as(f64, @floatFromInt(fg[2])) / 255.0, @as(f64, @floatFromInt(fg[3])) / 255.0);
+
+                            if (shape.filled) {
+                                c.cairo_close_path(cr_ctx);
+                                c.cairo_fill(cr_ctx);
+                            } else {
+                                const thickness = @as(f64, @floatFromInt(shape.thickness)) * view_scale;
+                                c.cairo_set_line_width(cr_ctx, thickness);
+                                c.cairo_stroke(cr_ctx);
+                            }
+                            c.cairo_restore(cr_ctx);
+                        }
+                    }
                 }
             }
         }
@@ -595,6 +640,22 @@ fn motion_func(
     _ = user_data;
     mouse_x = x;
     mouse_y = y;
+
+    if (current_tool == .polygon and polygon_active) {
+        // Update preview line from last point to cursor
+        const wx = (view_x + x) / view_scale;
+        const wy = (view_y + y) / view_scale;
+
+        // We need to pass points + current cursor
+        // But allocating a new list every motion is expensive?
+        // ShapePreview needs a list.
+        // I can temporarily append, set preview, remove.
+        polygon_points.append(std.heap.c_allocator, Engine.Point{ .x = wx, .y = wy }) catch return;
+        engine.setShapePreviewPolygon(polygon_points.items, engine.brush_size, false);
+        _ = polygon_points.pop();
+
+        queue_draw();
+    }
 }
 
 fn scroll_func(
@@ -708,6 +769,42 @@ fn drag_begin(
                     curve_p1.x = (view_x + x) / view_scale;
                     curve_p1.y = (view_y + y) / view_scale;
                 }
+            } else if (current_tool == .polygon) {
+                const wx = (view_x + x) / view_scale;
+                const wy = (view_y + y) / view_scale;
+
+                if (!polygon_active) {
+                    polygon_points.clearRetainingCapacity();
+                    polygon_points.append(std.heap.c_allocator, Engine.Point{ .x = wx, .y = wy }) catch {};
+                    polygon_active = true;
+                } else {
+                    // Check closure (screen distance < 10px)
+                    if (polygon_points.items.len > 0) {
+                        const first = polygon_points.items[0];
+                        const sx = first.x * view_scale - view_x;
+                        const sy = first.y * view_scale - view_y;
+                        const dx = x - sx;
+                        const dy = y - sy;
+                        if (dx * dx + dy * dy < 100.0) {
+                            // Close polygon
+                            engine.beginTransaction();
+                            // Default to outline for now, maybe add toggle later
+                            engine.drawPolygon(polygon_points.items, engine.brush_size, false) catch |err| {
+                                show_toast("Failed to draw polygon: {}", .{err});
+                            };
+                            engine.commitTransaction();
+                            engine.clearShapePreview();
+                            polygon_active = false;
+                            polygon_points.clearRetainingCapacity();
+                            refresh_undo_ui();
+                            canvas_dirty = true;
+                            c.gtk_widget_queue_draw(widget);
+                            return;
+                        }
+                    }
+                    polygon_points.append(std.heap.c_allocator, Engine.Point{ .x = wx, .y = wy }) catch {};
+                }
+                c.gtk_widget_queue_draw(widget);
             } else {
                 // Paint tools
                 engine.beginTransaction();
@@ -2138,6 +2235,9 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
         std.debug.print("Failed to load recent colors: {}\n", .{err});
     };
 
+    // Init polygon points
+    polygon_points = .{};
+
     // Use AdwApplicationWindow
     const window = c.adw_application_window_new(app);
     c.gtk_window_set_title(@ptrCast(window), "Vimp");
@@ -2392,6 +2492,10 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     // Curve Tool
     const curve_btn = createToolButton(&curve_tool, "call-start-symbolic", "Curve Tool (Drag Line -> Bend 1 -> Bend 2)", @ptrCast(brush_btn), true);
     c.gtk_box_append(@ptrCast(tools_box), curve_btn);
+
+    // Polygon Tool
+    const polygon_btn = createToolButton(&polygon_tool, "shapes-symbolic", "Polygon Tool", @ptrCast(brush_btn), true);
+    c.gtk_box_append(@ptrCast(tools_box), polygon_btn);
 
     // Separator
     c.gtk_box_append(@ptrCast(sidebar), c.gtk_separator_new(c.GTK_ORIENTATION_HORIZONTAL));

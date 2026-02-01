@@ -3,6 +3,11 @@ const c = @import("c.zig").c;
 const SvgLoader = @import("svg_loader.zig");
 
 pub const Engine = struct {
+    pub const Point = struct {
+        x: f64,
+        y: f64,
+    };
+
     pub const PdfImportParams = struct {
         ppi: f64,
         pages: []const i32,
@@ -42,6 +47,7 @@ pub const Engine = struct {
         ellipse,
         line,
         curve,
+        polygon,
     };
 
     pub const ShapePreview = struct {
@@ -58,6 +64,7 @@ pub const Engine = struct {
         cy2: c_int = 0,
         thickness: c_int,
         filled: bool,
+        points: ?[]const Point = null,
     };
 
     pub const PreviewMode = enum {
@@ -199,6 +206,7 @@ pub const Engine = struct {
     paths: std.ArrayList(VectorPath) = undefined,
 
     fill_buffer: std.ArrayList(u8) = undefined,
+    preview_points: std.ArrayList(Point) = undefined,
 
     canvas_width: c_int = 800,
     canvas_height: c_int = 600,
@@ -241,6 +249,7 @@ pub const Engine = struct {
         self.redo_stack = std.ArrayList(Command){};
         self.paths = std.ArrayList(VectorPath){};
         self.fill_buffer = std.ArrayList(u8){};
+        self.preview_points = std.ArrayList(Point){};
         self.current_command = null;
         self.graph = null;
         self.output_node = null;
@@ -268,6 +277,7 @@ pub const Engine = struct {
         if (self.current_command) |*cmd| cmd.deinit();
 
         self.fill_buffer.deinit(std.heap.c_allocator);
+        self.preview_points.deinit(std.heap.c_allocator);
 
         for (self.paths.items) |*vp| {
             std.heap.c_allocator.free(vp.name);
@@ -1214,8 +1224,8 @@ pub const Engine = struct {
         if (std.mem.eql(u8, &target_color, &fill_color)) return;
 
         // 3. Setup Flood Fill (BFS)
-        const Point = struct { x: c_int, y: c_int };
-        var queue = std.ArrayList(Point){};
+        const IntPoint = struct { x: c_int, y: c_int };
+        var queue = std.ArrayList(IntPoint){};
         defer queue.deinit(allocator);
 
         // Fill start pixel and add to queue
@@ -1231,7 +1241,7 @@ pub const Engine = struct {
             const p = queue.pop().?;
 
             // Neighbors
-            const neighbors = [4]Point{
+            const neighbors = [4]IntPoint{
                 .{ .x = p.x + 1, .y = p.y },
                 .{ .x = p.x - 1, .y = p.y },
                 .{ .x = p.x, .y = p.y + 1 },
@@ -1605,6 +1615,22 @@ pub const Engine = struct {
         self.preview_shape = null;
     }
 
+    pub fn setShapePreviewPolygon(self: *Engine, points: []const Point, thickness: c_int, filled: bool) void {
+        self.preview_points.clearRetainingCapacity();
+        self.preview_points.appendSlice(std.heap.c_allocator, points) catch {};
+
+        self.preview_shape = ShapePreview{
+            .type = .polygon,
+            .x = 0,
+            .y = 0,
+            .width = 0,
+            .height = 0,
+            .thickness = thickness,
+            .filled = filled,
+            .points = self.preview_points.items,
+        };
+    }
+
     pub fn drawGradient(self: *Engine, x1: c_int, y1: c_int, x2: c_int, y2: c_int) !void {
         if (self.active_layer_idx >= self.layers.items.len) return;
         const layer = &self.layers.items[self.active_layer_idx];
@@ -1745,6 +1771,126 @@ pub const Engine = struct {
             self.paintStroke(prev_x, prev_y, px, py, 1.0);
             prev_x = px;
             prev_y = py;
+        }
+    }
+
+    pub fn drawPolygon(self: *Engine, points: []const Point, thickness: c_int, filled: bool) !void {
+        if (self.active_layer_idx >= self.layers.items.len) return;
+        const layer = &self.layers.items[self.active_layer_idx];
+        if (!layer.visible or layer.locked) return;
+        if (points.len < 2) return;
+
+        if (filled) {
+            // Scanline Fill
+            const buf = layer.buffer;
+
+            // 1. Calculate Bounds
+            var min_x: f64 = points[0].x;
+            var min_y: f64 = points[0].y;
+            var max_x: f64 = points[0].x;
+            var max_y: f64 = points[0].y;
+
+            for (points) |p| {
+                if (p.x < min_x) min_x = p.x;
+                if (p.x > max_x) max_x = p.x;
+                if (p.y < min_y) min_y = p.y;
+                if (p.y > max_y) max_y = p.y;
+            }
+
+            const bx: c_int = @intFromFloat(min_x);
+            const by: c_int = @intFromFloat(min_y);
+            const bw: c_int = @intFromFloat(max_x - min_x + 1.0);
+            const bh: c_int = @intFromFloat(max_y - min_y + 1.0);
+
+            if (bw <= 0 or bh <= 0) return;
+
+            // 2. Read Buffer
+            const rect = c.GeglRectangle{ .x = bx, .y = by, .width = bw, .height = bh };
+            const format = c.babl_format("R'G'B'A u8");
+            const stride = bw * 4;
+            const size: usize = @intCast(bw * bh * 4);
+
+            const allocator = std.heap.c_allocator;
+            const pixels = try allocator.alloc(u8, size);
+            defer allocator.free(pixels);
+
+            c.gegl_buffer_get(buf, &rect, 1.0, format, pixels.ptr, stride, c.GEGL_ABYSS_NONE);
+
+            // 3. Scanline
+            const y_start = by;
+            const y_end = by + bh;
+
+            // Intersections list (reused per scanline)
+            var intersections = std.ArrayList(f64){};
+            defer intersections.deinit(allocator);
+
+            var y: c_int = y_start;
+            while (y < y_end) : (y += 1) {
+                const y_f = @as(f64, @floatFromInt(y)) + 0.5; // Center of pixel
+                intersections.clearRetainingCapacity();
+
+                // Find intersections
+                var i: usize = 0;
+                const n = points.len;
+                while (i < n) : (i += 1) {
+                    const p1 = points[i];
+                    const p2 = points[(i + 1) % n];
+
+                    // Check if edge crosses y_f
+                    if ((p1.y <= y_f and p2.y > y_f) or (p2.y <= y_f and p1.y > y_f)) {
+                        const t = (y_f - p1.y) / (p2.y - p1.y);
+                        const x = p1.x + t * (p2.x - p1.x);
+                        try intersections.append(allocator, x);
+                    }
+                }
+
+                // Sort X
+                std.mem.sort(f64, intersections.items, {}, std.sort.asc(f64));
+
+                // Fill pairs
+                var k: usize = 0;
+                while (k < intersections.items.len) : (k += 2) {
+                    if (k + 1 >= intersections.items.len) break;
+                    const x1 = intersections.items[k];
+                    const x2 = intersections.items[k+1];
+
+                    const ix1: c_int = @intFromFloat(std.math.ceil(x1 - 0.5)); // Start pixel
+                    const ix2: c_int = @intFromFloat(std.math.floor(x2 - 0.5)); // End pixel
+
+                    // Clamp to bounds
+                    const start = @max(bx, ix1);
+                    const end = @min(bx + bw - 1, ix2); // Inclusive
+
+                    if (start <= end) {
+                        var px = start;
+                        while (px <= end) : (px += 1) {
+                            if (!self.isPointInSelection(px, y)) continue;
+
+                            // Check local coords
+                            const local_x = px - bx;
+                            const local_y = y - by;
+                            const idx = (@as(usize, @intCast(local_y)) * @as(usize, @intCast(bw)) + @as(usize, @intCast(local_x))) * 4;
+
+                            @memcpy(pixels[idx..][0..4], &self.fg_color);
+                        }
+                    }
+                }
+            }
+
+            // 4. Write Back
+            c.gegl_buffer_set(buf, &rect, 0, format, pixels.ptr, stride);
+
+        } else {
+            // Outline
+            const old_size = self.brush_size;
+            self.brush_size = thickness;
+            var i: usize = 0;
+            while (i < points.len) : (i += 1) {
+                const p1 = points[i];
+                const p2 = points[(i + 1) % points.len];
+                self.paintStroke(p1.x, p1.y, p2.x, p2.y, 1.0);
+            }
+            self.brush_size = old_size;
         }
     }
 

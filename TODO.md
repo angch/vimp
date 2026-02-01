@@ -72,7 +72,7 @@
 - [x] Implement Rectangle Shape Tool
 - [x] Implement Ellipse Shape Tool
 - [ ] Implement Rounded Rectangle Tool
-- [ ] Implement Polygon Tool
+- [x] Implement Polygon Tool
 
 ---
 
