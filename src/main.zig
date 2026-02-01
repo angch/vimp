@@ -18,6 +18,7 @@ const Tool = enum {
     rect_select,
     ellipse_select,
     unified_transform,
+    color_picker,
     // pencil, // Reorder if desired, but append is safer for diffs usually
 };
 
@@ -45,6 +46,7 @@ var transform_r_scale: ?*c.GtkWidget = null;
 var transform_s_scale: ?*c.GtkWidget = null;
 var main_stack: ?*c.GtkWidget = null;
 var toast_overlay: ?*c.AdwToastOverlay = null;
+var color_btn: ?*c.GtkWidget = null;
 
 pub fn main() !void {
     engine.init();
@@ -193,6 +195,9 @@ fn tool_toggled(
             .unified_transform => {
                 osd_show("Unified Transform");
             },
+            .color_picker => {
+                osd_show("Color Picker");
+            },
         }
     }
 }
@@ -247,6 +252,7 @@ var bucket_fill_tool = Tool.bucket_fill;
 var rect_select_tool = Tool.rect_select;
 var ellipse_select_tool = Tool.ellipse_select;
 var unified_transform_tool = Tool.unified_transform;
+var color_picker_tool = Tool.color_picker;
 
 // View State
 var view_scale: f64 = 1.0;
@@ -490,6 +496,21 @@ fn drag_begin(
                 engine.beginSelection();
                 engine.clearSelection();
                 c.gtk_widget_queue_draw(widget);
+            } else if (current_tool == .color_picker) {
+                const c_x: i32 = @intFromFloat((view_x + x) / view_scale);
+                const c_y: i32 = @intFromFloat((view_y + y) / view_scale);
+                if (engine.pickColor(c_x, c_y)) |color| {
+                    engine.setFgColor(color[0], color[1], color[2], color[3]);
+                    if (color_btn) |btn| {
+                        const rgba = c.GdkRGBA{
+                            .red = @as(f32, @floatFromInt(color[0])) / 255.0,
+                            .green = @as(f32, @floatFromInt(color[1])) / 255.0,
+                            .blue = @as(f32, @floatFromInt(color[2])) / 255.0,
+                            .alpha = @as(f32, @floatFromInt(color[3])) / 255.0,
+                        };
+                        c.gtk_color_chooser_set_rgba(@ptrCast(btn), &rgba);
+                    }
+                } else |_| {}
             } else {
                 // Paint tools
                 engine.beginTransaction();
@@ -540,6 +561,26 @@ fn drag_update(
         const c_prev_y = (view_y + prev_y) / view_scale;
         const c_curr_x = (view_x + current_x) / view_scale;
         const c_curr_y = (view_y + current_y) / view_scale;
+
+        if (current_tool == .color_picker) {
+            const c_x: i32 = @intFromFloat(c_curr_x);
+            const c_y: i32 = @intFromFloat(c_curr_y);
+            if (engine.pickColor(c_x, c_y)) |color| {
+                engine.setFgColor(color[0], color[1], color[2], color[3]);
+                if (color_btn) |btn| {
+                    const rgba = c.GdkRGBA{
+                        .red = @as(f32, @floatFromInt(color[0])) / 255.0,
+                        .green = @as(f32, @floatFromInt(color[1])) / 255.0,
+                        .blue = @as(f32, @floatFromInt(color[2])) / 255.0,
+                        .alpha = @as(f32, @floatFromInt(color[3])) / 255.0,
+                    };
+                    c.gtk_color_chooser_set_rgba(@ptrCast(btn), &rgba);
+                }
+            } else |_| {}
+            prev_x = current_x;
+            prev_y = current_y;
+            return;
+        }
 
         if (current_tool == .rect_select or current_tool == .ellipse_select) {
             // Dragging selection
@@ -1829,11 +1870,15 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     const transform_btn = createToolButton(&unified_transform_tool, "object-rotate-right-symbolic", "Unified Transform", @ptrCast(brush_btn), true);
     c.gtk_box_append(@ptrCast(tools_box), transform_btn);
 
+    // Color Picker
+    const picker_btn = createToolButton(&color_picker_tool, "preferences-color-symbolic", "Color Picker", @ptrCast(brush_btn), true);
+    c.gtk_box_append(@ptrCast(tools_box), picker_btn);
+
     // Separator
     c.gtk_box_append(@ptrCast(sidebar), c.gtk_separator_new(c.GTK_ORIENTATION_HORIZONTAL));
 
     // Color Selection
-    const color_btn = c.gtk_color_button_new();
+    color_btn = c.gtk_color_button_new();
     c.gtk_widget_set_valign(color_btn, c.GTK_ALIGN_START);
     c.gtk_widget_set_halign(color_btn, c.GTK_ALIGN_CENTER);
     c.gtk_box_append(@ptrCast(sidebar), color_btn);

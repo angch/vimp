@@ -62,7 +62,7 @@
 - [x] Implement Bucket Fill Tool
 
 ### From `ms_paint_spec.md`
-- [ ] Implement Pick Color Tool (Eyedropper)
+- [x] Implement Pick Color Tool (Eyedropper)
 - [ ] Implement Gradient Tool
 - [ ] Implement Text Tool
 - [ ] Implement Line Tool (Shift for constrained angles)
