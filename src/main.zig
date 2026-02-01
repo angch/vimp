@@ -4,6 +4,7 @@ const c = @import("c.zig").c;
 const Engine = @import("engine.zig").Engine;
 const CanvasUtils = @import("canvas_utils.zig");
 const RecentManager = @import("recent.zig").RecentManager;
+const RecentColorsManager = @import("recent_colors.zig").RecentColorsManager;
 const ImportDialogs = @import("widgets/import_dialogs.zig");
 const FileChooser = @import("widgets/file_chooser.zig");
 const OpenLocationDialog = @import("widgets/open_location_dialog.zig");
@@ -28,6 +29,7 @@ const Tool = enum {
 
 var engine: Engine = .{};
 var recent_manager: RecentManager = undefined;
+var recent_colors_manager: RecentColorsManager = undefined;
 var surface: ?*c.cairo_surface_t = null;
 var prev_x: f64 = 0;
 var prev_y: f64 = 0;
@@ -95,6 +97,8 @@ fn color_changed(
     const a: u8 = @intFromFloat(rgba.alpha * 255.0);
 
     engine.setFgColor(r, g, b, a);
+
+    recent_colors_manager.add(rgba) catch {};
 }
 
 fn brush_size_changed(
@@ -1832,6 +1836,12 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
         std.debug.print("Failed to load recent files: {}\n", .{err});
     };
 
+    // Init recent colors
+    recent_colors_manager = RecentColorsManager.init(std.heap.c_allocator);
+    recent_colors_manager.load() catch |err| {
+        std.debug.print("Failed to load recent colors: {}\n", .{err});
+    };
+
     // Use AdwApplicationWindow
     const window = c.adw_application_window_new(app);
     c.gtk_window_set_title(@ptrCast(window), "Vimp");
@@ -2073,6 +2083,17 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.gtk_widget_set_halign(color_btn, c.GTK_ALIGN_CENTER);
     c.gtk_box_append(@ptrCast(sidebar), color_btn);
     _ = c.g_signal_connect_data(color_btn, "color-set", @ptrCast(&color_changed), null, null, 0);
+
+    // Populate recent colors palette
+    if (recent_colors_manager.colors.items.len > 0) {
+        c.gtk_color_chooser_add_palette(
+            @ptrCast(color_btn),
+            c.GTK_ORIENTATION_HORIZONTAL,
+            5, // colors per line
+            @intCast(recent_colors_manager.colors.items.len),
+            recent_colors_manager.colors.items.ptr,
+        );
+    }
 
     // Brush Size Slider
     const size_slider = c.gtk_scale_new_with_range(c.GTK_ORIENTATION_HORIZONTAL, 1.0, 50.0, 1.0);

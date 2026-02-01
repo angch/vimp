@@ -83,6 +83,7 @@ test {
     _ = @import("widgets/import_dialogs.zig");
     _ = @import("widgets/open_location_dialog.zig");
     _ = @import("recent.zig");
+    _ = @import("recent_colors.zig");
     _ = @import("raw_loader.zig");
     _ = @import("canvas_utils.zig");
 }
