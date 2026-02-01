@@ -155,7 +155,7 @@
 
 ## View Features (from `ms_paint_spec.md`)
 
-- [ ] Implement Pixel Grid (visible when zoomed in)
+- [x] Implement Pixel Grid (visible when zoomed in)
 - [ ] Implement Thumbnail window (overview while zoomed)
 - [ ] Implement View Bitmap (fullscreen preview)
 

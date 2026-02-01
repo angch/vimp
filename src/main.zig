@@ -2,6 +2,7 @@ const std = @import("std");
 
 const c = @import("c.zig").c;
 const Engine = @import("engine.zig").Engine;
+const CanvasUtils = @import("canvas_utils.zig");
 const RecentManager = @import("recent.zig").RecentManager;
 const ImportDialogs = @import("widgets/import_dialogs.zig");
 const FileChooser = @import("widgets/file_chooser.zig");
@@ -337,6 +338,9 @@ fn draw_func(
             if (engine.layers.items.len > 0) {
                 c.cairo_set_source_surface(cr_ctx, s, 0, 0);
                 c.cairo_paint(cr_ctx);
+
+                // Draw Pixel Grid
+                CanvasUtils.drawPixelGrid(cr_ctx, @floatFromInt(width), @floatFromInt(height), view_scale, view_x, view_y);
             } else {
                 // Empty State
                 c.cairo_set_source_rgb(cr_ctx, 0.15, 0.15, 0.15); // Dark Gray
