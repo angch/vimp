@@ -20,6 +20,7 @@ const Tool = enum {
     rect_select,
     ellipse_select,
     rect_shape,
+    ellipse_shape,
     unified_transform,
     color_picker,
     // pencil, // Reorder if desired, but append is safer for diffs usually
@@ -198,6 +199,9 @@ fn tool_toggled(
             .rect_shape => {
                 osd_show("Rectangle Tool");
             },
+            .ellipse_shape => {
+                osd_show("Ellipse Tool");
+            },
             .unified_transform => {
                 osd_show("Unified Transform");
             },
@@ -258,6 +262,7 @@ var bucket_fill_tool = Tool.bucket_fill;
 var rect_select_tool = Tool.rect_select;
 var ellipse_select_tool = Tool.ellipse_select;
 var rect_shape_tool = Tool.rect_shape;
+var ellipse_shape_tool = Tool.ellipse_shape;
 var unified_transform_tool = Tool.unified_transform;
 var color_picker_tool = Tool.color_picker;
 
@@ -438,6 +443,40 @@ fn draw_func(
                         c.cairo_stroke(cr_ctx);
                     }
                     c.cairo_restore(cr_ctx);
+                } else if (shape.type == .ellipse) {
+                    const r: f64 = @floatFromInt(shape.x);
+                    const g: f64 = @floatFromInt(shape.y);
+                    const w: f64 = @floatFromInt(shape.width);
+                    const h: f64 = @floatFromInt(shape.height);
+
+                    const sx = r * view_scale - view_x;
+                    const sy = g * view_scale - view_y;
+                    const sw = w * view_scale;
+                    const sh = h * view_scale;
+
+                    c.cairo_save(cr_ctx);
+                    c.cairo_translate(cr_ctx, sx + sw / 2.0, sy + sh / 2.0);
+                    c.cairo_scale(cr_ctx, sw / 2.0, sh / 2.0);
+                    c.cairo_arc(cr_ctx, 0.0, 0.0, 1.0, 0.0, 2.0 * std.math.pi);
+                    c.cairo_restore(cr_ctx);
+
+                    c.cairo_save(cr_ctx);
+                    const fg = engine.fg_color;
+                    c.cairo_set_source_rgba(cr_ctx,
+                        @as(f64, @floatFromInt(fg[0]))/255.0,
+                        @as(f64, @floatFromInt(fg[1]))/255.0,
+                        @as(f64, @floatFromInt(fg[2]))/255.0,
+                        @as(f64, @floatFromInt(fg[3]))/255.0
+                    );
+
+                    if (shape.filled) {
+                        c.cairo_fill(cr_ctx);
+                    } else {
+                        const thickness = @as(f64, @floatFromInt(shape.thickness)) * view_scale;
+                        c.cairo_set_line_width(cr_ctx, thickness);
+                        c.cairo_stroke(cr_ctx);
+                    }
+                    c.cairo_restore(cr_ctx);
                 }
             }
         }
@@ -556,7 +595,7 @@ fn drag_begin(
                         c.gtk_color_chooser_set_rgba(@ptrCast(btn), &rgba);
                     }
                 } else |_| {}
-            } else if (current_tool == .rect_shape) {
+            } else if (current_tool == .rect_shape or current_tool == .ellipse_shape) {
                 // Do nothing at start, render preview during drag
             } else {
                 // Paint tools
@@ -629,7 +668,7 @@ fn drag_update(
             return;
         }
 
-        if (current_tool == .rect_shape) {
+        if (current_tool == .rect_shape or current_tool == .ellipse_shape) {
             // Dragging shape
             const start_world_x = (view_x + start_sx) / view_scale;
             const start_world_y = (view_y + start_sy) / view_scale;
@@ -640,6 +679,11 @@ fn drag_update(
             const h: c_int = @intFromFloat(@abs(c_curr_y - start_world_y));
 
             engine.setShapePreview(min_x, min_y, w, h, engine.brush_size, false);
+            if (current_tool == .ellipse_shape) {
+                // Update type
+                if (engine.preview_shape) |*s| s.type = .ellipse;
+            }
+
             c.gtk_widget_queue_draw(widget);
 
             prev_x = current_x;
@@ -686,12 +730,7 @@ fn drag_end(
     offset_y: f64,
     user_data: ?*anyopaque,
 ) callconv(std.builtin.CallingConvention.c) void {
-    _ = gesture;
-    _ = offset_x;
-    _ = offset_y;
-    _ = user_data;
-
-    if (current_tool == .rect_shape) {
+    if (current_tool == .rect_shape or current_tool == .ellipse_shape) {
         var start_sx: f64 = 0;
         var start_sy: f64 = 0;
         _ = c.gtk_gesture_drag_get_start_point(gesture, &start_sx, &start_sy);
@@ -709,9 +748,15 @@ fn drag_end(
         const h: c_int = @intFromFloat(@abs(c_curr_y - start_world_y));
 
         engine.beginTransaction();
-        engine.drawRectangle(min_x, min_y, w, h, engine.brush_size, false) catch |err| {
-             show_toast("Failed to draw rect: {}", .{err});
-        };
+        if (current_tool == .rect_shape) {
+            engine.drawRectangle(min_x, min_y, w, h, engine.brush_size, false) catch |err| {
+                 show_toast("Failed to draw rect: {}", .{err});
+            };
+        } else {
+            engine.drawEllipse(min_x, min_y, w, h, engine.brush_size, false) catch |err| {
+                 show_toast("Failed to draw ellipse: {}", .{err});
+            };
+        }
         engine.commitTransaction();
         engine.clearShapePreview();
         refresh_undo_ui();
@@ -2006,6 +2051,10 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     // Rectangle Shape
     const rect_shape_btn = createToolButton(&rect_shape_tool, "media-stop-symbolic", "Rectangle Tool", @ptrCast(brush_btn), true);
     c.gtk_box_append(@ptrCast(tools_box), rect_shape_btn);
+
+    // Ellipse Shape
+    const ellipse_shape_btn = createToolButton(&ellipse_shape_tool, "media-record-symbolic", "Ellipse Tool", @ptrCast(brush_btn), true);
+    c.gtk_box_append(@ptrCast(tools_box), ellipse_shape_btn);
 
     // Unified Transform
     const transform_btn = createToolButton(&unified_transform_tool, "object-rotate-right-symbolic", "Unified Transform", @ptrCast(brush_btn), true);
