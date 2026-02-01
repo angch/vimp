@@ -200,7 +200,7 @@
 
 ### Pending
 - [ ] Implement Clipboard Detection for Open Location
-- [ ] Investigate/Implement Preview Pane in File Chooser
+- [x] Investigate/Implement Preview Pane in File Chooser
 - [ ] Implement File Recovery/Salvage actions
 
 ### File Format Support (from `gimp-file-open-spec.md`)
