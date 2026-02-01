@@ -49,7 +49,7 @@
 - [x] Implement Raw Image Import
 - [x] Implement "Open pages as separate images" for PDF
 - [ ] Implement Clipboard Detection for Open Location
-- [ ] Investigate/Implement Preview Pane in File Chooser
+- [x] Investigate/Implement Preview Pane in File Chooser
 - [ ] Implement File Recovery/Salvage actions
 - [ ] Read and generate TODOs from doc/gimp-file-open-spec.md
 - [ ] Read and generate TODOs from doc/ms_paint_spec.md

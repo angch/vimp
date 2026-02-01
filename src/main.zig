@@ -4,6 +4,7 @@ const c = @import("c.zig").c;
 const Engine = @import("engine.zig").Engine;
 const RecentManager = @import("recent.zig").RecentManager;
 const ImportDialogs = @import("widgets/import_dialogs.zig");
+const FileChooser = @import("widgets/file_chooser.zig");
 const OpenLocationDialog = @import("widgets/open_location_dialog.zig");
 const RawLoader = @import("raw_loader.zig").RawLoader;
 
@@ -983,100 +984,31 @@ fn openFileFromPath(path: [:0]const u8, as_layers: bool, add_to_recent: bool) vo
     finish_file_open(path, as_layers, load_success, add_to_recent);
 }
 
-fn open_finish(source_object: ?*c.GObject, res: ?*c.GAsyncResult, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+fn on_file_chosen(user_data: ?*anyopaque, path: ?[:0]const u8) void {
     const ctx: *OpenContext = @ptrCast(@alignCast(user_data));
     defer std.heap.c_allocator.destroy(ctx);
 
-    var err: ?*c.GError = null;
-    const file = c.gtk_file_dialog_open_finish(@ptrCast(source_object), res, &err);
-    if (file) |f| {
-        const path = c.g_file_get_path(f);
-        if (path) |p| {
-            // Convert to slice for Zig
-            const span = std.mem.span(@as([*:0]const u8, @ptrCast(p)));
-
-            openFileFromPath(span, ctx.as_layers, true);
-
-            c.g_free(p);
-        }
-        c.g_object_unref(f);
-    } else {
-        if (err) |e| {
-            show_toast("Error opening: {s}", .{e.*.message});
-            c.g_error_free(e);
-        }
+    if (path) |p| {
+        openFileFromPath(p, ctx.as_layers, true);
     }
 }
 
 fn open_common(window: ?*c.GtkWindow, as_layers: bool) void {
-    const dialog = c.gtk_file_dialog_new();
-    if (as_layers) {
-        c.gtk_file_dialog_set_title(dialog, "Open as Layers");
-    } else {
-        c.gtk_file_dialog_set_title(dialog, "Open Image");
-    }
-
-    // Filters
-    const filters = c.g_list_store_new(c.gtk_file_filter_get_type());
-
-    const filter_imgs = c.gtk_file_filter_new();
-    c.gtk_file_filter_set_name(filter_imgs, "All Supported Images");
-    c.gtk_file_filter_add_pattern(filter_imgs, "*.png");
-    c.gtk_file_filter_add_pattern(filter_imgs, "*.jpg");
-    c.gtk_file_filter_add_pattern(filter_imgs, "*.jpeg");
-    c.gtk_file_filter_add_pattern(filter_imgs, "*.webp");
-    c.gtk_file_filter_add_pattern(filter_imgs, "*.gif");
-    c.gtk_file_filter_add_pattern(filter_imgs, "*.tif");
-    c.gtk_file_filter_add_pattern(filter_imgs, "*.tiff");
-    c.gtk_file_filter_add_pattern(filter_imgs, "*.bmp");
-    c.gtk_file_filter_add_pattern(filter_imgs, "*.avif");
-    c.gtk_file_filter_add_pattern(filter_imgs, "*.ico");
-    c.gtk_file_filter_add_pattern(filter_imgs, "*.tga");
-    c.gtk_file_filter_add_pattern(filter_imgs, "*.xcf");
-
-    c.g_list_store_append(filters, filter_imgs);
-    c.g_object_unref(filter_imgs);
-
-    // Specific Filters
-    const filter_png = c.gtk_file_filter_new();
-    c.gtk_file_filter_set_name(filter_png, "PNG Image");
-    c.gtk_file_filter_add_pattern(filter_png, "*.png");
-    c.g_list_store_append(filters, filter_png);
-    c.g_object_unref(filter_png);
-
-    const filter_jpg = c.gtk_file_filter_new();
-    c.gtk_file_filter_set_name(filter_jpg, "JPEG Image");
-    c.gtk_file_filter_add_pattern(filter_jpg, "*.jpg");
-    c.gtk_file_filter_add_pattern(filter_jpg, "*.jpeg");
-    c.g_list_store_append(filters, filter_jpg);
-    c.g_object_unref(filter_jpg);
-
-    const filter_webp = c.gtk_file_filter_new();
-    c.gtk_file_filter_set_name(filter_webp, "WebP Image");
-    c.gtk_file_filter_add_pattern(filter_webp, "*.webp");
-    c.g_list_store_append(filters, filter_webp);
-    c.g_object_unref(filter_webp);
-
-    const filter_xcf = c.gtk_file_filter_new();
-    c.gtk_file_filter_set_name(filter_xcf, "GIMP XCF Image");
-    c.gtk_file_filter_add_pattern(filter_xcf, "*.xcf");
-    c.g_list_store_append(filters, filter_xcf);
-    c.g_object_unref(filter_xcf);
-
-    const filter_all = c.gtk_file_filter_new();
-    c.gtk_file_filter_set_name(filter_all, "All Files");
-    c.gtk_file_filter_add_pattern(filter_all, "*");
-    c.g_list_store_append(filters, filter_all);
-    c.g_object_unref(filter_all);
-
-    c.gtk_file_dialog_set_filters(dialog, @ptrCast(filters));
-    c.g_object_unref(filters);
-
     const ctx = std.heap.c_allocator.create(OpenContext) catch return;
     ctx.* = .{ .window = window, .as_layers = as_layers };
 
-    c.gtk_file_dialog_open(dialog, window, null, @ptrCast(&open_finish), ctx);
-    c.g_object_unref(dialog);
+    const title: [:0]const u8 = if (as_layers) "Open as Layers" else "Open Image";
+
+    FileChooser.showOpenDialog(
+        window,
+        title,
+        as_layers,
+        &on_file_chosen,
+        ctx,
+    ) catch |e| {
+        show_toast("Failed to open dialog: {}", .{e});
+        std.heap.c_allocator.destroy(ctx);
+    };
 }
 
 fn open_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
