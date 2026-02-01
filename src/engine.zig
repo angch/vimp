@@ -37,6 +37,20 @@ pub const Engine = struct {
         ellipse,
     };
 
+    pub const ShapeType = enum {
+        rectangle,
+    };
+
+    pub const ShapePreview = struct {
+        type: ShapeType,
+        x: c_int,
+        y: c_int,
+        width: c_int,
+        height: c_int,
+        thickness: c_int,
+        filled: bool,
+    };
+
     pub const PreviewMode = enum {
         none,
         blur,
@@ -185,6 +199,7 @@ pub const Engine = struct {
     brush_type: BrushType = .square,
     selection: ?c.GeglRectangle = null,
     selection_mode: SelectionMode = .rectangle,
+    preview_shape: ?ShapePreview = null,
 
     // Preview State
     preview_mode: PreviewMode = .none,
@@ -1577,6 +1592,104 @@ pub const Engine = struct {
         self.selection = null;
     }
 
+    pub fn setShapePreview(self: *Engine, x: c_int, y: c_int, w: c_int, h: c_int, thickness: c_int, filled: bool) void {
+        self.preview_shape = ShapePreview{
+            .type = .rectangle,
+            .x = x,
+            .y = y,
+            .width = w,
+            .height = h,
+            .thickness = thickness,
+            .filled = filled,
+        };
+    }
+
+    pub fn clearShapePreview(self: *Engine) void {
+        self.preview_shape = null;
+    }
+
+    pub fn drawRectangle(self: *Engine, x: c_int, y: c_int, w: c_int, h: c_int, thickness: c_int, filled: bool) !void {
+        if (self.active_layer_idx >= self.layers.items.len) return;
+        const layer = &self.layers.items[self.active_layer_idx];
+        if (!layer.visible or layer.locked) return;
+
+        const buf = layer.buffer;
+
+        // Normalize
+        var rx = x;
+        var ry = y;
+        var rw = w;
+        var rh = h;
+
+        if (rw < 0) {
+            rx += rw;
+            rw = -rw;
+        }
+        if (rh < 0) {
+            ry += rh;
+            rh = -rh;
+        }
+        if (rw == 0 or rh == 0) return;
+
+        // Use GEGL graph to fill rectangle to avoid manual buffer management for gegl_buffer_set with large areas
+        const temp_graph = c.gegl_node_new() orelse return error.GeglGraphFailed;
+        defer c.g_object_unref(temp_graph);
+
+        const color_str = try std.fmt.allocPrintSentinel(std.heap.c_allocator, "rgba({d}, {d}, {d}, {d})", .{
+            @as(f32, @floatFromInt(self.fg_color[0])) / 255.0,
+            @as(f32, @floatFromInt(self.fg_color[1])) / 255.0,
+            @as(f32, @floatFromInt(self.fg_color[2])) / 255.0,
+            @as(f32, @floatFromInt(self.fg_color[3])) / 255.0,
+        }, 0);
+        defer std.heap.c_allocator.free(color_str);
+
+        const color = c.gegl_color_new(color_str.ptr);
+        defer c.g_object_unref(color);
+
+        if (filled) {
+            _ = try self.drawRectInternal(temp_graph, buf, rx, ry, rw, rh, color);
+        } else {
+            // Outline
+            // Top
+            _ = try self.drawRectInternal(temp_graph, buf, rx, ry, rw, thickness, color);
+            // Bottom
+            _ = try self.drawRectInternal(temp_graph, buf, rx, ry + rh - thickness, rw, thickness, color);
+            // Left
+            _ = try self.drawRectInternal(temp_graph, buf, rx, ry, thickness, rh, color);
+            // Right
+            _ = try self.drawRectInternal(temp_graph, buf, rx + rw - thickness, ry, thickness, rh, color);
+        }
+    }
+
+    fn drawRectInternal(self: *Engine, graph: *c.GeglNode, buf: *c.GeglBuffer, rect_x: c_int, rect_y: c_int, rect_w: c_int, rect_h: c_int, col: *c.GeglColor) !void {
+        _ = self;
+        if (rect_w <= 0 or rect_h <= 0) return;
+
+        const rect_node = c.gegl_node_new_child(graph, "operation", "gegl:rectangle",
+            "x", @as(f64, @floatFromInt(rect_x)),
+            "y", @as(f64, @floatFromInt(rect_y)),
+            "width", @as(f64, @floatFromInt(rect_w)),
+            "height", @as(f64, @floatFromInt(rect_h)),
+            "color", col,
+            @as(?*anyopaque, null));
+
+        if (rect_node == null) return error.GeglGraphFailed;
+
+        const write_node = c.gegl_node_new_child(graph, "operation", "gegl:write-buffer", "buffer", buf, @as(?*anyopaque, null));
+
+        if (write_node) |wn| {
+            _ = c.gegl_node_connect(wn, "input", rect_node, "output");
+            _ = c.gegl_node_process(wn);
+            // Remove nodes to keep graph clean if reused
+            // c.gegl_node_remove_child(graph, wn);
+            // c.gegl_node_remove_child(graph, rect_node);
+            // But doing so might be slow? Since we defer destroy graph, we can leave them?
+            // drawRectangle creates a new graph every call. So it's fine.
+        } else {
+            return error.GeglGraphFailed;
+        }
+    }
+
     pub fn blit(self: *Engine, width: c_int, height: c_int, ptr: [*]u8, stride: c_int) void {
         self.blitView(width, height, ptr, stride, 1.0, 0.0, 0.0);
     }
@@ -2814,4 +2927,46 @@ test "Engine canvas size undo redo" {
     engine.redo();
     try std.testing.expectEqual(engine.canvas_width, 400);
     try std.testing.expectEqual(engine.canvas_height, 300);
+}
+
+test "Engine draw rectangle" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+    try engine.addLayer("Background");
+
+    engine.setFgColor(255, 0, 0, 255); // Red
+
+    // 1. Draw Filled Rect
+    try engine.drawRectangle(10, 10, 10, 10, 1, true);
+
+    const buf = engine.layers.items[0].buffer;
+    const format = c.babl_format("R'G'B'A u8");
+    var pixel: [4]u8 = undefined;
+
+    // Check inside (15, 15) -> Red
+    c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 15, .y = 15, .width = 1, .height = 1 }, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+    try std.testing.expectEqual(pixel[0], 255);
+
+    // Check outside (5, 5) -> Transparent
+    c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 5, .y = 5, .width = 1, .height = 1 }, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+    try std.testing.expectEqual(pixel[0], 0);
+
+    // 2. Draw Outlined Rect (Blue)
+    engine.setFgColor(0, 0, 255, 255);
+    try engine.drawRectangle(50, 50, 20, 20, 2, false); // Thickness 2
+
+    // Top Edge (50, 50) -> Blue
+    c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 50, .y = 50, .width = 1, .height = 1 }, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+    try std.testing.expectEqual(pixel[2], 255);
+
+    // Center (60, 60) -> Transparent (since outlined)
+    c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 60, .y = 60, .width = 1, .height = 1 }, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+    try std.testing.expectEqual(pixel[2], 0);
+
+    // Bottom Edge (50, 69) -> Blue (y=50+20-1 = 69, width=20, height=20. thickness=2. y range 68, 69)
+    // Actually: y starts at 50 + 20 - 2 = 68. Height 2. So 68 and 69.
+    c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 50, .y = 69, .width = 1, .height = 1 }, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+    try std.testing.expectEqual(pixel[2], 255);
 }

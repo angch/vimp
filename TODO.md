@@ -69,7 +69,7 @@
 - [ ] Implement Curve Tool (click to bend)
 
 ### Shape Tools (from `ms_paint_spec.md`)
-- [ ] Implement Rectangle Shape Tool
+- [x] Implement Rectangle Shape Tool
 - [ ] Implement Ellipse Shape Tool
 - [ ] Implement Rounded Rectangle Tool
 - [ ] Implement Polygon Tool
