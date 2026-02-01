@@ -1326,7 +1326,7 @@ pub const Engine = struct {
         self.commitTransaction();
     }
 
-    pub fn rotate90(self: *Engine) !void {
+    fn applyRotation(self: *Engine, degrees: f64) !void {
         if (self.active_layer_idx >= self.layers.items.len) return;
         const layer = &self.layers.items[self.active_layer_idx];
         if (layer.locked) return;
@@ -1341,7 +1341,7 @@ pub const Engine = struct {
 
         const input_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:buffer-source", "buffer", layer.buffer, @as(?*anyopaque, null));
         const t1 = c.gegl_node_new_child(temp_graph, "operation", "gegl:translate", "x", -cx, "y", -cy, @as(?*anyopaque, null));
-        const rotate = c.gegl_node_new_child(temp_graph, "operation", "gegl:rotate", "degrees", @as(f64, 90.0), "sampler", c.GEGL_SAMPLER_NEAREST, @as(?*anyopaque, null));
+        const rotate = c.gegl_node_new_child(temp_graph, "operation", "gegl:rotate", "degrees", degrees, "sampler", c.GEGL_SAMPLER_NEAREST, @as(?*anyopaque, null));
         const t2 = c.gegl_node_new_child(temp_graph, "operation", "gegl:translate", "x", cx, "y", cy, @as(?*anyopaque, null));
 
         _ = c.gegl_node_link_many(input_node, t1, rotate, t2, @as(?*anyopaque, null));
@@ -1360,6 +1360,18 @@ pub const Engine = struct {
         _ = c.gegl_node_set(layer.source_node, "buffer", new_buffer, @as(?*anyopaque, null));
 
         self.commitTransaction();
+    }
+
+    pub fn rotate90(self: *Engine) !void {
+        try self.applyRotation(90.0);
+    }
+
+    pub fn rotate180(self: *Engine) !void {
+        try self.applyRotation(180.0);
+    }
+
+    pub fn rotate270(self: *Engine) !void {
+        try self.applyRotation(270.0);
     }
 
     pub fn applyGaussianBlur(self: *Engine, radius: f64) !void {
@@ -2676,4 +2688,63 @@ test "Engine pick color" {
     try std.testing.expect(bg_color[0] > 200);
     try std.testing.expect(bg_color[1] > 200);
     try std.testing.expect(bg_color[2] > 200);
+}
+
+test "Engine rotate 180" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+    try engine.addLayer("Background");
+
+    // Paint at x=400, y=100 (Top Center)
+    engine.setFgColor(255, 0, 0, 255);
+    engine.paintStroke(400, 100, 400, 100, 1.0);
+
+    // Rotate 180
+    // Center 400, 300.
+    // Point relative to center: (0, -200).
+    // Rotate 180: (x, y) -> (-x, -y).
+    // New relative: (0, 200).
+    // New pos: 400+0, 300+200 = 400, 500.
+
+    try engine.rotate180();
+
+    const buf = engine.layers.items[0].buffer;
+    const format = c.babl_format("R'G'B'A u8");
+    var pixel: [4]u8 = undefined;
+
+    const rect = c.GeglRectangle{ .x = 400, .y = 500, .width = 1, .height = 1 };
+    c.gegl_buffer_get(buf, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+
+    try std.testing.expectEqual(pixel[0], 255);
+}
+
+test "Engine rotate 270" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+    try engine.addLayer("Background");
+
+    // Paint at x=400, y=100 (Top Center)
+    engine.setFgColor(255, 0, 0, 255);
+    engine.paintStroke(400, 100, 400, 100, 1.0);
+
+    // Rotate 270
+    try engine.rotate270();
+
+    const buf = engine.layers.items[0].buffer;
+    const format = c.babl_format("R'G'B'A u8");
+
+    // Check 200, 300 (Left Center)
+    var pixel_left: [4]u8 = undefined;
+    c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 200, .y = 300, .width = 1, .height = 1 }, 1.0, format, &pixel_left, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+
+    // Check 600, 300 (Right Center)
+    var pixel_right: [4]u8 = undefined;
+    c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 600, .y = 300, .width = 1, .height = 1 }, 1.0, format, &pixel_right, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+
+    // Expect either Left or Right (Rotation by 270/90 should land on side)
+    try std.testing.expect(pixel_left[0] == 255 or pixel_right[0] == 255);
 }

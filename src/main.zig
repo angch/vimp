@@ -1296,6 +1296,26 @@ fn rotate_90_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) cal
     queue_draw();
 }
 
+fn rotate_180_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    engine.rotate180() catch |err| {
+        show_toast("Rotate 180 failed: {}", .{err});
+        return;
+    };
+    refresh_undo_ui();
+    canvas_dirty = true;
+    queue_draw();
+}
+
+fn rotate_270_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    engine.rotate270() catch |err| {
+        show_toast("Rotate 270 failed: {}", .{err});
+        return;
+    };
+    refresh_undo_ui();
+    canvas_dirty = true;
+    queue_draw();
+}
+
 fn split_view_change_state(action: *c.GSimpleAction, value: *c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     const enabled = c.g_variant_get_boolean(value) != 0;
     engine.setSplitView(enabled);
@@ -1688,6 +1708,8 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     add_action(app, "flip-horizontal", @ptrCast(&flip_horizontal_activated), null);
     add_action(app, "flip-vertical", @ptrCast(&flip_vertical_activated), null);
     add_action(app, "rotate-90", @ptrCast(&rotate_90_activated), null);
+    add_action(app, "rotate-180", @ptrCast(&rotate_180_activated), null);
+    add_action(app, "rotate-270", @ptrCast(&rotate_270_activated), null);
 
     // Split View Action (Stateful)
     const split_action = c.g_simple_action_new_stateful("split-view", null, c.g_variant_new_boolean(0));
@@ -1768,6 +1790,8 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.g_menu_append(image_menu, "Flip Horizontal", "app.flip-horizontal");
     c.g_menu_append(image_menu, "Flip Vertical", "app.flip-vertical");
     c.g_menu_append(image_menu, "Rotate 90° CW", "app.rotate-90");
+    c.g_menu_append(image_menu, "Rotate 180°", "app.rotate-180");
+    c.g_menu_append(image_menu, "Rotate 270° CW", "app.rotate-270");
 
     const image_btn = c.gtk_menu_button_new();
     c.gtk_menu_button_set_label(@ptrCast(image_btn), "Image");
