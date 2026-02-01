@@ -40,6 +40,7 @@ pub const Engine = struct {
     pub const ShapeType = enum {
         rectangle,
         ellipse,
+        line,
     };
 
     pub const ShapePreview = struct {
@@ -48,6 +49,8 @@ pub const Engine = struct {
         y: c_int,
         width: c_int,
         height: c_int,
+        x2: c_int = 0,
+        y2: c_int = 0,
         thickness: c_int,
         filled: bool,
     };
@@ -195,6 +198,7 @@ pub const Engine = struct {
     canvas_width: c_int = 800,
     canvas_height: c_int = 600,
     fg_color: [4]u8 = .{ 0, 0, 0, 255 },
+    bg_color: [4]u8 = .{ 255, 255, 255, 255 },
     brush_size: c_int = 3,
     mode: Mode = .paint,
     brush_type: BrushType = .square,
@@ -1550,6 +1554,10 @@ pub const Engine = struct {
         self.fg_color = .{ r, g, b, a };
     }
 
+    pub fn setBgColor(self: *Engine, r: u8, g: u8, b: u8, a: u8) void {
+        self.bg_color = .{ r, g, b, a };
+    }
+
     pub fn setBrushSize(self: *Engine, size: c_int) void {
         self.brush_size = size;
     }
@@ -1607,6 +1615,87 @@ pub const Engine = struct {
 
     pub fn clearShapePreview(self: *Engine) void {
         self.preview_shape = null;
+    }
+
+    pub fn drawGradient(self: *Engine, x1: c_int, y1: c_int, x2: c_int, y2: c_int) !void {
+        if (self.active_layer_idx >= self.layers.items.len) return;
+        const layer = &self.layers.items[self.active_layer_idx];
+        if (!layer.visible or layer.locked) return;
+
+        const buf = layer.buffer;
+
+        // Determine bounds
+        var bx: c_int = 0;
+        var by: c_int = 0;
+        var bw: c_int = self.canvas_width;
+        var bh: c_int = self.canvas_height;
+
+        if (self.selection) |sel| {
+            bx = sel.x;
+            by = sel.y;
+            bw = sel.width;
+            bh = sel.height;
+        }
+
+        if (bw <= 0 or bh <= 0) return;
+
+        const allocator = std.heap.c_allocator;
+        const size: usize = @intCast(bw * bh * 4);
+        const pixels = try allocator.alloc(u8, size);
+        defer allocator.free(pixels);
+
+        const rect = c.GeglRectangle{ .x = bx, .y = by, .width = bw, .height = bh };
+        const format = c.babl_format("R'G'B'A u8");
+        const stride = bw * 4;
+
+        // Read current content (to preserve pixels outside selection if any)
+        c.gegl_buffer_get(buf, &rect, 1.0, format, pixels.ptr, stride, c.GEGL_ABYSS_NONE);
+
+        // Vector setup
+        const dx = @as(f64, @floatFromInt(x2 - x1));
+        const dy = @as(f64, @floatFromInt(y2 - y1));
+        const len_sq = dx * dx + dy * dy;
+        const inv_len_sq = if (len_sq > 0.0) 1.0 / len_sq else 0.0;
+
+        const start_x = @as(f64, @floatFromInt(x1));
+        const start_y = @as(f64, @floatFromInt(y1));
+
+        var py: c_int = 0;
+        while (py < bh) : (py += 1) {
+            var px: c_int = 0;
+            while (px < bw) : (px += 1) {
+                const global_x = bx + px;
+                const global_y = by + py;
+
+                if (!self.isPointInSelection(global_x, global_y)) continue;
+
+                // Project point onto gradient vector
+                const pdx = @as(f64, @floatFromInt(global_x)) - start_x;
+                const pdy = @as(f64, @floatFromInt(global_y)) - start_y;
+
+                var t = (pdx * dx + pdy * dy) * inv_len_sq;
+                // Clamp
+                if (t < 0.0) t = 0.0;
+                if (t > 1.0) t = 1.0;
+
+                const fg = self.fg_color;
+                const bg = self.bg_color;
+
+                // Lerp
+                const r = @as(f64, @floatFromInt(fg[0])) * (1.0 - t) + @as(f64, @floatFromInt(bg[0])) * t;
+                const g = @as(f64, @floatFromInt(fg[1])) * (1.0 - t) + @as(f64, @floatFromInt(bg[1])) * t;
+                const b = @as(f64, @floatFromInt(fg[2])) * (1.0 - t) + @as(f64, @floatFromInt(bg[2])) * t;
+                const a = @as(f64, @floatFromInt(fg[3])) * (1.0 - t) + @as(f64, @floatFromInt(bg[3])) * t;
+
+                const idx = (@as(usize, @intCast(py)) * @as(usize, @intCast(bw)) + @as(usize, @intCast(px))) * 4;
+                pixels[idx] = @intFromFloat(r);
+                pixels[idx + 1] = @intFromFloat(g);
+                pixels[idx + 2] = @intFromFloat(b);
+                pixels[idx + 3] = @intFromFloat(a);
+            }
+        }
+
+        c.gegl_buffer_set(buf, &rect, 0, format, pixels.ptr, stride);
     }
 
     pub fn drawRectangle(self: *Engine, x: c_int, y: c_int, w: c_int, h: c_int, thickness: c_int, filled: bool) !void {
@@ -3198,4 +3287,48 @@ test "Engine getPreviewTexture" {
 
     // If successful, unref
     c.g_object_unref(texture);
+}
+
+test "Engine gradient" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+    try engine.addLayer("Background");
+
+    engine.setFgColor(255, 0, 0, 255); // Red
+    engine.setBgColor(0, 0, 255, 255); // Blue
+
+    // Draw Gradient from 100,100 to 200,100
+    try engine.drawGradient(100, 100, 200, 100);
+
+    const buf = engine.layers.items[0].buffer;
+    const format = c.babl_format("R'G'B'A u8");
+    var pixel: [4]u8 = undefined;
+
+    // Check Start (100, 100) -> Red
+    c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 100, .y = 100, .width = 1, .height = 1 }, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+    try std.testing.expectEqual(pixel[0], 255);
+    try std.testing.expectEqual(pixel[2], 0);
+
+    // Check End (200, 100) -> Blue
+    c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 200, .y = 100, .width = 1, .height = 1 }, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+    try std.testing.expectEqual(pixel[0], 0);
+    try std.testing.expectEqual(pixel[2], 255);
+
+    // Check Mid (150, 100) -> Purple (127, 0, 127)
+    c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 150, .y = 100, .width = 1, .height = 1 }, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+    // Allow slight rounding error
+    try std.testing.expect(pixel[0] >= 126 and pixel[0] <= 128);
+    try std.testing.expect(pixel[2] >= 126 and pixel[2] <= 128);
+
+    // Check Before Start (50, 100) -> Red (Clamped)
+    c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 50, .y = 100, .width = 1, .height = 1 }, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+    try std.testing.expectEqual(pixel[0], 255);
+    try std.testing.expectEqual(pixel[2], 0);
+
+    // Check After End (250, 100) -> Blue (Clamped)
+    c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 250, .y = 100, .width = 1, .height = 1 }, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+    try std.testing.expectEqual(pixel[0], 0);
+    try std.testing.expectEqual(pixel[2], 255);
 }

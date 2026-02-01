@@ -63,7 +63,7 @@
 
 ### From `ms_paint_spec.md`
 - [x] Implement Pick Color Tool (Eyedropper)
-- [ ] Implement Gradient Tool
+- [x] Implement Gradient Tool
 - [ ] Implement Text Tool
 - [ ] Implement Line Tool (Shift for constrained angles)
 - [ ] Implement Curve Tool (click to bend)
