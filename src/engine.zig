@@ -690,9 +690,7 @@ pub const Engine = struct {
         const path_z = try std.heap.c_allocator.dupeZ(u8, path);
         defer std.heap.c_allocator.free(path_z);
 
-        const load_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:pdf-load",
-            "path", path_z.ptr,
-            @as(?*anyopaque, null));
+        const load_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:pdf-load", "path", path_z.ptr, @as(?*anyopaque, null));
 
         if (load_node == null) return error.GeglLoadFailed;
 
@@ -710,10 +708,7 @@ pub const Engine = struct {
         defer std.heap.c_allocator.free(path_z);
 
         // Load specific page
-        const load_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:pdf-load",
-            "path", path_z.ptr,
-            "page", @as(c_int, page),
-            @as(?*anyopaque, null));
+        const load_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:pdf-load", "path", path_z.ptr, "page", @as(c_int, page), @as(?*anyopaque, null));
 
         if (load_node == null) return error.GeglLoadFailed;
 
@@ -725,10 +720,7 @@ pub const Engine = struct {
         const max_dim = @max(bbox.width, bbox.height);
         const scale = @as(f64, @floatFromInt(size)) / @as(f64, @floatFromInt(max_dim));
 
-        const scale_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:scale-ratio",
-            "x", scale,
-            "y", scale,
-            "sampler", c.GEGL_SAMPLER_NEAREST, // Fast scaling for thumbnails
+        const scale_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:scale-ratio", "x", scale, "y", scale, "sampler", c.GEGL_SAMPLER_NEAREST, // Fast scaling for thumbnails
             @as(?*anyopaque, null));
 
         _ = c.gegl_node_connect(scale_node, "input", load_node, "output");
@@ -759,10 +751,7 @@ pub const Engine = struct {
         const path_z = try std.heap.c_allocator.dupeZ(u8, path);
         defer std.heap.c_allocator.free(path_z);
 
-        const load_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:pdf-load",
-            "path", path_z.ptr,
-            "ppi", @as(f64, params.ppi),
-            @as(?*anyopaque, null));
+        const load_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:pdf-load", "path", path_z.ptr, "ppi", @as(f64, params.ppi), @as(?*anyopaque, null));
 
         if (load_node == null) return error.GeglLoadFailed;
 
@@ -795,11 +784,11 @@ pub const Engine = struct {
                 continue;
             }
 
-            const name = std.fmt.bufPrintZ(&buf, "{s} - Page {d}", .{basename, current_page}) catch "Page";
+            const name = std.fmt.bufPrintZ(&buf, "{s} - Page {d}", .{ basename, current_page }) catch "Page";
             const index = self.layers.items.len;
             try self.addLayerInternal(new_buffer.?, name, true, false, index);
 
-             // Push Undo
+            // Push Undo
             const cmd = Command{
                 .layer = .{ .add = .{ .index = index, .snapshot = null } },
             };
@@ -850,10 +839,10 @@ pub const Engine = struct {
         if (load_node == null) return error.GeglLoadFailed;
 
         if (params.width > 0) {
-             c.gegl_node_set(load_node, "width", @as(c_int, params.width), @as(?*anyopaque, null));
+            c.gegl_node_set(load_node, "width", @as(c_int, params.width), @as(?*anyopaque, null));
         }
         if (params.height > 0) {
-             c.gegl_node_set(load_node, "height", @as(c_int, params.height), @as(?*anyopaque, null));
+            c.gegl_node_set(load_node, "height", @as(c_int, params.height), @as(?*anyopaque, null));
         }
 
         const bbox = c.gegl_node_get_bounding_box(load_node);
@@ -868,8 +857,8 @@ pub const Engine = struct {
             _ = c.gegl_node_link(load_node, wn);
             _ = c.gegl_node_process(wn);
         } else {
-             c.g_object_unref(new_buffer);
-             return error.GeglGraphFailed;
+            c.g_object_unref(new_buffer);
+            return error.GeglGraphFailed;
         }
 
         const basename = std.fs.path.basename(path);
@@ -949,20 +938,14 @@ pub const Engine = struct {
         const scale = @min(scale_x, scale_y);
 
         // 2. Create Nodes
-        const scale_node = c.gegl_node_new_child(self.graph, "operation", "gegl:scale-ratio",
-            "x", scale,
-            "y", scale,
-            "sampler", c.GEGL_SAMPLER_NEAREST,
-            @as(?*anyopaque, null));
+        const scale_node = c.gegl_node_new_child(self.graph, "operation", "gegl:scale-ratio", "x", scale, "y", scale, "sampler", c.GEGL_SAMPLER_NEAREST, @as(?*anyopaque, null));
 
         if (scale_node == null) return error.GeglGraphFailed;
 
         const path_z = try std.heap.c_allocator.dupeZ(u8, path);
         defer std.heap.c_allocator.free(path_z);
 
-        const save_node = c.gegl_node_new_child(self.graph, "operation", "gegl:save",
-            "path", path_z.ptr,
-            @as(?*anyopaque, null));
+        const save_node = c.gegl_node_new_child(self.graph, "operation", "gegl:save", "path", path_z.ptr, @as(?*anyopaque, null));
 
         if (save_node == null) {
             _ = c.gegl_node_remove_child(self.graph, scale_node);
@@ -1698,6 +1681,19 @@ pub const Engine = struct {
         c.gegl_buffer_set(buf, &rect, 0, format, pixels.ptr, stride);
     }
 
+    pub fn drawLine(self: *Engine, x1: c_int, y1: c_int, x2: c_int, y2: c_int) !void {
+        if (self.active_layer_idx >= self.layers.items.len) return;
+        const layer = &self.layers.items[self.active_layer_idx];
+        if (!layer.visible or layer.locked) return;
+
+        const fx1: f64 = @floatFromInt(x1);
+        const fy1: f64 = @floatFromInt(y1);
+        const fx2: f64 = @floatFromInt(x2);
+        const fy2: f64 = @floatFromInt(y2);
+
+        self.paintStroke(fx1, fy1, fx2, fy2, 1.0);
+    }
+
     pub fn drawRectangle(self: *Engine, x: c_int, y: c_int, w: c_int, h: c_int, thickness: c_int, filled: bool) !void {
         if (self.active_layer_idx >= self.layers.items.len) return;
         const layer = &self.layers.items[self.active_layer_idx];
@@ -1825,10 +1821,10 @@ pub const Engine = struct {
                         if (inner_rx <= 0 or inner_ry <= 0) {
                             draw = true; // Filled essentially
                         } else {
-                             const val_inner = (dx * dx) * inv_inner_rx2 + (dy * dy) * inv_inner_ry2;
-                             if (val_inner > 1.0) {
-                                 draw = true;
-                             }
+                            const val_inner = (dx * dx) * inv_inner_rx2 + (dy * dy) * inv_inner_ry2;
+                            if (val_inner > 1.0) {
+                                draw = true;
+                            }
                         }
                     }
 
@@ -1848,13 +1844,7 @@ pub const Engine = struct {
         _ = self;
         if (rect_w <= 0 or rect_h <= 0) return;
 
-        const rect_node = c.gegl_node_new_child(graph, "operation", "gegl:rectangle",
-            "x", @as(f64, @floatFromInt(rect_x)),
-            "y", @as(f64, @floatFromInt(rect_y)),
-            "width", @as(f64, @floatFromInt(rect_w)),
-            "height", @as(f64, @floatFromInt(rect_h)),
-            "color", col,
-            @as(?*anyopaque, null));
+        const rect_node = c.gegl_node_new_child(graph, "operation", "gegl:rectangle", "x", @as(f64, @floatFromInt(rect_x)), "y", @as(f64, @floatFromInt(rect_y)), "width", @as(f64, @floatFromInt(rect_w)), "height", @as(f64, @floatFromInt(rect_h)), "color", col, @as(?*anyopaque, null));
 
         if (rect_node == null) return error.GeglGraphFailed;
 
@@ -3331,4 +3321,30 @@ test "Engine gradient" {
     c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 250, .y = 100, .width = 1, .height = 1 }, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
     try std.testing.expectEqual(pixel[0], 0);
     try std.testing.expectEqual(pixel[2], 255);
+}
+
+test "Engine draw line" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+    try engine.addLayer("Background");
+
+    engine.setFgColor(255, 0, 0, 255); // Red
+    engine.setBrushSize(1);
+
+    // Draw Line from 10,10 to 20,10
+    try engine.drawLine(10, 10, 20, 10);
+
+    const buf = engine.layers.items[0].buffer;
+    const format = c.babl_format("R'G'B'A u8");
+    var pixel: [4]u8 = undefined;
+
+    // Check 15,10 (Midpoint) -> Red
+    c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 15, .y = 10, .width = 1, .height = 1 }, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+    try std.testing.expectEqual(pixel[0], 255);
+
+    // Check 15,11 (Below) -> Transparent
+    c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 15, .y = 11, .width = 1, .height = 1 }, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+    try std.testing.expectEqual(pixel[0], 0);
 }

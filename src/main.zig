@@ -26,6 +26,7 @@ const Tool = enum {
     unified_transform,
     color_picker,
     gradient,
+    line,
     // pencil, // Reorder if desired, but append is safer for diffs usually
 };
 
@@ -217,6 +218,11 @@ fn tool_toggled(
             .gradient => {
                 osd_show("Gradient Tool");
             },
+            .line => {
+                engine.setMode(.paint);
+                engine.setBrushType(.circle);
+                osd_show("Line Tool");
+            },
         }
     }
 }
@@ -275,6 +281,7 @@ var ellipse_shape_tool = Tool.ellipse_shape;
 var unified_transform_tool = Tool.unified_transform;
 var color_picker_tool = Tool.color_picker;
 var gradient_tool = Tool.gradient;
+var line_tool = Tool.line;
 
 // View State
 var view_scale: f64 = 1.0;
@@ -438,12 +445,7 @@ fn draw_func(
                     c.cairo_rectangle(cr_ctx, sx, sy, sw, sh);
 
                     const fg = engine.fg_color;
-                    c.cairo_set_source_rgba(cr_ctx,
-                        @as(f64, @floatFromInt(fg[0]))/255.0,
-                        @as(f64, @floatFromInt(fg[1]))/255.0,
-                        @as(f64, @floatFromInt(fg[2]))/255.0,
-                        @as(f64, @floatFromInt(fg[3]))/255.0
-                    );
+                    c.cairo_set_source_rgba(cr_ctx, @as(f64, @floatFromInt(fg[0])) / 255.0, @as(f64, @floatFromInt(fg[1])) / 255.0, @as(f64, @floatFromInt(fg[2])) / 255.0, @as(f64, @floatFromInt(fg[3])) / 255.0);
 
                     if (shape.filled) {
                         c.cairo_fill(cr_ctx);
@@ -472,12 +474,7 @@ fn draw_func(
 
                     c.cairo_save(cr_ctx);
                     const fg = engine.fg_color;
-                    c.cairo_set_source_rgba(cr_ctx,
-                        @as(f64, @floatFromInt(fg[0]))/255.0,
-                        @as(f64, @floatFromInt(fg[1]))/255.0,
-                        @as(f64, @floatFromInt(fg[2]))/255.0,
-                        @as(f64, @floatFromInt(fg[3]))/255.0
-                    );
+                    c.cairo_set_source_rgba(cr_ctx, @as(f64, @floatFromInt(fg[0])) / 255.0, @as(f64, @floatFromInt(fg[1])) / 255.0, @as(f64, @floatFromInt(fg[2])) / 255.0, @as(f64, @floatFromInt(fg[3])) / 255.0);
 
                     if (shape.filled) {
                         c.cairo_fill(cr_ctx);
@@ -640,6 +637,8 @@ fn drag_begin(
                 // Do nothing at start, render preview during drag
             } else if (current_tool == .gradient) {
                 engine.beginTransaction();
+            } else if (current_tool == .line) {
+                // Do nothing at start, render preview during drag
             } else {
                 // Paint tools
                 engine.beginTransaction();
@@ -706,6 +705,39 @@ fn drag_update(
                     c.gtk_color_chooser_set_rgba(@ptrCast(btn), &rgba);
                 }
             } else |_| {}
+            prev_x = current_x;
+            prev_y = current_y;
+            return;
+        }
+
+        if (current_tool == .line) {
+            const start_world_x = (view_x + start_sx) / view_scale;
+            const start_world_y = (view_y + start_sy) / view_scale;
+
+            var end_x = c_curr_x;
+            var end_y = c_curr_y;
+
+            const state = c.gtk_event_controller_get_current_event_state(@ptrCast(gesture));
+            if ((state & c.GDK_SHIFT_MASK) != 0) {
+                const snapped = CanvasUtils.snapAngle(start_world_x, start_world_y, c_curr_x, c_curr_y, 45.0);
+                end_x = snapped.x;
+                end_y = snapped.y;
+            }
+
+            const sx: c_int = @intFromFloat(start_world_x);
+            const sy: c_int = @intFromFloat(start_world_y);
+            const ex: c_int = @intFromFloat(end_x);
+            const ey: c_int = @intFromFloat(end_y);
+
+            engine.setShapePreview(sx, sy, 0, 0, 1, false);
+            if (engine.preview_shape) |*s| {
+                s.type = .line;
+                s.x2 = ex;
+                s.y2 = ey;
+            }
+
+            c.gtk_widget_queue_draw(widget);
+
             prev_x = current_x;
             prev_y = current_y;
             return;
@@ -816,11 +848,11 @@ fn drag_end(
         engine.beginTransaction();
         if (current_tool == .rect_shape) {
             engine.drawRectangle(min_x, min_y, w, h, engine.brush_size, false) catch |err| {
-                 show_toast("Failed to draw rect: {}", .{err});
+                show_toast("Failed to draw rect: {}", .{err});
             };
         } else {
             engine.drawEllipse(min_x, min_y, w, h, engine.brush_size, false) catch |err| {
-                 show_toast("Failed to draw ellipse: {}", .{err});
+                show_toast("Failed to draw ellipse: {}", .{err});
             };
         }
         engine.commitTransaction();
@@ -829,8 +861,51 @@ fn drag_end(
         canvas_dirty = true;
 
         if (user_data) |ud| {
-             const widget: *c.GtkWidget = @ptrCast(@alignCast(ud));
-             c.gtk_widget_queue_draw(widget);
+            const widget: *c.GtkWidget = @ptrCast(@alignCast(ud));
+            c.gtk_widget_queue_draw(widget);
+        }
+        return;
+    }
+
+    if (current_tool == .line) {
+        var start_sx: f64 = 0;
+        var start_sy: f64 = 0;
+        _ = c.gtk_gesture_drag_get_start_point(gesture, &start_sx, &start_sy);
+        const current_x = start_sx + offset_x;
+        const current_y = start_sy + offset_y;
+
+        const start_world_x = (view_x + start_sx) / view_scale;
+        const start_world_y = (view_y + start_sy) / view_scale;
+        const c_curr_x = (view_x + current_x) / view_scale;
+        const c_curr_y = (view_y + current_y) / view_scale;
+
+        var end_x = c_curr_x;
+        var end_y = c_curr_y;
+
+        const state = c.gtk_event_controller_get_current_event_state(@ptrCast(gesture));
+        if ((state & c.GDK_SHIFT_MASK) != 0) {
+            const snapped = CanvasUtils.snapAngle(start_world_x, start_world_y, c_curr_x, c_curr_y, 45.0);
+            end_x = snapped.x;
+            end_y = snapped.y;
+        }
+
+        const sx: c_int = @intFromFloat(start_world_x);
+        const sy: c_int = @intFromFloat(start_world_y);
+        const ex: c_int = @intFromFloat(end_x);
+        const ey: c_int = @intFromFloat(end_y);
+
+        engine.beginTransaction();
+        engine.drawLine(sx, sy, ex, ey) catch |err| {
+            show_toast("Failed to draw line: {}", .{err});
+        };
+        engine.commitTransaction();
+        engine.clearShapePreview();
+        refresh_undo_ui();
+        canvas_dirty = true;
+
+        if (user_data) |ud| {
+            const widget: *c.GtkWidget = @ptrCast(@alignCast(ud));
+            c.gtk_widget_queue_draw(widget);
         }
         return;
     }
@@ -861,8 +936,8 @@ fn drag_end(
         canvas_dirty = true;
 
         if (user_data) |ud| {
-             const widget: *c.GtkWidget = @ptrCast(@alignCast(ud));
-             c.gtk_widget_queue_draw(widget);
+            const widget: *c.GtkWidget = @ptrCast(@alignCast(ud));
+            c.gtk_widget_queue_draw(widget);
         }
         return;
     }
@@ -938,20 +1013,20 @@ fn download_callback(source: ?*c.GObject, result: ?*c.GAsyncResult, user_data: ?
             defer std.heap.c_allocator.free(path_z);
             openFileFromPath(path_z, false, false);
         } else {
-             show_toast("Download failed (empty file)", .{});
+            show_toast("Download failed (empty file)", .{});
         }
     } else |_| {
-         var err: ?*c.GError = null;
-         if (c.g_subprocess_wait_check_finish(@ptrCast(source), result, &err) == 0) {
+        var err: ?*c.GError = null;
+        if (c.g_subprocess_wait_check_finish(@ptrCast(source), result, &err) == 0) {
             if (err) |e| {
                 show_toast("Download failed: {s}", .{e.*.message});
                 c.g_error_free(e);
             } else {
                 show_toast("Download failed", .{});
             }
-         } else {
-             show_toast("Download failed (file missing)", .{});
-         }
+        } else {
+            show_toast("Download failed (file missing)", .{});
+        }
     }
 }
 
@@ -982,32 +1057,22 @@ fn downloadAndOpen(uri: [:0]const u8, _: ?*anyopaque) void {
     // Guess extension
     var ext: []const u8 = ".dat";
     if (std.mem.lastIndexOf(u8, uri, ".")) |idx| {
-         if (idx < uri.len - 1) {
-             const possible_ext = uri[idx..];
-             if (possible_ext.len <= 5) {
-                 ext = possible_ext;
-             }
-         }
+        if (idx < uri.len - 1) {
+            const possible_ext = uri[idx..];
+            if (possible_ext.len <= 5) {
+                ext = possible_ext;
+            }
+        }
     }
 
-    const filename = std.fmt.allocPrint(std.heap.c_allocator, "{s}{s}", .{hash_hex, ext}) catch return;
+    const filename = std.fmt.allocPrint(std.heap.c_allocator, "{s}{s}", .{ hash_hex, ext }) catch return;
     defer std.heap.c_allocator.free(filename);
 
     const dest_path = std.fs.path.joinZ(std.heap.c_allocator, &[_][]const u8{ vimp_cache, filename }) catch return;
     // Pass ownership of dest_path to callback
 
     // 3. Start Subprocess (curl)
-    const proc = c.g_subprocess_new(
-        c.G_SUBPROCESS_FLAGS_NONE,
-        null,
-        "curl",
-        "-L",
-        "-f",
-        "-o",
-        dest_path.ptr,
-        uri.ptr,
-        @as(?*anyopaque, null)
-    );
+    const proc = c.g_subprocess_new(c.G_SUBPROCESS_FLAGS_NONE, null, "curl", "-L", "-f", "-o", dest_path.ptr, uri.ptr, @as(?*anyopaque, null));
 
     if (proc == null) {
         show_toast("Failed to start curl", .{});
@@ -1058,7 +1123,7 @@ fn raw_conversion_callback(source: ?*c.GObject, result: ?*c.GAsyncResult, user_d
             show_toast("Raw conversion failed: {s}", .{e.*.message});
             c.g_error_free(e);
         } else {
-             show_toast("Raw conversion failed", .{});
+            show_toast("Raw conversion failed", .{});
         }
     }
 }
@@ -1075,7 +1140,7 @@ fn convertRawAndOpen(path: [:0]const u8, as_layers: bool, add_to_recent: bool) v
     // Generate temp output path
     const stem = std.fs.path.stem(path);
     const rnd = std.time.nanoTimestamp();
-    const out_name = std.fmt.allocPrint(allocator, "{s}_{d}.png", .{stem, rnd}) catch return;
+    const out_name = std.fmt.allocPrint(allocator, "{s}_{d}.png", .{ stem, rnd }) catch return;
     defer allocator.free(out_name);
 
     const tmp_dir_c = c.g_get_tmp_dir();
@@ -1089,9 +1154,9 @@ fn convertRawAndOpen(path: [:0]const u8, as_layers: bool, add_to_recent: bool) v
     };
 
     const ctx = allocator.create(RawContext) catch {
-         allocator.free(out_path);
-         allocator.free(path_dup);
-         return;
+        allocator.free(out_path);
+        allocator.free(path_dup);
+        return;
     };
     ctx.* = .{
         .original_path = path_dup,
@@ -1103,25 +1168,9 @@ fn convertRawAndOpen(path: [:0]const u8, as_layers: bool, add_to_recent: bool) v
     var proc: ?*c.GSubprocess = null;
 
     if (tool == .darktable) {
-        proc = c.g_subprocess_new(
-            c.G_SUBPROCESS_FLAGS_NONE,
-            null,
-            "darktable-cli",
-            path.ptr,
-            out_path.ptr,
-            @as(?*anyopaque, null)
-        );
+        proc = c.g_subprocess_new(c.G_SUBPROCESS_FLAGS_NONE, null, "darktable-cli", path.ptr, out_path.ptr, @as(?*anyopaque, null));
     } else if (tool == .rawtherapee) {
-        proc = c.g_subprocess_new(
-            c.G_SUBPROCESS_FLAGS_NONE,
-            null,
-            "rawtherapee-cli",
-            "-o",
-            out_path.ptr,
-            "-c",
-            path.ptr,
-            @as(?*anyopaque, null)
-        );
+        proc = c.g_subprocess_new(c.G_SUBPROCESS_FLAGS_NONE, null, "rawtherapee-cli", "-o", out_path.ptr, "-c", path.ptr, @as(?*anyopaque, null));
     }
 
     if (proc) |p| {
@@ -2189,6 +2238,10 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     // Gradient Tool
     const gradient_btn = createToolButton(&gradient_tool, "applications-graphics-symbolic", "Gradient Tool", @ptrCast(brush_btn), true);
     c.gtk_box_append(@ptrCast(tools_box), gradient_btn);
+
+    // Line Tool
+    const line_btn = createToolButton(&line_tool, "list-remove-symbolic", "Line Tool (Shift to snap)", @ptrCast(brush_btn), true);
+    c.gtk_box_append(@ptrCast(tools_box), line_btn);
 
     // Separator
     c.gtk_box_append(@ptrCast(sidebar), c.gtk_separator_new(c.GTK_ORIENTATION_HORIZONTAL));
