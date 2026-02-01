@@ -9,6 +9,7 @@ const ImportDialogs = @import("widgets/import_dialogs.zig");
 const FileChooser = @import("widgets/file_chooser.zig");
 const OpenLocationDialog = @import("widgets/open_location_dialog.zig");
 const CanvasDialog = @import("widgets/canvas_dialog.zig");
+const FullscreenPreview = @import("widgets/fullscreen_preview.zig");
 const RawLoader = @import("raw_loader.zig").RawLoader;
 
 // Global state for simplicity in this phase
@@ -1476,6 +1477,13 @@ fn canvas_size_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyo
     CanvasDialog.showCanvasSizeDialog(window, engine.canvas_width, engine.canvas_height, @ptrCast(&canvas_size_callback), null);
 }
 
+fn view_bitmap_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
+    if (window) |w| {
+        FullscreenPreview.showFullscreenPreview(w, &engine);
+    }
+}
+
 fn split_view_change_state(action: *c.GSimpleAction, value: *c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     const enabled = c.g_variant_get_boolean(value) != 0;
     engine.setSplitView(enabled);
@@ -1877,6 +1885,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     add_action(app, "rotate-180", @ptrCast(&rotate_180_activated), null);
     add_action(app, "rotate-270", @ptrCast(&rotate_270_activated), null);
     add_action(app, "canvas-size", @ptrCast(&canvas_size_activated), window);
+    add_action(app, "view-bitmap", @ptrCast(&view_bitmap_activated), window);
 
     // Split View Action (Stateful)
     const split_action = c.g_simple_action_new_stateful("split-view", null, c.g_variant_new_boolean(0));
@@ -1979,6 +1988,16 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.gtk_menu_button_set_menu_model(@ptrCast(filters_btn), @ptrCast(@alignCast(filters_menu)));
     c.gtk_widget_set_tooltip_text(filters_btn, "Image Filters");
     c.adw_header_bar_pack_start(@ptrCast(header_bar), filters_btn);
+
+    // View Menu
+    const view_menu = c.g_menu_new();
+    c.g_menu_append(view_menu, "View Bitmap", "app.view-bitmap");
+
+    const view_btn = c.gtk_menu_button_new();
+    c.gtk_menu_button_set_label(@ptrCast(view_btn), "View");
+    c.gtk_menu_button_set_menu_model(@ptrCast(view_btn), @ptrCast(@alignCast(view_menu)));
+    c.gtk_widget_set_tooltip_text(view_btn, "View Options");
+    c.adw_header_bar_pack_start(@ptrCast(header_bar), view_btn);
 
     // Hamburger Menu (End)
     const menu = c.g_menu_new();
