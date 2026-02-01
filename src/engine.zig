@@ -112,11 +112,19 @@ pub const Engine = struct {
         after_mode: SelectionMode = .rectangle,
     };
 
+    pub const CanvasSizeCommand = struct {
+        before_width: c_int,
+        before_height: c_int,
+        after_width: c_int,
+        after_height: c_int,
+    };
+
     pub const Command = union(enum) {
         paint: PaintCommand,
         transform: PaintCommand,
         layer: LayerCommand,
         selection: SelectionCommand,
+        canvas_size: CanvasSizeCommand,
 
         pub fn description(self: Command) [:0]const u8 {
             switch (self) {
@@ -130,6 +138,7 @@ pub const Engine = struct {
                     .lock => return "Toggle Lock",
                 },
                 .selection => return "Selection Change",
+                .canvas_size => return "Resize Canvas",
             }
         }
 
@@ -139,6 +148,7 @@ pub const Engine = struct {
                 .transform => |*cmd| cmd.deinit(),
                 .layer => |*cmd| cmd.deinit(),
                 .selection => {},
+                .canvas_size => {},
             }
         }
     };
@@ -264,7 +274,7 @@ pub const Engine = struct {
         self.setupGraph();
     }
 
-    pub fn setCanvasSize(self: *Engine, width: c_int, height: c_int) void {
+    fn setCanvasSizeInternal(self: *Engine, width: c_int, height: c_int) void {
         self.canvas_width = width;
         self.canvas_height = height;
         if (self.base_node) |node| {
@@ -273,6 +283,30 @@ pub const Engine = struct {
             _ = c.gegl_node_set(node, "width", w_f, "height", h_f, @as(?*anyopaque, null));
         }
         self.rebuildGraph();
+    }
+
+    pub fn setCanvasSize(self: *Engine, width: c_int, height: c_int) void {
+        if (width == self.canvas_width and height == self.canvas_height) return;
+
+        const before_w = self.canvas_width;
+        const before_h = self.canvas_height;
+
+        self.setCanvasSizeInternal(width, height);
+
+        // Push Undo
+        const cmd = Command{
+            .canvas_size = .{
+                .before_width = before_w,
+                .before_height = before_h,
+                .after_width = width,
+                .after_height = height,
+            },
+        };
+        self.undo_stack.append(std.heap.c_allocator, cmd) catch |err| {
+            std.debug.print("Failed to push undo: {}\n", .{err});
+        };
+        for (self.redo_stack.items) |*r_cmd| r_cmd.deinit();
+        self.redo_stack.clearRetainingCapacity();
     }
 
     pub fn beginTransaction(self: *Engine) void {
@@ -337,6 +371,7 @@ pub const Engine = struct {
                     s_cmd.after = self.selection;
                     s_cmd.after_mode = self.selection_mode;
                 },
+                .canvas_size => {},
             }
             // Move current_command to undo stack
             self.undo_stack.append(std.heap.c_allocator, self.current_command.?) catch |err| {
@@ -409,6 +444,9 @@ pub const Engine = struct {
                         self.clearSelection();
                     }
                 },
+                .canvas_size => |*c_cmd| {
+                    self.setCanvasSizeInternal(c_cmd.before_width, c_cmd.before_height);
+                },
             }
 
             self.redo_stack.append(std.heap.c_allocator, mutable_cmd) catch {
@@ -471,6 +509,9 @@ pub const Engine = struct {
                     } else {
                         self.clearSelection();
                     }
+                },
+                .canvas_size => |*c_cmd| {
+                    self.setCanvasSizeInternal(c_cmd.after_width, c_cmd.after_height);
                 },
             }
 
@@ -2747,4 +2788,30 @@ test "Engine rotate 270" {
 
     // Expect either Left or Right (Rotation by 270/90 should land on side)
     try std.testing.expect(pixel_left[0] == 255 or pixel_right[0] == 255);
+}
+
+test "Engine canvas size undo redo" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+
+    // Initial 800x600
+    try std.testing.expectEqual(engine.canvas_width, 800);
+    try std.testing.expectEqual(engine.canvas_height, 600);
+
+    // Resize to 400x300
+    engine.setCanvasSize(400, 300);
+    try std.testing.expectEqual(engine.canvas_width, 400);
+    try std.testing.expectEqual(engine.canvas_height, 300);
+
+    // Undo -> 800x600
+    engine.undo();
+    try std.testing.expectEqual(engine.canvas_width, 800);
+    try std.testing.expectEqual(engine.canvas_height, 600);
+
+    // Redo -> 400x300
+    engine.redo();
+    try std.testing.expectEqual(engine.canvas_width, 400);
+    try std.testing.expectEqual(engine.canvas_height, 300);
 }

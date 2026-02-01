@@ -6,6 +6,7 @@ const RecentManager = @import("recent.zig").RecentManager;
 const ImportDialogs = @import("widgets/import_dialogs.zig");
 const FileChooser = @import("widgets/file_chooser.zig");
 const OpenLocationDialog = @import("widgets/open_location_dialog.zig");
+const CanvasDialog = @import("widgets/canvas_dialog.zig");
 const RawLoader = @import("raw_loader.zig").RawLoader;
 
 // Global state for simplicity in this phase
@@ -1316,6 +1317,19 @@ fn rotate_270_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) ca
     queue_draw();
 }
 
+fn canvas_size_callback(width: c_int, height: c_int, user_data: ?*anyopaque) void {
+    _ = user_data;
+    engine.setCanvasSize(width, height);
+    refresh_undo_ui();
+    canvas_dirty = true;
+    queue_draw();
+}
+
+fn canvas_size_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
+    CanvasDialog.showCanvasSizeDialog(window, engine.canvas_width, engine.canvas_height, @ptrCast(&canvas_size_callback), null);
+}
+
 fn split_view_change_state(action: *c.GSimpleAction, value: *c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     const enabled = c.g_variant_get_boolean(value) != 0;
     engine.setSplitView(enabled);
@@ -1710,6 +1724,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     add_action(app, "rotate-90", @ptrCast(&rotate_90_activated), null);
     add_action(app, "rotate-180", @ptrCast(&rotate_180_activated), null);
     add_action(app, "rotate-270", @ptrCast(&rotate_270_activated), null);
+    add_action(app, "canvas-size", @ptrCast(&canvas_size_activated), window);
 
     // Split View Action (Stateful)
     const split_action = c.g_simple_action_new_stateful("split-view", null, c.g_variant_new_boolean(0));
@@ -1786,6 +1801,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
 
     // Image Menu
     const image_menu = c.g_menu_new();
+    c.g_menu_append(image_menu, "Canvas Size...", "app.canvas-size");
     c.g_menu_append(image_menu, "Invert Colors", "app.invert-colors");
     c.g_menu_append(image_menu, "Flip Horizontal", "app.flip-horizontal");
     c.g_menu_append(image_menu, "Flip Vertical", "app.flip-vertical");
