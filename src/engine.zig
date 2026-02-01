@@ -1536,6 +1536,17 @@ pub const Engine = struct {
             c.gegl_node_blit(node, scale, &rect, format, ptr, stride, c.GEGL_BLIT_DEFAULT);
         }
     }
+
+    pub fn pickColor(self: *Engine, x: i32, y: i32) ![4]u8 {
+        if (self.output_node) |node| {
+            var pixel: [4]u8 = undefined;
+            const rect = c.GeglRectangle{ .x = x, .y = y, .width = 1, .height = 1 };
+            const format = c.babl_format("R'G'B'A u8");
+            c.gegl_node_blit(node, 1.0, &rect, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_BLIT_DEFAULT);
+            return pixel;
+        }
+        return error.NoOutputNode;
+    }
 };
 
 // TESTS COMMENTED OUT temporarily to allow build
@@ -2642,4 +2653,27 @@ test "Engine rotate 90" {
         // This means it rotated CCW.
         // std.debug.print("Rotated CCW\n", .{});
     }
+}
+
+test "Engine pick color" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+    try engine.addLayer("Background");
+
+    // Paint Green at 100,100
+    engine.setFgColor(0, 255, 0, 255);
+    engine.paintStroke(100, 100, 100, 100, 1.0);
+
+    // Pick at 100,100
+    const color = try engine.pickColor(100, 100);
+    try std.testing.expectEqual(color[1], 255);
+    try std.testing.expectEqual(color[0], 0);
+
+    // Pick at 0,0 (Background Gray 0.9 -> ~229)
+    const bg_color = try engine.pickColor(0, 0);
+    try std.testing.expect(bg_color[0] > 200);
+    try std.testing.expect(bg_color[1] > 200);
+    try std.testing.expect(bg_color[2] > 200);
 }
