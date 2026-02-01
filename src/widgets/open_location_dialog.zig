@@ -74,7 +74,7 @@ pub fn showOpenLocationDialog(
         // Create context
         if (std.heap.c_allocator.create(ClipboardCtx)) |cp_ctx| {
             cp_ctx.* = .{ .entry = @ptrCast(entry) };
-            c.g_object_ref(entry);
+            _ = c.g_object_ref(entry);
             c.gdk_clipboard_read_text_async(clipboard, null, @ptrCast(&on_clipboard_text), cp_ctx);
         } else |_| {}
     }
