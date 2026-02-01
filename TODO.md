@@ -112,9 +112,9 @@
 - [x] Implement Non-destructive preview
 
 ### From `ms_paint_spec.md`
-- [ ] Implement Flip Horizontal
-- [ ] Implement Flip Vertical
-- [ ] Implement Rotate by angle (90°, 180°, 270°)
+- [x] Implement Flip Horizontal
+- [x] Implement Flip Vertical
+- [x] Implement Rotate by angle (90°, 180°, 270°)
 - [ ] Implement Stretch/Skew dialog
 
 ---
