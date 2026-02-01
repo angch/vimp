@@ -86,4 +86,5 @@ test {
     _ = @import("recent_colors.zig");
     _ = @import("raw_loader.zig");
     _ = @import("canvas_utils.zig");
+    _ = @import("engine_curve_test.zig");
 }
