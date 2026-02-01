@@ -27,6 +27,7 @@ const Tool = enum {
     color_picker,
     gradient,
     line,
+    curve,
     // pencil, // Reorder if desired, but append is safer for diffs usually
 };
 
@@ -282,6 +283,15 @@ var unified_transform_tool = Tool.unified_transform;
 var color_picker_tool = Tool.color_picker;
 var gradient_tool = Tool.gradient;
 var line_tool = Tool.line;
+var curve_tool = Tool.curve;
+
+// Curve Tool State
+const Point = struct { x: f64, y: f64 };
+var curve_phase: c_int = 0;
+var curve_p1: Point = .{ .x = 0, .y = 0 };
+var curve_p2: Point = .{ .x = 0, .y = 0 };
+var curve_p3: Point = .{ .x = 0, .y = 0 };
+var curve_p4: Point = .{ .x = 0, .y = 0 };
 
 // View State
 var view_scale: f64 = 1.0;
@@ -515,6 +525,60 @@ fn draw_func(
                     c.cairo_stroke(cr_ctx);
 
                     c.cairo_restore(cr_ctx);
+                } else if (shape.type == .curve) {
+                    const x1: f64 = @floatFromInt(shape.x);
+                    const y1: f64 = @floatFromInt(shape.y);
+                    const x2: f64 = @floatFromInt(shape.x2);
+                    const y2: f64 = @floatFromInt(shape.y2);
+                    const cx1: f64 = @floatFromInt(shape.cx1);
+                    const cy1: f64 = @floatFromInt(shape.cy1);
+                    const cx2: f64 = @floatFromInt(shape.cx2);
+                    const cy2: f64 = @floatFromInt(shape.cy2);
+
+                    const sx1 = x1 * view_scale - view_x;
+                    const sy1 = y1 * view_scale - view_y;
+                    const sx2 = x2 * view_scale - view_x;
+                    const sy2 = y2 * view_scale - view_y;
+                    const scx1 = cx1 * view_scale - view_x;
+                    const scy1 = cy1 * view_scale - view_y;
+                    const scx2 = cx2 * view_scale - view_x;
+                    const scy2 = cy2 * view_scale - view_y;
+
+                    c.cairo_save(cr_ctx);
+
+                    // Draw Curve
+                    c.cairo_move_to(cr_ctx, sx1, sy1);
+                    c.cairo_curve_to(cr_ctx, scx1, scy1, scx2, scy2, sx2, sy2);
+
+                    const fg = engine.fg_color;
+                    c.cairo_set_source_rgba(cr_ctx, @as(f64, @floatFromInt(fg[0])) / 255.0, @as(f64, @floatFromInt(fg[1])) / 255.0, @as(f64, @floatFromInt(fg[2])) / 255.0, @as(f64, @floatFromInt(fg[3])) / 255.0);
+                    c.cairo_set_line_width(cr_ctx, 1.0);
+                    c.cairo_stroke(cr_ctx);
+
+                    // Draw Control Handles
+                    c.cairo_set_source_rgb(cr_ctx, 0.5, 0.5, 0.5);
+                    c.cairo_set_line_width(cr_ctx, 0.5);
+                    var dash: [2]f64 = .{ 2.0, 2.0 };
+                    c.cairo_set_dash(cr_ctx, &dash, 2, 0.0);
+
+                    // P1 -> CP1
+                    c.cairo_move_to(cr_ctx, sx1, sy1);
+                    c.cairo_line_to(cr_ctx, scx1, scy1);
+                    c.cairo_stroke(cr_ctx);
+
+                    // P4 -> CP2
+                    c.cairo_move_to(cr_ctx, sx2, sy2);
+                    c.cairo_line_to(cr_ctx, scx2, scy2);
+                    c.cairo_stroke(cr_ctx);
+
+                    // Draw Control Points
+                    c.cairo_set_dash(cr_ctx, &dash, 0, 0.0); // Reset dash
+                    c.cairo_arc(cr_ctx, scx1, scy1, 3.0, 0.0, 2.0 * std.math.pi);
+                    c.cairo_fill(cr_ctx);
+                    c.cairo_arc(cr_ctx, scx2, scy2, 3.0, 0.0, 2.0 * std.math.pi);
+                    c.cairo_fill(cr_ctx);
+
+                    c.cairo_restore(cr_ctx);
                 }
             }
         }
@@ -639,6 +703,11 @@ fn drag_begin(
                 engine.beginTransaction();
             } else if (current_tool == .line) {
                 // Do nothing at start, render preview during drag
+            } else if (current_tool == .curve) {
+                if (curve_phase == 0) {
+                    curve_p1.x = (view_x + x) / view_scale;
+                    curve_p1.y = (view_y + y) / view_scale;
+                }
             } else {
                 // Paint tools
                 engine.beginTransaction();
@@ -707,6 +776,47 @@ fn drag_update(
             } else |_| {}
             prev_x = current_x;
             prev_y = current_y;
+            return;
+        }
+
+        if (current_tool == .curve) {
+            if (curve_phase == 0) {
+                // Dragging line endpoint
+                curve_p4.x = c_curr_x;
+                curve_p4.y = c_curr_y;
+                // CP1, CP2 follow line for now
+                curve_p2 = curve_p1;
+                curve_p3 = curve_p4;
+            } else if (curve_phase == 1) {
+                // Dragging CP1
+                curve_p2.x = c_curr_x;
+                curve_p2.y = c_curr_y;
+            } else if (curve_phase == 2) {
+                // Dragging CP2
+                curve_p3.x = c_curr_x;
+                curve_p3.y = c_curr_y;
+            }
+
+            const sx: c_int = @intFromFloat(curve_p1.x);
+            const sy: c_int = @intFromFloat(curve_p1.y);
+            const ex: c_int = @intFromFloat(curve_p4.x);
+            const ey: c_int = @intFromFloat(curve_p4.y);
+            const cx1: c_int = @intFromFloat(curve_p2.x);
+            const cy1: c_int = @intFromFloat(curve_p2.y);
+            const cx2: c_int = @intFromFloat(curve_p3.x);
+            const cy2: c_int = @intFromFloat(curve_p3.y);
+
+            engine.setShapePreview(sx, sy, 0, 0, 1, false);
+            if (engine.preview_shape) |*s| {
+                s.type = .curve;
+                s.x2 = ex;
+                s.y2 = ey;
+                s.cx1 = cx1;
+                s.cy1 = cy1;
+                s.cx2 = cx2;
+                s.cy2 = cy2;
+            }
+            c.gtk_widget_queue_draw(widget);
             return;
         }
 
@@ -863,6 +973,42 @@ fn drag_end(
         if (user_data) |ud| {
             const widget: *c.GtkWidget = @ptrCast(@alignCast(ud));
             c.gtk_widget_queue_draw(widget);
+        }
+        return;
+    }
+
+    if (current_tool == .curve) {
+        if (curve_phase == 0) {
+            curve_phase = 1;
+            // Keep preview, do nothing else
+        } else if (curve_phase == 1) {
+            curve_phase = 2;
+            // Keep preview
+        } else if (curve_phase == 2) {
+            // Commit
+            const sx: c_int = @intFromFloat(curve_p1.x);
+            const sy: c_int = @intFromFloat(curve_p1.y);
+            const ex: c_int = @intFromFloat(curve_p4.x);
+            const ey: c_int = @intFromFloat(curve_p4.y);
+            const cx1: c_int = @intFromFloat(curve_p2.x);
+            const cy1: c_int = @intFromFloat(curve_p2.y);
+            const cx2: c_int = @intFromFloat(curve_p3.x);
+            const cy2: c_int = @intFromFloat(curve_p3.y);
+
+            engine.beginTransaction();
+            engine.drawCurve(sx, sy, ex, ey, cx1, cy1, cx2, cy2) catch |err| {
+                show_toast("Failed to draw curve: {}", .{err});
+            };
+            engine.commitTransaction();
+            engine.clearShapePreview();
+            curve_phase = 0;
+            refresh_undo_ui();
+            canvas_dirty = true;
+
+            if (user_data) |ud| {
+                const widget: *c.GtkWidget = @ptrCast(@alignCast(ud));
+                c.gtk_widget_queue_draw(widget);
+            }
         }
         return;
     }
@@ -2242,6 +2388,10 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     // Line Tool
     const line_btn = createToolButton(&line_tool, "list-remove-symbolic", "Line Tool (Shift to snap)", @ptrCast(brush_btn), true);
     c.gtk_box_append(@ptrCast(tools_box), line_btn);
+
+    // Curve Tool
+    const curve_btn = createToolButton(&curve_tool, "call-start-symbolic", "Curve Tool (Drag Line -> Bend 1 -> Bend 2)", @ptrCast(brush_btn), true);
+    c.gtk_box_append(@ptrCast(tools_box), curve_btn);
 
     // Separator
     c.gtk_box_append(@ptrCast(sidebar), c.gtk_separator_new(c.GTK_ORIENTATION_HORIZONTAL));

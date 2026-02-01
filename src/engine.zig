@@ -41,6 +41,7 @@ pub const Engine = struct {
         rectangle,
         ellipse,
         line,
+        curve,
     };
 
     pub const ShapePreview = struct {
@@ -51,6 +52,10 @@ pub const Engine = struct {
         height: c_int,
         x2: c_int = 0,
         y2: c_int = 0,
+        cx1: c_int = 0,
+        cy1: c_int = 0,
+        cx2: c_int = 0,
+        cy2: c_int = 0,
         thickness: c_int,
         filled: bool,
     };
@@ -1692,6 +1697,55 @@ pub const Engine = struct {
         const fy2: f64 = @floatFromInt(y2);
 
         self.paintStroke(fx1, fy1, fx2, fy2, 1.0);
+    }
+
+    pub fn drawCurve(self: *Engine, x1: c_int, y1: c_int, x2: c_int, y2: c_int, cx1: c_int, cy1: c_int, cx2: c_int, cy2: c_int) !void {
+        if (self.active_layer_idx >= self.layers.items.len) return;
+        const layer = &self.layers.items[self.active_layer_idx];
+        if (!layer.visible or layer.locked) return;
+
+        // Flatten bezier
+        // Estimate length for steps
+        const d1 = @abs(cx1 - x1) + @abs(cy1 - y1);
+        const d2 = @abs(cx2 - cx1) + @abs(cy2 - cy1);
+        const d3 = @abs(x2 - cx2) + @abs(y2 - cy2);
+        const len = d1 + d2 + d3;
+
+        // Ensure at least 1 step, max reasonable (e.g. 1 step per pixel or so)
+        var steps: usize = @intCast(len);
+        if (steps < 10) steps = 10;
+        if (steps > 2000) steps = 2000; // Cap to avoid freeze on huge coords
+
+        var prev_x: f64 = @floatFromInt(x1);
+        var prev_y: f64 = @floatFromInt(y1);
+
+        const fx1: f64 = @floatFromInt(x1);
+        const fy1: f64 = @floatFromInt(y1);
+        const fx2: f64 = @floatFromInt(x2);
+        const fy2: f64 = @floatFromInt(y2);
+        const fcx1: f64 = @floatFromInt(cx1);
+        const fcy1: f64 = @floatFromInt(cy1);
+        const fcx2: f64 = @floatFromInt(cx2);
+        const fcy2: f64 = @floatFromInt(cy2);
+
+        var i: usize = 1;
+        while (i <= steps) : (i += 1) {
+            const t: f64 = @as(f64, @floatFromInt(i)) / @as(f64, @floatFromInt(steps));
+            const it = 1.0 - t;
+
+            // Cubic Bezier: (1-t)^3*P1 + 3(1-t)^2*t*CP1 + 3(1-t)*t^2*CP2 + t^3*P2
+            const b1 = it * it * it;
+            const b2 = 3.0 * it * it * t;
+            const b3 = 3.0 * it * t * t;
+            const b4 = t * t * t;
+
+            const px = b1 * fx1 + b2 * fcx1 + b3 * fcx2 + b4 * fx2;
+            const py = b1 * fy1 + b2 * fcy1 + b3 * fcy2 + b4 * fy2;
+
+            self.paintStroke(prev_x, prev_y, px, py, 1.0);
+            prev_x = px;
+            prev_y = py;
+        }
     }
 
     pub fn drawRectangle(self: *Engine, x: c_int, y: c_int, w: c_int, h: c_int, thickness: c_int, filled: bool) !void {
