@@ -25,6 +25,7 @@ const Tool = enum {
     ellipse_shape,
     unified_transform,
     color_picker,
+    gradient,
     // pencil, // Reorder if desired, but append is safer for diffs usually
 };
 
@@ -213,6 +214,9 @@ fn tool_toggled(
             .color_picker => {
                 osd_show("Color Picker");
             },
+            .gradient => {
+                osd_show("Gradient Tool");
+            },
         }
     }
 }
@@ -270,6 +274,7 @@ var rect_shape_tool = Tool.rect_shape;
 var ellipse_shape_tool = Tool.ellipse_shape;
 var unified_transform_tool = Tool.unified_transform;
 var color_picker_tool = Tool.color_picker;
+var gradient_tool = Tool.gradient;
 
 // View State
 var view_scale: f64 = 1.0;
@@ -482,6 +487,37 @@ fn draw_func(
                         c.cairo_stroke(cr_ctx);
                     }
                     c.cairo_restore(cr_ctx);
+                } else if (shape.type == .line) {
+                    const r: f64 = @floatFromInt(shape.x);
+                    const g: f64 = @floatFromInt(shape.y);
+                    const r2: f64 = @floatFromInt(shape.x2);
+                    const g2: f64 = @floatFromInt(shape.y2);
+
+                    const sx = r * view_scale - view_x;
+                    const sy = g * view_scale - view_y;
+                    const sx2 = r2 * view_scale - view_x;
+                    const sy2 = g2 * view_scale - view_y;
+
+                    c.cairo_save(cr_ctx);
+                    c.cairo_move_to(cr_ctx, sx, sy);
+                    c.cairo_line_to(cr_ctx, sx2, sy2);
+
+                    c.cairo_set_source_rgb(cr_ctx, 0.0, 0.0, 0.0);
+                    c.cairo_set_line_width(cr_ctx, 1.0);
+                    c.cairo_stroke_preserve(cr_ctx);
+
+                    c.cairo_set_source_rgb(cr_ctx, 1.0, 1.0, 1.0);
+                    var dash: [2]f64 = .{ 4.0, 4.0 };
+                    c.cairo_set_dash(cr_ctx, &dash, 2, 4.0);
+                    c.cairo_stroke(cr_ctx);
+
+                    // Endpoints
+                    c.cairo_arc(cr_ctx, sx, sy, 3.0, 0.0, 2.0 * std.math.pi);
+                    c.cairo_fill(cr_ctx);
+                    c.cairo_arc(cr_ctx, sx2, sy2, 3.0, 0.0, 2.0 * std.math.pi);
+                    c.cairo_stroke(cr_ctx);
+
+                    c.cairo_restore(cr_ctx);
                 }
             }
         }
@@ -602,6 +638,8 @@ fn drag_begin(
                 } else |_| {}
             } else if (current_tool == .rect_shape or current_tool == .ellipse_shape) {
                 // Do nothing at start, render preview during drag
+            } else if (current_tool == .gradient) {
+                engine.beginTransaction();
             } else {
                 // Paint tools
                 engine.beginTransaction();
@@ -696,6 +734,29 @@ fn drag_update(
             return;
         }
 
+        if (current_tool == .gradient) {
+            const start_world_x = (view_x + start_sx) / view_scale;
+            const start_world_y = (view_y + start_sy) / view_scale;
+
+            const sx: c_int = @intFromFloat(start_world_x);
+            const sy: c_int = @intFromFloat(start_world_y);
+            const ex: c_int = @intFromFloat(c_curr_x);
+            const ey: c_int = @intFromFloat(c_curr_y);
+
+            engine.setShapePreview(sx, sy, 0, 0, 1, false);
+            if (engine.preview_shape) |*s| {
+                s.type = .line;
+                s.x2 = ex;
+                s.y2 = ey;
+            }
+
+            c.gtk_widget_queue_draw(widget);
+
+            prev_x = current_x;
+            prev_y = current_y;
+            return;
+        }
+
         if (current_tool == .rect_select or current_tool == .ellipse_select) {
             // Dragging selection
             // Start point was recorded in drag_begin implicitly?
@@ -762,6 +823,38 @@ fn drag_end(
                  show_toast("Failed to draw ellipse: {}", .{err});
             };
         }
+        engine.commitTransaction();
+        engine.clearShapePreview();
+        refresh_undo_ui();
+        canvas_dirty = true;
+
+        if (user_data) |ud| {
+             const widget: *c.GtkWidget = @ptrCast(@alignCast(ud));
+             c.gtk_widget_queue_draw(widget);
+        }
+        return;
+    }
+
+    if (current_tool == .gradient) {
+        var start_sx: f64 = 0;
+        var start_sy: f64 = 0;
+        _ = c.gtk_gesture_drag_get_start_point(gesture, &start_sx, &start_sy);
+        const current_x = start_sx + offset_x;
+        const current_y = start_sy + offset_y;
+
+        const start_world_x = (view_x + start_sx) / view_scale;
+        const start_world_y = (view_y + start_sy) / view_scale;
+        const c_curr_x = (view_x + current_x) / view_scale;
+        const c_curr_y = (view_y + current_y) / view_scale;
+
+        const sx: c_int = @intFromFloat(start_world_x);
+        const sy: c_int = @intFromFloat(start_world_y);
+        const ex: c_int = @intFromFloat(c_curr_x);
+        const ey: c_int = @intFromFloat(c_curr_y);
+
+        engine.drawGradient(sx, sy, ex, ey) catch |err| {
+            show_toast("Failed to draw gradient: {}", .{err});
+        };
         engine.commitTransaction();
         engine.clearShapePreview();
         refresh_undo_ui();
@@ -2092,6 +2185,10 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     // Color Picker
     const picker_btn = createToolButton(&color_picker_tool, "preferences-color-symbolic", "Color Picker", @ptrCast(brush_btn), true);
     c.gtk_box_append(@ptrCast(tools_box), picker_btn);
+
+    // Gradient Tool
+    const gradient_btn = createToolButton(&gradient_tool, "applications-graphics-symbolic", "Gradient Tool", @ptrCast(brush_btn), true);
+    c.gtk_box_append(@ptrCast(tools_box), gradient_btn);
 
     // Separator
     c.gtk_box_append(@ptrCast(sidebar), c.gtk_separator_new(c.GTK_ORIENTATION_HORIZONTAL));
