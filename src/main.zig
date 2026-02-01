@@ -29,6 +29,7 @@ const Tool = enum {
     line,
     curve,
     polygon,
+    lasso,
     // pencil, // Reorder if desired, but append is safer for diffs usually
 };
 
@@ -232,6 +233,12 @@ fn tool_toggled(
                 polygon_active = false;
                 polygon_points.clearRetainingCapacity();
             },
+            .lasso => {
+                engine.setSelectionMode(.lasso);
+                osd_show("Lasso Select");
+                polygon_active = false;
+                polygon_points.clearRetainingCapacity();
+            },
         }
     }
 }
@@ -293,6 +300,7 @@ var gradient_tool = Tool.gradient;
 var line_tool = Tool.line;
 var curve_tool = Tool.curve;
 var polygon_tool = Tool.polygon;
+var lasso_tool = Tool.lasso;
 
 // Curve Tool State
 const Point = struct { x: f64, y: f64 };
@@ -434,6 +442,20 @@ fn draw_func(
                     c.cairo_arc(cr_ctx, 0.0, 0.0, 1.0, 0.0, 2.0 * std.math.pi);
 
                     c.cairo_set_matrix(cr_ctx, &matrix);
+                } else if (engine.selection_mode == .lasso) {
+                    if (engine.selection_points.items.len > 0) {
+                        const first = engine.selection_points.items[0];
+                        const fx = first.x * view_scale - view_x;
+                        const fy = first.y * view_scale - view_y;
+                        c.cairo_move_to(cr_ctx, fx, fy);
+
+                        for (engine.selection_points.items[1..]) |p| {
+                            const px = p.x * view_scale - view_x;
+                            const py = p.y * view_scale - view_y;
+                            c.cairo_line_to(cr_ctx, px, py);
+                        }
+                        c.cairo_close_path(cr_ctx);
+                    }
                 } else {
                     c.cairo_rectangle(cr_ctx, sx, sy, sw, sh);
                 }
@@ -743,6 +765,14 @@ fn drag_begin(
                 engine.beginSelection();
                 engine.clearSelection();
                 c.gtk_widget_queue_draw(widget);
+            } else if (current_tool == .lasso) {
+                engine.beginSelection();
+                engine.clearSelection(); // Clear previous selection immediately
+                polygon_points.clearRetainingCapacity();
+                const wx = (view_x + x) / view_scale;
+                const wy = (view_y + y) / view_scale;
+                polygon_points.append(std.heap.c_allocator, Engine.Point{ .x = wx, .y = wy }) catch {};
+                c.gtk_widget_queue_draw(widget);
             } else if (current_tool == .color_picker) {
                 const c_x: i32 = @intFromFloat((view_x + x) / view_scale);
                 const c_y: i32 = @intFromFloat((view_y + y) / view_scale);
@@ -871,6 +901,15 @@ fn drag_update(
                     c.gtk_color_chooser_set_rgba(@ptrCast(btn), &rgba);
                 }
             } else |_| {}
+            prev_x = current_x;
+            prev_y = current_y;
+            return;
+        }
+
+        if (current_tool == .lasso) {
+            polygon_points.append(std.heap.c_allocator, Engine.Point{ .x = c_curr_x, .y = c_curr_y }) catch {};
+            engine.setShapePreviewPolygon(polygon_points.items, 1, false);
+            c.gtk_widget_queue_draw(widget);
             prev_x = current_x;
             prev_y = current_y;
             return;
@@ -1067,6 +1106,20 @@ fn drag_end(
         refresh_undo_ui();
         canvas_dirty = true;
 
+        if (user_data) |ud| {
+            const widget: *c.GtkWidget = @ptrCast(@alignCast(ud));
+            c.gtk_widget_queue_draw(widget);
+        }
+        return;
+    }
+
+    if (current_tool == .lasso) {
+        engine.setSelectionLasso(polygon_points.items);
+        engine.commitTransaction();
+        engine.clearShapePreview();
+        polygon_points.clearRetainingCapacity();
+        refresh_undo_ui();
+        canvas_dirty = true;
         if (user_data) |ud| {
             const widget: *c.GtkWidget = @ptrCast(@alignCast(ud));
             c.gtk_widget_queue_draw(widget);
@@ -2464,6 +2517,10 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     // Ellipse Select
     const ellipse_btn = createToolButton(&ellipse_select_tool, "media-record-symbolic", "Ellipse Select", @ptrCast(brush_btn), true);
     c.gtk_box_append(@ptrCast(tools_box), ellipse_btn);
+
+    // Lasso Select
+    const lasso_btn = createToolButton(&lasso_tool, "edit-select-text-symbolic", "Lasso Select", @ptrCast(brush_btn), true);
+    c.gtk_box_append(@ptrCast(tools_box), lasso_btn);
 
     // Rectangle Shape
     const rect_shape_btn = createToolButton(&rect_shape_tool, "media-stop-symbolic", "Rectangle Tool", @ptrCast(brush_btn), true);
