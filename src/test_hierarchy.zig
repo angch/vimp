@@ -84,4 +84,5 @@ test {
     _ = @import("widgets/open_location_dialog.zig");
     _ = @import("recent.zig");
     _ = @import("raw_loader.zig");
+    _ = @import("canvas_utils.zig");
 }
