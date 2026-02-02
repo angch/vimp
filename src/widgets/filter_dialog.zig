@@ -457,3 +457,128 @@ pub fn showOilifyDialog(
 
     c.gtk_window_present(@ptrCast(dialog));
 }
+
+const DropShadowContext = struct {
+    engine: *Engine,
+    x_spin: *c.GtkWidget,
+    y_spin: *c.GtkWidget,
+    radius_spin: *c.GtkWidget,
+    opacity_scale: *c.GtkWidget,
+    update_cb: *const fn () void,
+};
+
+fn on_drop_shadow_preview_change(_: *c.GtkWidget, data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const ctx: *DropShadowContext = @ptrCast(@alignCast(data));
+    const x = c.gtk_spin_button_get_value(@ptrCast(ctx.x_spin));
+    const y = c.gtk_spin_button_get_value(@ptrCast(ctx.y_spin));
+    const radius = c.gtk_spin_button_get_value(@ptrCast(ctx.radius_spin));
+    const opacity = c.gtk_range_get_value(@ptrCast(ctx.opacity_scale));
+    ctx.engine.setPreviewDropShadow(x, y, radius, opacity);
+    ctx.update_cb();
+}
+
+pub fn showDropShadowDialog(
+    parent: ?*c.GtkWindow,
+    engine: *Engine,
+    update_cb: *const fn () void,
+) void {
+    const dialog = c.adw_message_dialog_new(
+        parent,
+        "Drop Shadow",
+        "Add a drop shadow.",
+    );
+
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "Cancel");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "apply", "Apply");
+    c.adw_message_dialog_set_default_response(@ptrCast(dialog), "apply");
+    c.adw_message_dialog_set_close_response(@ptrCast(dialog), "cancel");
+
+    // Body
+    const box = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 10);
+    c.gtk_widget_set_margin_top(box, 10);
+    c.gtk_widget_set_margin_bottom(box, 10);
+    c.gtk_widget_set_margin_start(box, 10);
+    c.gtk_widget_set_margin_end(box, 10);
+
+    // Grid
+    const grid = c.gtk_grid_new();
+    c.gtk_grid_set_row_spacing(@ptrCast(grid), 10);
+    c.gtk_grid_set_column_spacing(@ptrCast(grid), 10);
+    c.gtk_widget_set_halign(grid, c.GTK_ALIGN_CENTER);
+    c.gtk_box_append(@ptrCast(box), grid);
+
+    // X Offset
+    const x_label = c.gtk_label_new("Offset X:");
+    c.gtk_widget_set_halign(x_label, c.GTK_ALIGN_END);
+    c.gtk_grid_attach(@ptrCast(grid), x_label, 0, 0, 1, 1);
+    const x_spin = c.gtk_spin_button_new_with_range(-500.0, 500.0, 1.0);
+    c.gtk_spin_button_set_value(@ptrCast(x_spin), 10.0);
+    c.gtk_grid_attach(@ptrCast(grid), x_spin, 1, 0, 1, 1);
+
+    // Y Offset
+    const y_label = c.gtk_label_new("Offset Y:");
+    c.gtk_widget_set_halign(y_label, c.GTK_ALIGN_END);
+    c.gtk_grid_attach(@ptrCast(grid), y_label, 0, 1, 1, 1);
+    const y_spin = c.gtk_spin_button_new_with_range(-500.0, 500.0, 1.0);
+    c.gtk_spin_button_set_value(@ptrCast(y_spin), 10.0);
+    c.gtk_grid_attach(@ptrCast(grid), y_spin, 1, 1, 1, 1);
+
+    // Radius
+    const r_label = c.gtk_label_new("Blur Radius:");
+    c.gtk_widget_set_halign(r_label, c.GTK_ALIGN_END);
+    c.gtk_grid_attach(@ptrCast(grid), r_label, 0, 2, 1, 1);
+    const radius_spin = c.gtk_spin_button_new_with_range(0.0, 200.0, 1.0);
+    c.gtk_spin_button_set_value(@ptrCast(radius_spin), 10.0);
+    c.gtk_grid_attach(@ptrCast(grid), radius_spin, 1, 2, 1, 1);
+
+    // Opacity
+    const o_label = c.gtk_label_new("Opacity:");
+    c.gtk_widget_set_halign(o_label, c.GTK_ALIGN_END);
+    c.gtk_grid_attach(@ptrCast(grid), o_label, 0, 3, 1, 1);
+    const opacity_scale = c.gtk_scale_new_with_range(c.GTK_ORIENTATION_HORIZONTAL, 0.0, 2.0, 0.1);
+    c.gtk_widget_set_size_request(opacity_scale, 150, -1);
+    c.gtk_range_set_value(@ptrCast(opacity_scale), 0.5);
+    c.gtk_grid_attach(@ptrCast(grid), opacity_scale, 1, 3, 1, 1);
+
+    c.adw_message_dialog_set_extra_child(@ptrCast(dialog), box);
+
+    const ctx = std.heap.c_allocator.create(DropShadowContext) catch return;
+    ctx.* = .{
+        .engine = engine,
+        .x_spin = x_spin,
+        .y_spin = y_spin,
+        .radius_spin = radius_spin,
+        .opacity_scale = opacity_scale,
+        .update_cb = update_cb,
+    };
+
+    // Connect preview signals
+    _ = c.g_signal_connect_data(x_spin, "value-changed", @ptrCast(&on_drop_shadow_preview_change), ctx, null, 0);
+    _ = c.g_signal_connect_data(y_spin, "value-changed", @ptrCast(&on_drop_shadow_preview_change), ctx, null, 0);
+    _ = c.g_signal_connect_data(radius_spin, "value-changed", @ptrCast(&on_drop_shadow_preview_change), ctx, null, 0);
+    _ = c.g_signal_connect_data(opacity_scale, "value-changed", @ptrCast(&on_drop_shadow_preview_change), ctx, null, 0);
+
+    // Initial preview
+    engine.setPreviewDropShadow(10.0, 10.0, 10.0, 0.5);
+    update_cb();
+
+    const on_response = struct {
+        fn func(d: *c.AdwMessageDialog, response: [*c]const u8, data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+            const context: *DropShadowContext = @ptrCast(@alignCast(data));
+            defer std.heap.c_allocator.destroy(context);
+
+            const resp_span = std.mem.span(response);
+            if (std.mem.eql(u8, resp_span, "apply")) {
+                context.engine.commitPreview() catch {};
+            } else {
+                context.engine.cancelPreview();
+            }
+            context.update_cb();
+            c.gtk_window_destroy(@ptrCast(d));
+        }
+    }.func;
+
+    _ = c.g_signal_connect_data(dialog, "response", @ptrCast(&on_response), ctx, null, 0);
+
+    c.gtk_window_present(@ptrCast(dialog));
+}

@@ -79,6 +79,7 @@ pub const Engine = struct {
         unsharp_mask,
         noise_reduction,
         oilify,
+        drop_shadow,
     };
 
     pub const TransformParams = struct {
@@ -244,6 +245,10 @@ pub const Engine = struct {
     preview_unsharp_scale: f64 = 0.0,
     preview_noise_iterations: c_int = 0,
     preview_oilify_mask_radius: f64 = 3.5,
+    preview_drop_shadow_x: f64 = 10.0,
+    preview_drop_shadow_y: f64 = 10.0,
+    preview_drop_shadow_radius: f64 = 10.0,
+    preview_drop_shadow_opacity: f64 = 0.5,
     split_view_enabled: bool = false,
     split_x: f64 = 400.0,
 
@@ -844,6 +849,43 @@ pub const Engine = struct {
                         _ = c.gegl_node_connect(trans_node, "input", source_output, "output");
                         self.composition_nodes.append(std.heap.c_allocator, trans_node) catch {};
                         source_output = trans_node;
+                    }
+                } else if (self.preview_mode == .drop_shadow) {
+                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:dropshadow",
+                        "x", self.preview_drop_shadow_x,
+                        "y", self.preview_drop_shadow_y,
+                        "radius", self.preview_drop_shadow_radius,
+                        "opacity", self.preview_drop_shadow_opacity,
+                        @as(?*anyopaque, null))) |filter_node|
+                    {
+                        _ = c.gegl_node_connect(filter_node, "input", source_output, "output");
+                        self.composition_nodes.append(std.heap.c_allocator, filter_node) catch {};
+
+                        if (self.split_view_enabled) {
+                            const w: f64 = @floatFromInt(self.canvas_width);
+                            const h: f64 = @floatFromInt(self.canvas_height);
+                            const sx = self.split_x;
+
+                            if (c.gegl_node_new_child(self.graph, "operation", "gegl:crop", "x", @as(f64, 0.0), "y", @as(f64, 0.0), "width", sx, "height", h, @as(?*anyopaque, null))) |left_crop| {
+                                _ = c.gegl_node_connect(left_crop, "input", source_output, "output");
+                                self.composition_nodes.append(std.heap.c_allocator, left_crop) catch {};
+
+                                if (c.gegl_node_new_child(self.graph, "operation", "gegl:crop", "x", sx, "y", @as(f64, 0.0), "width", w - sx, "height", h, @as(?*anyopaque, null))) |right_crop| {
+                                    _ = c.gegl_node_connect(right_crop, "input", filter_node, "output");
+                                    self.composition_nodes.append(std.heap.c_allocator, right_crop) catch {};
+
+                                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:over", @as(?*anyopaque, null))) |split_over| {
+                                        _ = c.gegl_node_connect(split_over, "input", left_crop, "output");
+                                        _ = c.gegl_node_connect(split_over, "aux", right_crop, "output");
+                                        self.composition_nodes.append(std.heap.c_allocator, split_over) catch {};
+
+                                        source_output = split_over;
+                                    }
+                                }
+                            }
+                        } else {
+                            source_output = filter_node;
+                        }
                     }
                 }
             }
@@ -1873,6 +1915,46 @@ pub const Engine = struct {
         self.commitTransaction();
     }
 
+    pub fn applyDropShadow(self: *Engine, x: f64, y: f64, radius: f64, opacity: f64) !void {
+        if (self.active_layer_idx >= self.layers.items.len) return;
+        const layer = &self.layers.items[self.active_layer_idx];
+        if (layer.locked) return;
+
+        self.beginTransaction();
+
+        const temp_graph = c.gegl_node_new();
+        defer c.g_object_unref(temp_graph);
+
+        const input_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:buffer-source", "buffer", layer.buffer, @as(?*anyopaque, null));
+        const ds_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:dropshadow",
+            "x", x,
+            "y", y,
+            "radius", radius,
+            "opacity", opacity,
+            @as(?*anyopaque, null));
+
+        if (input_node == null or ds_node == null) return error.GeglGraphFailed;
+
+        _ = c.gegl_node_connect(ds_node, "input", input_node, "output");
+
+        const bbox = c.gegl_node_get_bounding_box(ds_node);
+        const format = c.babl_format("R'G'B'A u8");
+        const new_buffer = c.gegl_buffer_new(&bbox, format);
+        if (new_buffer == null) return;
+
+        const write_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:write-buffer", "buffer", new_buffer, @as(?*anyopaque, null));
+
+        _ = c.gegl_node_connect(write_node, "input", ds_node, "output");
+        _ = c.gegl_node_process(write_node);
+
+        // Update Layer
+        c.g_object_unref(layer.buffer);
+        layer.buffer = new_buffer.?;
+        _ = c.gegl_node_set(layer.source_node, "buffer", new_buffer, @as(?*anyopaque, null));
+
+        self.commitTransaction();
+    }
+
     pub fn setPreviewBlur(self: *Engine, radius: f64) void {
         self.preview_mode = .blur;
         self.preview_radius = radius;
@@ -1908,6 +1990,15 @@ pub const Engine = struct {
     pub fn setPreviewOilify(self: *Engine, mask_radius: f64) void {
         self.preview_mode = .oilify;
         self.preview_oilify_mask_radius = mask_radius;
+        self.rebuildGraph();
+    }
+
+    pub fn setPreviewDropShadow(self: *Engine, x: f64, y: f64, radius: f64, opacity: f64) void {
+        self.preview_mode = .drop_shadow;
+        self.preview_drop_shadow_x = x;
+        self.preview_drop_shadow_y = y;
+        self.preview_drop_shadow_radius = radius;
+        self.preview_drop_shadow_opacity = opacity;
         self.rebuildGraph();
     }
 
@@ -1988,6 +2079,8 @@ pub const Engine = struct {
             try self.applyNoiseReduction(self.preview_noise_iterations);
         } else if (self.preview_mode == .oilify) {
             try self.applyOilify(self.preview_oilify_mask_radius);
+        } else if (self.preview_mode == .drop_shadow) {
+            try self.applyDropShadow(self.preview_drop_shadow_x, self.preview_drop_shadow_y, self.preview_drop_shadow_radius, self.preview_drop_shadow_opacity);
         }
         self.preview_mode = .none;
         self.rebuildGraph();
@@ -4498,4 +4591,32 @@ test "Engine oilify" {
 
     c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 50, .y = 50, .width = 1, .height = 1 }, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
     try std.testing.expect(pixel[3] > 0);
+}
+
+test "Engine drop shadow" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+    try engine.addLayer("Background");
+
+    // Paint a white pixel at 100,100
+    engine.setFgColor(255, 255, 255, 255);
+    engine.paintStroke(100, 100, 100, 100, 1.0);
+
+    // Apply Drop Shadow: x=10, y=10, radius=0 (sharp), opacity=1.0.
+    try engine.applyDropShadow(10.0, 10.0, 0.0, 1.0);
+
+    const buf = engine.layers.items[0].buffer;
+    const format = c.babl_format("R'G'B'A u8");
+    var pixel: [4]u8 = undefined;
+
+    // Check Original (100,100) -> Should be White
+    c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 100, .y = 100, .width = 1, .height = 1 }, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+    try std.testing.expect(pixel[0] > 200);
+
+    // Check Shadow (110,110) -> Should be Black (Shadow of White pixel)
+    c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 110, .y = 110, .width = 1, .height = 1 }, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+    try std.testing.expect(pixel[3] > 200); // Alpha
+    try std.testing.expect(pixel[0] < 50);  // R
 }
