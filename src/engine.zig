@@ -46,6 +46,7 @@ pub const Engine = struct {
     pub const ShapeType = enum {
         rectangle,
         ellipse,
+        rounded_rectangle,
         line,
         curve,
         polygon,
@@ -66,6 +67,7 @@ pub const Engine = struct {
         thickness: c_int,
         filled: bool,
         points: ?[]const Point = null,
+        radius: c_int = 0,
     };
 
     pub const PreviewMode = enum {
@@ -2165,6 +2167,88 @@ pub const Engine = struct {
             // Right
             _ = try self.drawRectInternal(temp_graph, buf, rx + rw - thickness, ry, thickness, rh, color);
         }
+    }
+
+    pub fn drawRoundedRectangle(self: *Engine, x: c_int, y: c_int, w: c_int, h: c_int, radius: c_int, thickness: c_int, filled: bool) !void {
+        if (self.active_layer_idx >= self.layers.items.len) return;
+        const layer = &self.layers.items[self.active_layer_idx];
+        if (!layer.visible or layer.locked) return;
+
+        const buf = layer.buffer;
+
+        // Normalize
+        var rx = x;
+        var ry = y;
+        var rw = w;
+        var rh = h;
+
+        if (rw < 0) {
+            rx += rw;
+            rw = -rw;
+        }
+        if (rh < 0) {
+            ry += rh;
+            rh = -rh;
+        }
+        if (rw == 0 or rh == 0) return;
+
+        // Use manual buffer access
+        const rect = c.GeglRectangle{ .x = rx, .y = ry, .width = rw, .height = rh };
+        const format = c.babl_format("R'G'B'A u8");
+
+        const stride = rw * 4;
+        const size: usize = @intCast(rw * rh * 4);
+        const allocator = std.heap.c_allocator;
+        const pixels = try allocator.alloc(u8, size);
+        defer allocator.free(pixels);
+
+        c.gegl_buffer_get(buf, &rect, 1.0, format, pixels.ptr, stride, c.GEGL_ABYSS_NONE);
+
+        // Center
+        const cx = @as(f64, @floatFromInt(rw)) / 2.0;
+        const cy = @as(f64, @floatFromInt(rh)) / 2.0;
+        const half_w = cx;
+        const half_h = cy;
+        const r_val = @min(@as(f64, @floatFromInt(radius)), @min(half_w, half_h));
+
+        const thick_f = @as(f64, @floatFromInt(thickness));
+        const fg = self.fg_color;
+
+        var py: c_int = 0;
+        while (py < rh) : (py += 1) {
+            var px: c_int = 0;
+            while (px < rw) : (px += 1) {
+                // Point p relative to center
+                const dx = @abs(@as(f64, @floatFromInt(px)) + 0.5 - cx);
+                const dy = @abs(@as(f64, @floatFromInt(py)) + 0.5 - cy);
+
+                // Distance to rounded box (SDF)
+                const qx = dx - (half_w - r_val);
+                const qy = dy - (half_h - r_val);
+
+                const dist = @sqrt(@max(qx, 0.0) * @max(qx, 0.0) + @max(qy, 0.0) * @max(qy, 0.0)) + @min(@max(qx, qy), 0.0) - r_val;
+
+                // Inside if dist <= 0.0
+                if (dist <= 0.0) {
+                    var draw = false;
+                    if (filled) {
+                        draw = true;
+                    } else {
+                        // Outline: inside border if dist > -thickness
+                        if (dist > -thick_f) {
+                            draw = true;
+                        }
+                    }
+
+                    if (draw) {
+                        const idx = (@as(usize, @intCast(py)) * @as(usize, @intCast(rw)) + @as(usize, @intCast(px))) * 4;
+                        @memcpy(pixels[idx..][0..4], &fg);
+                    }
+                }
+            }
+        }
+
+        c.gegl_buffer_set(buf, &rect, 0, format, pixels.ptr, stride);
     }
 
     pub fn drawEllipse(self: *Engine, x: c_int, y: c_int, w: c_int, h: c_int, thickness: c_int, filled: bool) !void {

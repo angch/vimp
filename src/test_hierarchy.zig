@@ -88,4 +88,5 @@ test {
     _ = @import("canvas_utils.zig");
     _ = @import("engine_curve_test.zig");
     _ = @import("test_polygon.zig");
+    _ = @import("test_rounded_rect.zig");
 }
