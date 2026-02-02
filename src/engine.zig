@@ -74,6 +74,7 @@ pub const Engine = struct {
         none,
         blur,
         motion_blur,
+        pixelize,
         transform,
     };
 
@@ -235,6 +236,7 @@ pub const Engine = struct {
     preview_mode: PreviewMode = .none,
     preview_radius: f64 = 0.0,
     preview_angle: f64 = 0.0,
+    preview_pixel_size: f64 = 10.0,
     preview_transform: TransformParams = .{},
     split_view_enabled: bool = false,
     split_x: f64 = 400.0,
@@ -695,6 +697,37 @@ pub const Engine = struct {
                             }
                         } else {
                             source_output = blur_node;
+                        }
+                    }
+                } else if (self.preview_mode == .pixelize) {
+                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:pixelize", "size-x", self.preview_pixel_size, "size-y", self.preview_pixel_size, @as(?*anyopaque, null))) |pix_node| {
+                        _ = c.gegl_node_connect(pix_node, "input", source_output, "output");
+                        self.composition_nodes.append(std.heap.c_allocator, pix_node) catch {};
+
+                        if (self.split_view_enabled) {
+                            const w: f64 = @floatFromInt(self.canvas_width);
+                            const h: f64 = @floatFromInt(self.canvas_height);
+                            const sx = self.split_x;
+
+                            if (c.gegl_node_new_child(self.graph, "operation", "gegl:crop", "x", @as(f64, 0.0), "y", @as(f64, 0.0), "width", sx, "height", h, @as(?*anyopaque, null))) |left_crop| {
+                                _ = c.gegl_node_connect(left_crop, "input", source_output, "output");
+                                self.composition_nodes.append(std.heap.c_allocator, left_crop) catch {};
+
+                                if (c.gegl_node_new_child(self.graph, "operation", "gegl:crop", "x", sx, "y", @as(f64, 0.0), "width", w - sx, "height", h, @as(?*anyopaque, null))) |right_crop| {
+                                    _ = c.gegl_node_connect(right_crop, "input", pix_node, "output");
+                                    self.composition_nodes.append(std.heap.c_allocator, right_crop) catch {};
+
+                                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:over", @as(?*anyopaque, null))) |split_over| {
+                                        _ = c.gegl_node_connect(split_over, "input", left_crop, "output");
+                                        _ = c.gegl_node_connect(split_over, "aux", right_crop, "output");
+                                        self.composition_nodes.append(std.heap.c_allocator, split_over) catch {};
+
+                                        source_output = split_over;
+                                    }
+                                }
+                            }
+                        } else {
+                            source_output = pix_node;
                         }
                     }
                 } else if (self.preview_mode == .transform) {
@@ -1613,6 +1646,38 @@ pub const Engine = struct {
         self.commitTransaction();
     }
 
+    pub fn applyPixelize(self: *Engine, size: f64) !void {
+        if (self.active_layer_idx >= self.layers.items.len) return;
+        const layer = &self.layers.items[self.active_layer_idx];
+        if (layer.locked) return;
+
+        self.beginTransaction();
+
+        const temp_graph = c.gegl_node_new();
+        defer c.g_object_unref(temp_graph);
+
+        const input_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:buffer-source", "buffer", layer.buffer, @as(?*anyopaque, null));
+        const pixelize_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:pixelize", "size-x", size, "size-y", size, @as(?*anyopaque, null));
+
+        const format = c.babl_format("R'G'B'A u8");
+        const extent = c.gegl_buffer_get_extent(layer.buffer);
+        const new_buffer = c.gegl_buffer_new(extent, format);
+        if (new_buffer == null) return;
+
+        const write_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:write-buffer", "buffer", new_buffer, @as(?*anyopaque, null));
+
+        _ = c.gegl_node_link_many(input_node, pixelize_node, write_node, @as(?*anyopaque, null));
+
+        _ = c.gegl_node_process(write_node);
+
+        // Update Layer
+        c.g_object_unref(layer.buffer);
+        layer.buffer = new_buffer.?;
+        _ = c.gegl_node_set(layer.source_node, "buffer", new_buffer, @as(?*anyopaque, null));
+
+        self.commitTransaction();
+    }
+
     pub fn setPreviewBlur(self: *Engine, radius: f64) void {
         self.preview_mode = .blur;
         self.preview_radius = radius;
@@ -1623,6 +1688,12 @@ pub const Engine = struct {
         self.preview_mode = .motion_blur;
         self.preview_radius = length;
         self.preview_angle = angle;
+        self.rebuildGraph();
+    }
+
+    pub fn setPreviewPixelize(self: *Engine, size: f64) void {
+        self.preview_mode = .pixelize;
+        self.preview_pixel_size = size;
         self.rebuildGraph();
     }
 
@@ -1693,6 +1764,8 @@ pub const Engine = struct {
             try self.applyGaussianBlur(self.preview_radius);
         } else if (self.preview_mode == .motion_blur) {
             try self.applyMotionBlur(self.preview_radius, self.preview_angle);
+        } else if (self.preview_mode == .pixelize) {
+            try self.applyPixelize(self.preview_pixel_size);
         } else if (self.preview_mode == .transform) {
             try self.applyTransform();
         }
@@ -4031,4 +4104,77 @@ test "Engine clear layer" {
         try std.testing.expectEqual(pixel[0], 0);
         try std.testing.expectEqual(pixel[2], 255); // Blue
     }
+}
+
+test "Engine pixelize" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+    try engine.addLayer("Background");
+
+    // Paint a gradient-like pattern
+    // Left side Red, Right side Blue
+    // x=0..400 Red, x=400..800 Blue
+    // Actually pixelize averages the color in the block.
+    // Let's make it simpler.
+    // 1. Paint white at 100,100.
+    // 2. Paint black at 105,105.
+    // If block size is 10 (covering 100-110), they should average out to gray.
+
+    engine.setFgColor(255, 255, 255, 255);
+    engine.paintStroke(100, 100, 100, 100, 1.0); // White dot at 100,100
+
+    engine.setFgColor(0, 0, 0, 255);
+    // Fill background with black first?
+    // Engine starts transparent.
+    // Let's use a smaller canvas for test speed/simplicity
+    // But default is 800x600.
+    // Let's just check two pixels in the same block.
+
+    // Pixelize with size 10. Blocks are 0..10, 10..20, ... 100..110.
+    // 100,100 is start of a block.
+    // 109,109 is end of that block.
+    // Both should have same color after pixelize.
+
+    // Currently: 100,100 is White (255, 255, 255, 255).
+    // 109,109 is Transparent (0, 0, 0, 0).
+    // Average of 1 white pixel and 99 transparent pixels?
+    // Block size 10x10 = 100 pixels.
+    // 1 pixel is White.
+    // Result should be faint white.
+
+    // Let's paint a 5x5 white rect at 100,100 (top-left of block).
+    engine.setFgColor(255, 255, 255, 255);
+    engine.setBrushSize(1);
+    try engine.drawRectangle(100, 100, 5, 5, 1, true); // Filled 5x5
+
+    // Block 100,100 to 110,110 contains:
+    // 25 pixels White.
+    // 75 pixels Transparent.
+    // Average alpha: 0.25 * 255 ~= 63.
+    // Average RGB (premultiplied or not? GEGL handles it).
+    // Result should be uniform.
+
+    try engine.applyPixelize(10.0);
+
+    const buf = engine.layers.items[0].buffer;
+    const format = c.babl_format("R'G'B'A u8");
+    var p1: [4]u8 = undefined;
+    var p2: [4]u8 = undefined;
+
+    // Check 100,100
+    c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 100, .y = 100, .width = 1, .height = 1 }, 1.0, format, &p1, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+
+    // Check 109,109
+    c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 109, .y = 109, .width = 1, .height = 1 }, 1.0, format, &p2, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+
+    // They should be equal
+    try std.testing.expectEqual(p1[0], p2[0]);
+    try std.testing.expectEqual(p1[1], p2[1]);
+    try std.testing.expectEqual(p1[2], p2[2]);
+    try std.testing.expectEqual(p1[3], p2[3]);
+
+    // And they should be non-zero (since we had white pixels)
+    try std.testing.expect(p1[3] > 0);
 }
