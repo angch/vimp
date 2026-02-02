@@ -135,7 +135,7 @@
 - [x] Implement Red Eye Removal
 
 ### Artistic Filters
-- [ ] Implement Ripple/Waves
+- [x] Implement Ripple/Waves
 - [x] Implement Oilify
 - [x] Implement Drop Shadow
 
