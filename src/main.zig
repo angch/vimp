@@ -45,6 +45,9 @@ var mouse_x: f64 = 0;
 var mouse_y: f64 = 0;
 var current_tool: Tool = .brush;
 
+var ants_offset: f64 = 0.0;
+var ants_timer_id: c_uint = 0;
+
 var layers_list_box: ?*c.GtkWidget = null;
 var recent_list_box: ?*c.GtkWidget = null;
 var undo_list_box: ?*c.GtkWidget = null;
@@ -340,6 +343,14 @@ const OsdState = struct {
 var osd_state: OsdState = .{};
 var canvas_dirty: bool = true;
 
+fn ants_timer_callback(user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) c.gboolean {
+    _ = user_data;
+    ants_offset += 1.0;
+    if (ants_offset >= 8.0) ants_offset -= 8.0;
+    queue_draw();
+    return 1;
+}
+
 fn draw_func(
     widget: [*c]c.GtkDrawingArea,
     cr: ?*c.cairo_t,
@@ -472,17 +483,28 @@ fn draw_func(
                     c.cairo_rectangle(cr_ctx, sx, sy, sw, sh);
                 }
 
-                // Marching ants (static for now)
+                // Marching ants
                 const dash: [2]f64 = .{ 4.0, 4.0 };
-                c.cairo_set_dash(cr_ctx, &dash, 2, 0);
+                c.cairo_set_dash(cr_ctx, &dash, 2, ants_offset);
                 c.cairo_set_source_rgb(cr_ctx, 1.0, 1.0, 1.0); // White
                 c.cairo_set_line_width(cr_ctx, 1.0);
                 c.cairo_stroke_preserve(cr_ctx);
 
                 c.cairo_set_source_rgb(cr_ctx, 0.0, 0.0, 0.0); // Black contrast
-                c.cairo_set_dash(cr_ctx, &dash, 2, 4.0); // Offset
+                c.cairo_set_dash(cr_ctx, &dash, 2, ants_offset + 4.0); // Offset
                 c.cairo_stroke(cr_ctx);
                 c.cairo_restore(cr_ctx);
+
+                // Start animation if not running
+                if (ants_timer_id == 0) {
+                    ants_timer_id = c.g_timeout_add(100, @ptrCast(&ants_timer_callback), null);
+                }
+            } else {
+                // Stop animation if running
+                if (ants_timer_id != 0) {
+                    _ = c.g_source_remove(ants_timer_id);
+                    ants_timer_id = 0;
+                }
             }
 
             // Draw Shape Preview
