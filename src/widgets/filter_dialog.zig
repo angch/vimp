@@ -369,3 +369,91 @@ pub fn showPixelizeDialog(
 
     c.gtk_window_present(@ptrCast(dialog));
 }
+
+const OilifyContext = struct {
+    engine: *Engine,
+    radius_spin: *c.GtkWidget,
+    update_cb: *const fn () void,
+};
+
+fn on_oilify_preview_change(_: *c.GtkWidget, data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const ctx: *OilifyContext = @ptrCast(@alignCast(data));
+    const radius = c.gtk_spin_button_get_value(@ptrCast(ctx.radius_spin));
+    ctx.engine.setPreviewOilify(radius);
+    ctx.update_cb();
+}
+
+pub fn showOilifyDialog(
+    parent: ?*c.GtkWindow,
+    engine: *Engine,
+    update_cb: *const fn () void,
+) void {
+    const dialog = c.adw_message_dialog_new(
+        parent,
+        "Oilify",
+        "Adjust mask radius.",
+    );
+
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "Cancel");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "apply", "Apply");
+    c.adw_message_dialog_set_default_response(@ptrCast(dialog), "apply");
+    c.adw_message_dialog_set_close_response(@ptrCast(dialog), "cancel");
+
+    // Body
+    const box = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 10);
+    c.gtk_widget_set_margin_top(box, 10);
+    c.gtk_widget_set_margin_bottom(box, 10);
+    c.gtk_widget_set_margin_start(box, 10);
+    c.gtk_widget_set_margin_end(box, 10);
+
+    // Grid
+    const grid = c.gtk_grid_new();
+    c.gtk_grid_set_row_spacing(@ptrCast(grid), 10);
+    c.gtk_grid_set_column_spacing(@ptrCast(grid), 10);
+    c.gtk_widget_set_halign(grid, c.GTK_ALIGN_CENTER);
+    c.gtk_box_append(@ptrCast(box), grid);
+
+    // Radius
+    const l_label = c.gtk_label_new("Mask Radius:");
+    c.gtk_widget_set_halign(l_label, c.GTK_ALIGN_END);
+    c.gtk_grid_attach(@ptrCast(grid), l_label, 0, 0, 1, 1);
+    const radius_spin = c.gtk_spin_button_new_with_range(1.0, 50.0, 0.5);
+    c.gtk_spin_button_set_value(@ptrCast(radius_spin), 3.5);
+    c.gtk_grid_attach(@ptrCast(grid), radius_spin, 1, 0, 1, 1);
+
+    c.adw_message_dialog_set_extra_child(@ptrCast(dialog), box);
+
+    const ctx = std.heap.c_allocator.create(OilifyContext) catch return;
+    ctx.* = .{
+        .engine = engine,
+        .radius_spin = radius_spin,
+        .update_cb = update_cb,
+    };
+
+    // Connect preview signals
+    _ = c.g_signal_connect_data(radius_spin, "value-changed", @ptrCast(&on_oilify_preview_change), ctx, null, 0);
+
+    // Initial preview
+    engine.setPreviewOilify(3.5);
+    update_cb();
+
+    const on_response = struct {
+        fn func(d: *c.AdwMessageDialog, response: [*c]const u8, data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+            const context: *OilifyContext = @ptrCast(@alignCast(data));
+            defer std.heap.c_allocator.destroy(context);
+
+            const resp_span = std.mem.span(response);
+            if (std.mem.eql(u8, resp_span, "apply")) {
+                context.engine.commitPreview() catch {};
+            } else {
+                context.engine.cancelPreview();
+            }
+            context.update_cb();
+            c.gtk_window_destroy(@ptrCast(d));
+        }
+    }.func;
+
+    _ = c.g_signal_connect_data(dialog, "response", @ptrCast(&on_response), ctx, null, 0);
+
+    c.gtk_window_present(@ptrCast(dialog));
+}
