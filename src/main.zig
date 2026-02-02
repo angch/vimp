@@ -449,6 +449,8 @@ var view_y: f64 = 0.0;
 var zoom_base_scale: f64 = 1.0;
 var zoom_base_view_x: f64 = 0.0;
 var zoom_base_view_y: f64 = 0.0;
+var zoom_base_cx: f64 = 0.0;
+var zoom_base_cy: f64 = 0.0;
 
 const OsdState = struct {
     label: ?*c.GtkWidget = null,
@@ -936,34 +938,45 @@ fn zoom_begin(
     sequence: ?*c.GdkEventSequence,
     user_data: ?*anyopaque,
 ) callconv(std.builtin.CallingConvention.c) void {
-    _ = controller;
     _ = sequence;
     _ = user_data;
     zoom_base_scale = view_scale;
     zoom_base_view_x = view_x;
     zoom_base_view_y = view_y;
-}
 
-fn zoom_scale_changed(
-    controller: *c.GtkGestureZoom,
-    scale: f64,
-    user_data: ?*anyopaque,
-) callconv(std.builtin.CallingConvention.c) void {
-    _ = user_data;
-    // Get focal point
     var cx: f64 = 0;
     var cy: f64 = 0;
-    // We need bounding box center
     _ = c.gtk_gesture_get_bounding_box_center(@ptrCast(controller), &cx, &cy);
+    zoom_base_cx = cx;
+    zoom_base_cy = cy;
+}
 
-    const res = CanvasUtils.calculateZoom(zoom_base_scale, zoom_base_view_x, zoom_base_view_y, cx, cy, scale);
+fn zoom_update(
+    gesture: *c.GtkGesture,
+    sequence: ?*c.GdkEventSequence,
+    user_data: ?*anyopaque,
+) callconv(std.builtin.CallingConvention.c) void {
+    _ = sequence;
+    _ = user_data;
+    // Get current scale delta
+    const scale = c.gtk_gesture_zoom_get_scale_delta(@ptrCast(gesture));
+
+    // Get current bounding box center
+    var cx: f64 = 0;
+    var cy: f64 = 0;
+    _ = c.gtk_gesture_get_bounding_box_center(gesture, &cx, &cy);
+
+    // Calculate Zoom relative to INITIAL center (zoom_base_cx/cy)
+    const res = CanvasUtils.calculateZoom(zoom_base_scale, zoom_base_view_x, zoom_base_view_y, zoom_base_cx, zoom_base_cy, scale);
 
     // Limit scale
     if (res.scale < 0.1 or res.scale > 50.0) return;
 
+    // Apply Pan Delta: (curr_cx - start_cx)
+    // view_x = calculated_view_x - pan_delta_x
     view_scale = res.scale;
-    view_x = res.view_x;
-    view_y = res.view_y;
+    view_x = res.view_x - (cx - zoom_base_cx);
+    view_y = res.view_y - (cy - zoom_base_cy);
     canvas_dirty = true;
 
     // OSD
@@ -3292,7 +3305,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     const zoom = c.gtk_gesture_zoom_new();
     c.gtk_widget_add_controller(area, @ptrCast(zoom));
     _ = c.g_signal_connect_data(zoom, "begin", @ptrCast(&zoom_begin), null, null, 0);
-    _ = c.g_signal_connect_data(zoom, "scale-changed", @ptrCast(&zoom_scale_changed), null, null, 0);
+    _ = c.g_signal_connect_data(zoom, "update", @ptrCast(&zoom_update), null, null, 0);
 
     // Refresh Layers UI initially
     refresh_layers_ui();
