@@ -40,7 +40,7 @@
 - [x] Implement Overlay Feedback (OSD)
 
 ### Canvas Navigation (Pending)
-- [ ] Implement pinch-to-zoom gesture support
+- [x] Implement pinch-to-zoom gesture support
 - [ ] Implement two-finger pan gesture support
 
 ### Tool Palette Improvements
@@ -156,7 +156,7 @@
 ## View Features (from `ms_paint_spec.md`)
 
 - [x] Implement Pixel Grid (visible when zoomed in)
-- [ ] Implement Thumbnail window (overview while zoomed)
+- [x] Implement Thumbnail window (overview while zoomed)
 - [x] Implement View Bitmap (fullscreen preview)
 
 ---

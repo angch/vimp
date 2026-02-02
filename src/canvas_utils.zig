@@ -56,6 +56,22 @@ pub fn snapAngle(start_x: f64, start_y: f64, end_x: f64, end_y: f64, step_degree
     return .{ .x = start_x + new_dx, .y = start_y + new_dy };
 }
 
+/// Calculates new view state for zooming around a focal point
+pub fn calculateZoom(
+    current_scale: f64,
+    view_x: f64,
+    view_y: f64,
+    focal_x: f64,
+    focal_y: f64,
+    zoom_factor: f64,
+) struct { scale: f64, view_x: f64, view_y: f64 } {
+    const new_scale = current_scale * zoom_factor;
+    // New View Pos = (Old View Pos + Focus) * Factor - Focus
+    const new_view_x = (view_x + focal_x) * zoom_factor - focal_x;
+    const new_view_y = (view_y + focal_y) * zoom_factor - focal_y;
+    return .{ .scale = new_scale, .view_x = new_view_x, .view_y = new_view_y };
+}
+
 test "calculateGridRange" {
     const r1 = calculateGridRange(0.0, 100.0, 10.0);
     try std.testing.expectEqual(r1.start, 0.0);
@@ -91,4 +107,26 @@ test "snapAngle" {
     // Angle atan2(100, 10) ~ 84 deg -> snap to 90
     try std.testing.expectApproxEqAbs(p3.x, 0.0, 0.1);
     try std.testing.expectApproxEqAbs(p3.y, 100.5, 0.1);
+}
+
+test "calculateZoom" {
+    // Initial: Scale 1.0, View 0,0.
+    // Focus: 100, 100 (Screen coords)
+    // Zoom Factor: 2.0 (Zoom In)
+    const res = calculateZoom(1.0, 0.0, 0.0, 100.0, 100.0, 2.0);
+
+    try std.testing.expectApproxEqAbs(res.scale, 2.0, 0.001);
+    // new_view_x = (0 + 100) * 2 - 100 = 100
+    try std.testing.expectApproxEqAbs(res.view_x, 100.0, 0.001);
+    try std.testing.expectApproxEqAbs(res.view_y, 100.0, 0.001);
+
+    // Case 2: Already panned and zoomed
+    // Scale 2.0. View 100, 100.
+    // Focus 50, 50.
+    // Zoom Factor 0.5 (Zoom Out back to 1.0)
+    const res2 = calculateZoom(2.0, 100.0, 100.0, 50.0, 50.0, 0.5);
+
+    try std.testing.expectApproxEqAbs(res2.scale, 1.0, 0.001);
+    // new_view_x = (100 + 50) * 0.5 - 50 = 150 * 0.5 - 50 = 75 - 50 = 25
+    try std.testing.expectApproxEqAbs(res2.view_x, 25.0, 0.001);
 }
