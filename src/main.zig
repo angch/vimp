@@ -39,6 +39,19 @@ const Tool = enum {
     // pencil, // Reorder if desired, but append is safer for diffs usually
 };
 
+const ToolEntry = struct {
+    tool: Tool,
+    icon: [:0]const u8,
+    tooltip: [:0]const u8,
+    is_icon_name: bool,
+};
+
+// Tool Group Active States
+var active_selection_tool: Tool = .rect_select;
+var active_shape_tool: Tool = .rect_shape;
+var active_paint_tool: Tool = .brush;
+var active_line_tool: Tool = .line;
+
 var engine: Engine = .{};
 var recent_manager: RecentManager = undefined;
 var recent_colors_manager: RecentColorsManager = undefined;
@@ -2731,6 +2744,76 @@ fn refresh_recent_ui() void {
     }
 }
 
+const ToolGroupItemContext = struct {
+    main_btn: *c.GtkWidget,
+    active_tool_ref: *Tool,
+    tool: Tool,
+    icon: [:0]const u8,
+    tooltip: [:0]const u8,
+    is_icon_name: bool,
+    popover: *c.GtkPopover,
+};
+
+fn destroy_tool_group_item_context(data: ?*anyopaque, _: ?*c.GClosure) callconv(std.builtin.CallingConvention.c) void {
+    if (data) |d| {
+        const ctx: *ToolGroupItemContext = @ptrCast(@alignCast(d));
+        std.heap.c_allocator.destroy(ctx);
+    }
+}
+
+fn on_group_item_clicked(_: *c.GtkButton, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const ctx: *ToolGroupItemContext = @ptrCast(@alignCast(user_data));
+
+    // 1. Update active tool ref
+    ctx.active_tool_ref.* = ctx.tool;
+
+    // 2. Update Main Button Icon/Tooltip
+    const img = if (ctx.is_icon_name)
+        c.gtk_image_new_from_icon_name(ctx.icon)
+    else
+        c.gtk_image_new_from_file(ctx.icon);
+    c.gtk_widget_set_size_request(img, 24, 24);
+    c.gtk_button_set_child(@ptrCast(ctx.main_btn), img);
+    c.gtk_widget_set_tooltip_text(ctx.main_btn, ctx.tooltip);
+
+    // 3. Activate Main Button
+    const is_active = c.gtk_toggle_button_get_active(@ptrCast(ctx.main_btn)) != 0;
+    if (!is_active) {
+        c.gtk_toggle_button_set_active(@ptrCast(ctx.main_btn), 1);
+    } else {
+        // Force update
+        tool_toggled(@ptrCast(ctx.main_btn), ctx.active_tool_ref);
+    }
+
+    // 4. Hide Popover
+    c.gtk_popover_popdown(ctx.popover);
+}
+
+fn on_group_right_click(
+    gesture: *c.GtkGestureClick,
+    _: c_int,
+    _: f64,
+    _: f64,
+    user_data: ?*anyopaque,
+) callconv(std.builtin.CallingConvention.c) void {
+    const popover: *c.GtkPopover = @ptrCast(@alignCast(user_data));
+    const widget = c.gtk_event_controller_get_widget(@ptrCast(gesture));
+    c.gtk_widget_set_parent(@ptrCast(popover), widget);
+    c.gtk_popover_popup(popover);
+}
+
+fn on_group_long_press(
+    gesture: *c.GtkGestureLongPress,
+    _: f64,
+    _: f64,
+    user_data: ?*anyopaque,
+) callconv(std.builtin.CallingConvention.c) void {
+    const popover: *c.GtkPopover = @ptrCast(@alignCast(user_data));
+    const widget = c.gtk_event_controller_get_widget(@ptrCast(gesture));
+    c.gtk_widget_set_parent(@ptrCast(popover), widget);
+    c.gtk_popover_popup(popover);
+}
+
 fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     _ = user_data;
 
@@ -2990,78 +3073,147 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
         }
     }.func;
 
-    // Brush
-    const brush_btn = createToolButton(&brush_tool, "assets/brush.png", "Brush", null, false);
-    appendTool(tools_container, brush_btn, &tools_row_box, &tools_in_row);
-    c.gtk_toggle_button_set_active(@ptrCast(brush_btn), 1);
+    const createToolGroup = struct {
+        fn func(
+            active_tool_ref: *Tool,
+            entries: []const ToolEntry,
+            group: ?*c.GtkToggleButton,
+        ) *c.GtkWidget {
+            const btn = if (group) |_| c.gtk_toggle_button_new() else c.gtk_toggle_button_new();
+            if (group) |g| c.gtk_toggle_button_set_group(@ptrCast(btn), g);
 
-    // Pencil
-    const pencil_btn = createToolButton(&pencil_tool, "assets/pencil.png", "Pencil", @ptrCast(brush_btn), false);
-    appendTool(tools_container, pencil_btn, &tools_row_box, &tools_in_row);
+            // Set initial state
+            var current_entry: ?ToolEntry = null;
+            for (entries) |e| {
+                if (e.tool == active_tool_ref.*) {
+                    current_entry = e;
+                    break;
+                }
+            }
+            if (current_entry == null) current_entry = entries[0];
 
-    // Airbrush
-    const airbrush_btn = createToolButton(&airbrush_tool, "assets/airbrush.png", "Airbrush", @ptrCast(brush_btn), false);
-    appendTool(tools_container, airbrush_btn, &tools_row_box, &tools_in_row);
+            const img = if (current_entry.?.is_icon_name)
+                c.gtk_image_new_from_icon_name(current_entry.?.icon)
+            else
+                c.gtk_image_new_from_file(current_entry.?.icon);
+            c.gtk_widget_set_size_request(img, 24, 24);
+            c.gtk_button_set_child(@ptrCast(btn), img);
+            c.gtk_widget_set_tooltip_text(btn, current_entry.?.tooltip);
+
+            _ = c.g_signal_connect_data(btn, "toggled", @ptrCast(&tool_toggled), active_tool_ref, null, 0);
+
+            // Popover
+            const popover = c.gtk_popover_new();
+            const grid = c.gtk_grid_new();
+            c.gtk_grid_set_row_spacing(@ptrCast(grid), 5);
+            c.gtk_grid_set_column_spacing(@ptrCast(grid), 5);
+            c.gtk_widget_set_margin_top(grid, 5);
+            c.gtk_widget_set_margin_bottom(grid, 5);
+            c.gtk_widget_set_margin_start(grid, 5);
+            c.gtk_widget_set_margin_end(grid, 5);
+            c.gtk_popover_set_child(@ptrCast(popover), grid);
+
+            for (entries, 0..) |entry, i| {
+                const item_btn = c.gtk_button_new();
+                const item_img = if (entry.is_icon_name)
+                    c.gtk_image_new_from_icon_name(entry.icon)
+                else
+                    c.gtk_image_new_from_file(entry.icon);
+                c.gtk_widget_set_size_request(item_img, 24, 24);
+                c.gtk_button_set_child(@ptrCast(item_btn), item_img);
+                c.gtk_widget_set_tooltip_text(item_btn, entry.tooltip);
+
+                const col = @as(c_int, @intCast(i % 3));
+                const row = @as(c_int, @intCast(i / 3));
+                c.gtk_grid_attach(@ptrCast(grid), item_btn, col, row, 1, 1);
+
+                const ctx = std.heap.c_allocator.create(ToolGroupItemContext) catch continue;
+                ctx.* = .{
+                    .main_btn = btn,
+                    .active_tool_ref = active_tool_ref,
+                    .tool = entry.tool,
+                    .icon = entry.icon,
+                    .tooltip = entry.tooltip,
+                    .is_icon_name = entry.is_icon_name,
+                    .popover = @ptrCast(popover),
+                };
+
+                _ = c.g_signal_connect_data(item_btn, "clicked", @ptrCast(&on_group_item_clicked), ctx, @ptrCast(&destroy_tool_group_item_context), 0);
+            }
+
+            const click = c.gtk_gesture_click_new();
+            c.gtk_gesture_single_set_button(@ptrCast(click), 3);
+            _ = c.g_signal_connect_data(click, "pressed", @ptrCast(&on_group_right_click), popover, null, 0);
+            c.gtk_widget_add_controller(btn, @ptrCast(click));
+
+            const long_press = c.gtk_gesture_long_press_new();
+            _ = c.g_signal_connect_data(long_press, "pressed", @ptrCast(&on_group_long_press), popover, null, 0);
+            c.gtk_widget_add_controller(btn, @ptrCast(long_press));
+
+            return btn;
+        }
+    }.func;
+
+    // Paint Group (Brush, Pencil, Airbrush)
+    const paint_entries = [_]ToolEntry{
+        .{ .tool = .brush, .icon = "assets/brush.png", .tooltip = "Brush", .is_icon_name = false },
+        .{ .tool = .pencil, .icon = "assets/pencil.png", .tooltip = "Pencil", .is_icon_name = false },
+        .{ .tool = .airbrush, .icon = "assets/airbrush.png", .tooltip = "Airbrush", .is_icon_name = false },
+    };
+    const paint_group_btn = createToolGroup(&active_paint_tool, &paint_entries, null);
+    appendTool(tools_container, paint_group_btn, &tools_row_box, &tools_in_row);
+    c.gtk_toggle_button_set_active(@ptrCast(paint_group_btn), 1);
 
     // Eraser
-    const eraser_btn = createToolButton(&eraser_tool, "assets/eraser.png", "Eraser", @ptrCast(brush_btn), false);
+    const eraser_btn = createToolButton(&eraser_tool, "assets/eraser.png", "Eraser", @ptrCast(paint_group_btn), false);
     appendTool(tools_container, eraser_btn, &tools_row_box, &tools_in_row);
 
     // Bucket Fill
-    const fill_btn = createToolButton(&bucket_fill_tool, "assets/bucket.png", "Bucket Fill", @ptrCast(brush_btn), false);
+    const fill_btn = createToolButton(&bucket_fill_tool, "assets/bucket.png", "Bucket Fill", @ptrCast(paint_group_btn), false);
     appendTool(tools_container, fill_btn, &tools_row_box, &tools_in_row);
 
-    // Rect Select
-    const select_btn = createToolButton(&rect_select_tool, "edit-select-symbolic", "Rectangle Select", @ptrCast(brush_btn), true);
-    appendTool(tools_container, select_btn, &tools_row_box, &tools_in_row);
-
-    // Ellipse Select
-    const ellipse_btn = createToolButton(&ellipse_select_tool, "media-record-symbolic", "Ellipse Select", @ptrCast(brush_btn), true);
-    appendTool(tools_container, ellipse_btn, &tools_row_box, &tools_in_row);
-
-    // Lasso Select
-    const lasso_btn = createToolButton(&lasso_tool, "edit-select-text-symbolic", "Lasso Select", @ptrCast(brush_btn), true);
-    appendTool(tools_container, lasso_btn, &tools_row_box, &tools_in_row);
+    // Selection Group
+    const select_entries = [_]ToolEntry{
+        .{ .tool = .rect_select, .icon = "edit-select-symbolic", .tooltip = "Rectangle Select", .is_icon_name = true },
+        .{ .tool = .ellipse_select, .icon = "media-record-symbolic", .tooltip = "Ellipse Select", .is_icon_name = true },
+        .{ .tool = .lasso, .icon = "edit-select-text-symbolic", .tooltip = "Lasso Select", .is_icon_name = true },
+    };
+    const select_group_btn = createToolGroup(&active_selection_tool, &select_entries, @ptrCast(paint_group_btn));
+    appendTool(tools_container, select_group_btn, &tools_row_box, &tools_in_row);
 
     // Text Tool
-    const text_btn = createToolButton(&text_tool, "insert-text-symbolic", "Text Tool", @ptrCast(brush_btn), true);
+    const text_btn = createToolButton(&text_tool, "insert-text-symbolic", "Text Tool", @ptrCast(paint_group_btn), true);
     appendTool(tools_container, text_btn, &tools_row_box, &tools_in_row);
 
-    // Rectangle Shape
-    const rect_shape_btn = createToolButton(&rect_shape_tool, "media-stop-symbolic", "Rectangle Tool", @ptrCast(brush_btn), true);
-    appendTool(tools_container, rect_shape_btn, &tools_row_box, &tools_in_row);
-
-    // Rounded Rectangle Shape
-    const rounded_rect_shape_btn = createToolButton(&rounded_rect_shape_tool, "media-playlist-consecutive-symbolic", "Rounded Rectangle Tool", @ptrCast(brush_btn), true);
-    appendTool(tools_container, rounded_rect_shape_btn, &tools_row_box, &tools_in_row);
-
-    // Ellipse Shape
-    const ellipse_shape_btn = createToolButton(&ellipse_shape_tool, "media-record-symbolic", "Ellipse Tool", @ptrCast(brush_btn), true);
-    appendTool(tools_container, ellipse_shape_btn, &tools_row_box, &tools_in_row);
+    // Shapes Group
+    const shape_entries = [_]ToolEntry{
+        .{ .tool = .rect_shape, .icon = "media-stop-symbolic", .tooltip = "Rectangle Tool", .is_icon_name = true },
+        .{ .tool = .ellipse_shape, .icon = "media-record-symbolic", .tooltip = "Ellipse Tool", .is_icon_name = true },
+        .{ .tool = .rounded_rect_shape, .icon = "media-playlist-consecutive-symbolic", .tooltip = "Rounded Rectangle Tool", .is_icon_name = true },
+        .{ .tool = .polygon, .icon = "shapes-symbolic", .tooltip = "Polygon Tool", .is_icon_name = true },
+    };
+    const shape_group_btn = createToolGroup(&active_shape_tool, &shape_entries, @ptrCast(paint_group_btn));
+    appendTool(tools_container, shape_group_btn, &tools_row_box, &tools_in_row);
 
     // Unified Transform
-    const transform_btn = createToolButton(&unified_transform_tool, "object-rotate-right-symbolic", "Unified Transform", @ptrCast(brush_btn), true);
+    const transform_btn = createToolButton(&unified_transform_tool, "object-rotate-right-symbolic", "Unified Transform", @ptrCast(paint_group_btn), true);
     appendTool(tools_container, transform_btn, &tools_row_box, &tools_in_row);
 
     // Color Picker
-    const picker_btn = createToolButton(&color_picker_tool, "preferences-color-symbolic", "Color Picker", @ptrCast(brush_btn), true);
+    const picker_btn = createToolButton(&color_picker_tool, "preferences-color-symbolic", "Color Picker", @ptrCast(paint_group_btn), true);
     appendTool(tools_container, picker_btn, &tools_row_box, &tools_in_row);
 
     // Gradient Tool
-    const gradient_btn = createToolButton(&gradient_tool, "applications-graphics-symbolic", "Gradient Tool", @ptrCast(brush_btn), true);
+    const gradient_btn = createToolButton(&gradient_tool, "applications-graphics-symbolic", "Gradient Tool", @ptrCast(paint_group_btn), true);
     appendTool(tools_container, gradient_btn, &tools_row_box, &tools_in_row);
 
-    // Line Tool
-    const line_btn = createToolButton(&line_tool, "list-remove-symbolic", "Line Tool (Shift to snap)", @ptrCast(brush_btn), true);
-    appendTool(tools_container, line_btn, &tools_row_box, &tools_in_row);
-
-    // Curve Tool
-    const curve_btn = createToolButton(&curve_tool, "call-start-symbolic", "Curve Tool (Drag Line -> Bend 1 -> Bend 2)", @ptrCast(brush_btn), true);
-    appendTool(tools_container, curve_btn, &tools_row_box, &tools_in_row);
-
-    // Polygon Tool
-    const polygon_btn = createToolButton(&polygon_tool, "shapes-symbolic", "Polygon Tool", @ptrCast(brush_btn), true);
-    appendTool(tools_container, polygon_btn, &tools_row_box, &tools_in_row);
+    // Lines Group
+    const line_entries = [_]ToolEntry{
+        .{ .tool = .line, .icon = "list-remove-symbolic", .tooltip = "Line Tool (Shift to snap)", .is_icon_name = true },
+        .{ .tool = .curve, .icon = "call-start-symbolic", .tooltip = "Curve Tool (Drag Line -> Bend 1 -> Bend 2)", .is_icon_name = true },
+    };
+    const line_group_btn = createToolGroup(&active_line_tool, &line_entries, @ptrCast(paint_group_btn));
+    appendTool(tools_container, line_group_btn, &tools_row_box, &tools_in_row);
 
     // Separator
     c.gtk_box_append(@ptrCast(sidebar), c.gtk_separator_new(c.GTK_ORIENTATION_HORIZONTAL));

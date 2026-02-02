@@ -44,7 +44,7 @@
 - [x] Implement two-finger pan gesture support
 
 ### Tool Palette Improvements
-- [ ] Implement Tool Grouping (popovers/long-press revealers)
+- [x] Implement Tool Grouping (popovers/long-press revealers)
 - [ ] Implement Properties Sidebar (contextual tool options)
 
 ### Selection Feedback
