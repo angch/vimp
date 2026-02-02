@@ -41,7 +41,7 @@
 
 ### Canvas Navigation (Pending)
 - [x] Implement pinch-to-zoom gesture support
-- [ ] Implement two-finger pan gesture support
+- [x] Implement two-finger pan gesture support
 
 ### Tool Palette Improvements
 - [ ] Implement Tool Grouping (popovers/long-press revealers)
