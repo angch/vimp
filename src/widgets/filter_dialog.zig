@@ -582,3 +582,92 @@ pub fn showDropShadowDialog(
 
     c.gtk_window_present(@ptrCast(dialog));
 }
+
+const RedEyeContext = struct {
+    engine: *Engine,
+    threshold_scale: *c.GtkWidget,
+    update_cb: *const fn () void,
+};
+
+fn on_red_eye_preview_change(_: *c.GtkWidget, data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const ctx: *RedEyeContext = @ptrCast(@alignCast(data));
+    const threshold = c.gtk_range_get_value(@ptrCast(ctx.threshold_scale));
+    ctx.engine.setPreviewRedEyeRemoval(threshold);
+    ctx.update_cb();
+}
+
+pub fn showRedEyeRemovalDialog(
+    parent: ?*c.GtkWindow,
+    engine: *Engine,
+    update_cb: *const fn () void,
+) void {
+    const dialog = c.adw_message_dialog_new(
+        parent,
+        "Red Eye Removal",
+        "Adjust threshold.",
+    );
+
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "Cancel");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "apply", "Apply");
+    c.adw_message_dialog_set_default_response(@ptrCast(dialog), "apply");
+    c.adw_message_dialog_set_close_response(@ptrCast(dialog), "cancel");
+
+    // Body
+    const box = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 10);
+    c.gtk_widget_set_margin_top(box, 10);
+    c.gtk_widget_set_margin_bottom(box, 10);
+    c.gtk_widget_set_margin_start(box, 10);
+    c.gtk_widget_set_margin_end(box, 10);
+
+    // Grid
+    const grid = c.gtk_grid_new();
+    c.gtk_grid_set_row_spacing(@ptrCast(grid), 10);
+    c.gtk_grid_set_column_spacing(@ptrCast(grid), 10);
+    c.gtk_widget_set_halign(grid, c.GTK_ALIGN_CENTER);
+    c.gtk_box_append(@ptrCast(box), grid);
+
+    // Threshold
+    const t_label = c.gtk_label_new("Threshold:");
+    c.gtk_widget_set_halign(t_label, c.GTK_ALIGN_END);
+    c.gtk_grid_attach(@ptrCast(grid), t_label, 0, 0, 1, 1);
+    const threshold_scale = c.gtk_scale_new_with_range(c.GTK_ORIENTATION_HORIZONTAL, 0.0, 1.0, 0.01);
+    c.gtk_widget_set_size_request(threshold_scale, 150, -1);
+    c.gtk_range_set_value(@ptrCast(threshold_scale), 0.4);
+    c.gtk_grid_attach(@ptrCast(grid), threshold_scale, 1, 0, 1, 1);
+
+    c.adw_message_dialog_set_extra_child(@ptrCast(dialog), box);
+
+    const ctx = std.heap.c_allocator.create(RedEyeContext) catch return;
+    ctx.* = .{
+        .engine = engine,
+        .threshold_scale = threshold_scale,
+        .update_cb = update_cb,
+    };
+
+    // Connect preview signals
+    _ = c.g_signal_connect_data(threshold_scale, "value-changed", @ptrCast(&on_red_eye_preview_change), ctx, null, 0);
+
+    // Initial preview
+    engine.setPreviewRedEyeRemoval(0.4);
+    update_cb();
+
+    const on_response = struct {
+        fn func(d: *c.AdwMessageDialog, response: [*c]const u8, data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+            const context: *RedEyeContext = @ptrCast(@alignCast(data));
+            defer std.heap.c_allocator.destroy(context);
+
+            const resp_span = std.mem.span(response);
+            if (std.mem.eql(u8, resp_span, "apply")) {
+                context.engine.commitPreview() catch {};
+            } else {
+                context.engine.cancelPreview();
+            }
+            context.update_cb();
+            c.gtk_window_destroy(@ptrCast(d));
+        }
+    }.func;
+
+    _ = c.g_signal_connect_data(dialog, "response", @ptrCast(&on_response), ctx, null, 0);
+
+    c.gtk_window_present(@ptrCast(dialog));
+}

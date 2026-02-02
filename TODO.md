@@ -132,7 +132,7 @@
 ### Enhancement Filters
 - [x] Implement Unsharp Mask (Sharpen)
 - [x] Implement Noise Reduction
-- [ ] Implement Red Eye Removal
+- [x] Implement Red Eye Removal
 
 ### Artistic Filters
 - [ ] Implement Ripple/Waves
