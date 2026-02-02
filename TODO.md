@@ -130,8 +130,8 @@
 - [x] Implement Pixelize/Mosaic
 
 ### Enhancement Filters
-- [ ] Implement Unsharp Mask (Sharpen)
-- [ ] Implement Noise Reduction
+- [x] Implement Unsharp Mask (Sharpen)
+- [x] Implement Noise Reduction
 - [ ] Implement Red Eye Removal
 
 ### Artistic Filters
