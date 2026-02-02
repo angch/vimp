@@ -96,7 +96,7 @@
 - [x] Implement Brush Size Control
 
 ### From `gimp-feature-spec-gnome-hig.md`
-- [ ] Implement Recent Colors persistence in color popover
+- [x] Implement Recent Colors persistence in color popover
 - [ ] Implement GNOME standard color picker dialog
 
 ### From `ms_paint_spec.md`
