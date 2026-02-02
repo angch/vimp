@@ -1403,6 +1403,32 @@ pub const Engine = struct {
         self.commitTransaction();
     }
 
+    pub fn clearActiveLayer(self: *Engine) !void {
+        if (self.active_layer_idx >= self.layers.items.len) return;
+        const layer = &self.layers.items[self.active_layer_idx];
+        if (layer.locked) return;
+
+        self.beginTransaction();
+
+        const temp_graph = c.gegl_node_new() orelse return error.GeglGraphFailed;
+        defer c.g_object_unref(temp_graph);
+
+        const color_str = try std.fmt.allocPrintSentinel(std.heap.c_allocator, "rgba({d}, {d}, {d}, {d})", .{
+            self.bg_color[0],
+            self.bg_color[1],
+            self.bg_color[2],
+            @as(f32, @floatFromInt(self.bg_color[3])) / 255.0,
+        }, 0);
+        defer std.heap.c_allocator.free(color_str);
+
+        const color = c.gegl_color_new(color_str.ptr);
+        defer c.g_object_unref(color);
+
+        _ = try self.drawRectInternal(temp_graph, layer.buffer, 0, 0, self.canvas_width, self.canvas_height, color);
+
+        self.commitTransaction();
+    }
+
     pub fn flipHorizontal(self: *Engine) !void {
         if (self.active_layer_idx >= self.layers.items.len) return;
         const layer = &self.layers.items[self.active_layer_idx];
@@ -2144,9 +2170,9 @@ pub const Engine = struct {
         defer c.g_object_unref(temp_graph);
 
         const color_str = try std.fmt.allocPrintSentinel(std.heap.c_allocator, "rgba({d}, {d}, {d}, {d})", .{
-            @as(f32, @floatFromInt(self.fg_color[0])) / 255.0,
-            @as(f32, @floatFromInt(self.fg_color[1])) / 255.0,
-            @as(f32, @floatFromInt(self.fg_color[2])) / 255.0,
+            self.fg_color[0],
+            self.fg_color[1],
+            self.fg_color[2],
             @as(f32, @floatFromInt(self.fg_color[3])) / 255.0,
         }, 0);
         defer std.heap.c_allocator.free(color_str);
@@ -3966,4 +3992,43 @@ test "Engine motion blur" {
     c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 100, .y = 110, .width = 1, .height = 1 }, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
     // Should be black (or very dark)
     try std.testing.expect(pixel[0] < 50);
+}
+
+test "Engine clear layer" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+    try engine.addLayer("Background");
+
+    // Paint Red at 100,100
+    engine.setFgColor(255, 0, 0, 255);
+    engine.paintStroke(100, 100, 100, 100, 1.0);
+
+    // Verify Red
+    if (engine.layers.items.len > 0) {
+        const buf = engine.layers.items[0].buffer;
+        var pixel: [4]u8 = .{ 0, 0, 0, 0 };
+        const rect = c.GeglRectangle{ .x = 100, .y = 100, .width = 1, .height = 1 };
+        const format = c.babl_format("R'G'B'A u8");
+        c.gegl_buffer_get(buf, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+        try std.testing.expectEqual(pixel[0], 255);
+    }
+
+    // Set BG Color to Blue
+    engine.setBgColor(0, 0, 255, 255);
+
+    // Clear Layer
+    try engine.clearActiveLayer();
+
+    // Verify Blue
+    if (engine.layers.items.len > 0) {
+        const buf = engine.layers.items[0].buffer;
+        var pixel: [4]u8 = .{ 0, 0, 0, 0 };
+        const rect = c.GeglRectangle{ .x = 100, .y = 100, .width = 1, .height = 1 };
+        const format = c.babl_format("R'G'B'A u8");
+        c.gegl_buffer_get(buf, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+        try std.testing.expectEqual(pixel[0], 0);
+        try std.testing.expectEqual(pixel[2], 255); // Blue
+    }
 }

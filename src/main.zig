@@ -2005,6 +2005,16 @@ fn invert_colors_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque)
     queue_draw();
 }
 
+fn clear_image_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    engine.clearActiveLayer() catch |err| {
+        show_toast("Clear image failed: {}", .{err});
+        return;
+    };
+    refresh_undo_ui();
+    canvas_dirty = true;
+    queue_draw();
+}
+
 fn flip_horizontal_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     engine.flipHorizontal() catch |err| {
         show_toast("Flip horizontal failed: {}", .{err});
@@ -2474,6 +2484,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     add_action(app, "apply-preview", @ptrCast(&apply_preview_activated), null);
     add_action(app, "discard-preview", @ptrCast(&discard_preview_activated), null);
     add_action(app, "invert-colors", @ptrCast(&invert_colors_activated), null);
+    add_action(app, "clear-image", @ptrCast(&clear_image_activated), null);
     add_action(app, "flip-horizontal", @ptrCast(&flip_horizontal_activated), null);
     add_action(app, "flip-vertical", @ptrCast(&flip_vertical_activated), null);
     add_action(app, "rotate-90", @ptrCast(&rotate_90_activated), null);
@@ -2503,6 +2514,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     set_accel(app, "app.undo", "<Ctrl>z");
     set_accel(app, "app.redo", "<Ctrl>y");
     set_accel(app, "app.invert-colors", "<Ctrl>i");
+    set_accel(app, "app.clear-image", "<Ctrl><Shift>n");
     set_accel(app, "app.rotate-90", "<Ctrl>r");
 
     const toolbar_view = c.adw_toolbar_view_new();
@@ -2559,6 +2571,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     const image_menu = c.g_menu_new();
     c.g_menu_append(image_menu, "Canvas Size...", "app.canvas-size");
     c.g_menu_append(image_menu, "Invert Colors", "app.invert-colors");
+    c.g_menu_append(image_menu, "Clear Image", "app.clear-image");
     c.g_menu_append(image_menu, "Flip Horizontal", "app.flip-horizontal");
     c.g_menu_append(image_menu, "Flip Vertical", "app.flip-vertical");
     c.g_menu_append(image_menu, "Rotate 90° CW", "app.rotate-90");
