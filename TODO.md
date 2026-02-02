@@ -147,9 +147,9 @@
 
 ## Image Operations (from `ms_paint_spec.md`)
 
-- [ ] Implement Invert Colors
+- [x] Implement Invert Colors
 - [x] Implement Canvas Attributes dialog (Width/Height/Units)
-- [ ] Implement Clear Image (Ctrl+Shift+N)
+- [x] Implement Clear Image (Ctrl+Shift+N)
 
 ---
 
