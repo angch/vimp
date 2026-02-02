@@ -12,6 +12,7 @@ const OpenLocationDialog = @import("widgets/open_location_dialog.zig");
 const CanvasDialog = @import("widgets/canvas_dialog.zig");
 const FilterDialog = @import("widgets/filter_dialog.zig");
 const FullscreenPreview = @import("widgets/fullscreen_preview.zig");
+const CommandPalette = @import("widgets/command_palette.zig");
 const RawLoader = @import("raw_loader.zig").RawLoader;
 
 // Global state for simplicity in this phase
@@ -2183,6 +2184,18 @@ fn view_bitmap_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyo
     }
 }
 
+fn command_palette_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
+    // We need the app pointer, which we can get from the window or pass it?
+    // user_data is currently the window.
+    if (window) |w| {
+        const app = c.gtk_window_get_application(w);
+        if (app) |a| {
+            CommandPalette.showCommandPalette(w, a);
+        }
+    }
+}
+
 fn split_view_change_state(action: *c.GSimpleAction, value: *c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     const enabled = c.g_variant_get_boolean(value) != 0;
     engine.setSplitView(enabled);
@@ -2590,6 +2603,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     add_action(app, "rotate-270", @ptrCast(&rotate_270_activated), null);
     add_action(app, "canvas-size", @ptrCast(&canvas_size_activated), window);
     add_action(app, "view-bitmap", @ptrCast(&view_bitmap_activated), window);
+    add_action(app, "command-palette", @ptrCast(&command_palette_activated), window);
 
     // Split View Action (Stateful)
     const split_action = c.g_simple_action_new_stateful("split-view", null, c.g_variant_new_boolean(0));
@@ -2614,6 +2628,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     set_accel(app, "app.invert-colors", "<Ctrl>i");
     set_accel(app, "app.clear-image", "<Ctrl><Shift>n");
     set_accel(app, "app.rotate-90", "<Ctrl>r");
+    set_accel(app, "app.command-palette", "<Ctrl>k");
 
     const toolbar_view = c.adw_toolbar_view_new();
     c.adw_application_window_set_content(@ptrCast(window), toolbar_view);
@@ -2708,6 +2723,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
 
     // Hamburger Menu (End)
     const menu = c.g_menu_new();
+    c.g_menu_append(menu, "Command Palette...", "app.command-palette");
     c.g_menu_append(menu, "Open Location...", "app.open-location");
     c.g_menu_append(menu, "About Vimp", "app.about");
     c.g_menu_append(menu, "Quit", "app.quit");

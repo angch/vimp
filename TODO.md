@@ -22,7 +22,7 @@
 - [x] Implement Unified Save/Export Flow
 
 ### Navigation & Controls
-- [ ] Implement Command Palette (searchable action interface)
+- [x] Implement Command Palette (searchable action interface)
 - [ ] Add Tooltips to all Header Bar buttons
 
 ### Accessibility
