@@ -78,6 +78,7 @@ pub const Engine = struct {
         transform,
         unsharp_mask,
         noise_reduction,
+        oilify,
     };
 
     pub const TransformParams = struct {
@@ -242,6 +243,7 @@ pub const Engine = struct {
     preview_transform: TransformParams = .{},
     preview_unsharp_scale: f64 = 0.0,
     preview_noise_iterations: c_int = 0,
+    preview_oilify_mask_radius: f64 = 3.5,
     split_view_enabled: bool = false,
     split_x: f64 = 400.0,
 
@@ -736,6 +738,37 @@ pub const Engine = struct {
                     }
                 } else if (self.preview_mode == .unsharp_mask) {
                     if (c.gegl_node_new_child(self.graph, "operation", "gegl:unsharp-mask", "std-dev", self.preview_radius, "scale", self.preview_unsharp_scale, @as(?*anyopaque, null))) |filter_node| {
+                        _ = c.gegl_node_connect(filter_node, "input", source_output, "output");
+                        self.composition_nodes.append(std.heap.c_allocator, filter_node) catch {};
+
+                        if (self.split_view_enabled) {
+                            const w: f64 = @floatFromInt(self.canvas_width);
+                            const h: f64 = @floatFromInt(self.canvas_height);
+                            const sx = self.split_x;
+
+                            if (c.gegl_node_new_child(self.graph, "operation", "gegl:crop", "x", @as(f64, 0.0), "y", @as(f64, 0.0), "width", sx, "height", h, @as(?*anyopaque, null))) |left_crop| {
+                                _ = c.gegl_node_connect(left_crop, "input", source_output, "output");
+                                self.composition_nodes.append(std.heap.c_allocator, left_crop) catch {};
+
+                                if (c.gegl_node_new_child(self.graph, "operation", "gegl:crop", "x", sx, "y", @as(f64, 0.0), "width", w - sx, "height", h, @as(?*anyopaque, null))) |right_crop| {
+                                    _ = c.gegl_node_connect(right_crop, "input", filter_node, "output");
+                                    self.composition_nodes.append(std.heap.c_allocator, right_crop) catch {};
+
+                                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:over", @as(?*anyopaque, null))) |split_over| {
+                                        _ = c.gegl_node_connect(split_over, "input", left_crop, "output");
+                                        _ = c.gegl_node_connect(split_over, "aux", right_crop, "output");
+                                        self.composition_nodes.append(std.heap.c_allocator, split_over) catch {};
+
+                                        source_output = split_over;
+                                    }
+                                }
+                            }
+                        } else {
+                            source_output = filter_node;
+                        }
+                    }
+                } else if (self.preview_mode == .oilify) {
+                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:oilify", "mask-radius", self.preview_oilify_mask_radius, @as(?*anyopaque, null))) |filter_node| {
                         _ = c.gegl_node_connect(filter_node, "input", source_output, "output");
                         self.composition_nodes.append(std.heap.c_allocator, filter_node) catch {};
 
@@ -1808,6 +1841,38 @@ pub const Engine = struct {
         self.commitTransaction();
     }
 
+    pub fn applyOilify(self: *Engine, mask_radius: f64) !void {
+        if (self.active_layer_idx >= self.layers.items.len) return;
+        const layer = &self.layers.items[self.active_layer_idx];
+        if (layer.locked) return;
+
+        self.beginTransaction();
+
+        const temp_graph = c.gegl_node_new();
+        defer c.g_object_unref(temp_graph);
+
+        const input_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:buffer-source", "buffer", layer.buffer, @as(?*anyopaque, null));
+        const oilify_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:oilify", "mask-radius", mask_radius, @as(?*anyopaque, null));
+
+        const format = c.babl_format("R'G'B'A u8");
+        const extent = c.gegl_buffer_get_extent(layer.buffer);
+        const new_buffer = c.gegl_buffer_new(extent, format);
+        if (new_buffer == null) return;
+
+        const write_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:write-buffer", "buffer", new_buffer, @as(?*anyopaque, null));
+
+        _ = c.gegl_node_link_many(input_node, oilify_node, write_node, @as(?*anyopaque, null));
+
+        _ = c.gegl_node_process(write_node);
+
+        // Update Layer
+        c.g_object_unref(layer.buffer);
+        layer.buffer = new_buffer.?;
+        _ = c.gegl_node_set(layer.source_node, "buffer", new_buffer, @as(?*anyopaque, null));
+
+        self.commitTransaction();
+    }
+
     pub fn setPreviewBlur(self: *Engine, radius: f64) void {
         self.preview_mode = .blur;
         self.preview_radius = radius;
@@ -1837,6 +1902,12 @@ pub const Engine = struct {
     pub fn setPreviewNoiseReduction(self: *Engine, iterations: c_int) void {
         self.preview_mode = .noise_reduction;
         self.preview_noise_iterations = iterations;
+        self.rebuildGraph();
+    }
+
+    pub fn setPreviewOilify(self: *Engine, mask_radius: f64) void {
+        self.preview_mode = .oilify;
+        self.preview_oilify_mask_radius = mask_radius;
         self.rebuildGraph();
     }
 
@@ -1915,6 +1986,8 @@ pub const Engine = struct {
             try self.applyUnsharpMask(self.preview_radius, self.preview_unsharp_scale);
         } else if (self.preview_mode == .noise_reduction) {
             try self.applyNoiseReduction(self.preview_noise_iterations);
+        } else if (self.preview_mode == .oilify) {
+            try self.applyOilify(self.preview_oilify_mask_radius);
         }
         self.preview_mode = .none;
         self.rebuildGraph();
@@ -4396,5 +4469,33 @@ test "Engine noise reduction" {
 
     c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 10, .y = 10, .width = 1, .height = 1 }, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
     // Should generally be smoothed.
+    try std.testing.expect(pixel[3] > 0);
+}
+
+test "Engine oilify" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+    try engine.addLayer("Background");
+
+    // Paint white dot on black background
+    engine.setFgColor(0, 0, 0, 255);
+    engine.setBrushSize(50);
+    engine.paintStroke(50, 50, 50, 50, 1.0); // Black
+
+    engine.setFgColor(255, 255, 255, 255);
+    engine.setBrushSize(10);
+    engine.paintStroke(50, 50, 50, 50, 1.0); // White inside
+
+    // Apply Oilify
+    try engine.applyOilify(5.0);
+
+    // Verify buffer is valid and pixel at 50,50 is not transparent (non-zero alpha)
+    const buf = engine.layers.items[0].buffer;
+    const format = c.babl_format("R'G'B'A u8");
+    var pixel: [4]u8 = undefined;
+
+    c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 50, .y = 50, .width = 1, .height = 1 }, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
     try std.testing.expect(pixel[3] > 0);
 }

@@ -2095,6 +2095,11 @@ fn noise_reduction_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*
     FilterDialog.showNoiseReductionDialog(window, &engine, &refresh_ui_callback);
 }
 
+fn oilify_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
+    FilterDialog.showOilifyDialog(window, &engine, &refresh_ui_callback);
+}
+
 fn apply_preview_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     engine.commitPreview() catch |err| {
         show_toast("Commit preview failed: {}", .{err});
@@ -2621,6 +2626,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     add_action(app, "motion-blur", @ptrCast(&motion_blur_activated), window);
     add_action(app, "unsharp-mask", @ptrCast(&unsharp_mask_activated), window);
     add_action(app, "noise-reduction", @ptrCast(&noise_reduction_activated), window);
+    add_action(app, "oilify", @ptrCast(&oilify_activated), window);
     add_action(app, "apply-preview", @ptrCast(&apply_preview_activated), null);
     add_action(app, "discard-preview", @ptrCast(&discard_preview_activated), null);
     add_action(app, "invert-colors", @ptrCast(&invert_colors_activated), null);
@@ -2736,6 +2742,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.g_menu_append(filters_menu, "Motion Blur...", "app.motion-blur");
     c.g_menu_append(filters_menu, "Unsharp Mask...", "app.unsharp-mask");
     c.g_menu_append(filters_menu, "Noise Reduction...", "app.noise-reduction");
+    c.g_menu_append(filters_menu, "Oilify...", "app.oilify");
     c.g_menu_append(filters_menu, "Split View", "app.split-view");
 
     const filters_btn = c.gtk_menu_button_new();

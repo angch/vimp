@@ -136,7 +136,7 @@
 
 ### Artistic Filters
 - [ ] Implement Ripple/Waves
-- [ ] Implement Oilify
+- [x] Implement Oilify
 - [ ] Implement Drop Shadow
 
 ### Light & Shadow
