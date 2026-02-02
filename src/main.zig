@@ -10,6 +10,7 @@ const TextDialog = @import("widgets/text_dialog.zig");
 const FileChooser = @import("widgets/file_chooser.zig");
 const OpenLocationDialog = @import("widgets/open_location_dialog.zig");
 const CanvasDialog = @import("widgets/canvas_dialog.zig");
+const FilterDialog = @import("widgets/filter_dialog.zig");
 const FullscreenPreview = @import("widgets/fullscreen_preview.zig");
 const RawLoader = @import("raw_loader.zig").RawLoader;
 
@@ -1916,6 +1917,18 @@ fn blur_large_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) ca
     queue_draw();
 }
 
+fn refresh_ui_callback() void {
+    refresh_header_ui();
+    refresh_undo_ui();
+    canvas_dirty = true;
+    queue_draw();
+}
+
+fn motion_blur_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
+    FilterDialog.showMotionBlurDialog(window, &engine, &refresh_ui_callback);
+}
+
 fn apply_preview_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     engine.commitPreview() catch |err| {
         show_toast("Commit preview failed: {}", .{err});
@@ -2408,6 +2421,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     add_action(app, "blur-small", @ptrCast(&blur_small_activated), null);
     add_action(app, "blur-medium", @ptrCast(&blur_medium_activated), null);
     add_action(app, "blur-large", @ptrCast(&blur_large_activated), null);
+    add_action(app, "motion-blur", @ptrCast(&motion_blur_activated), window);
     add_action(app, "apply-preview", @ptrCast(&apply_preview_activated), null);
     add_action(app, "discard-preview", @ptrCast(&discard_preview_activated), null);
     add_action(app, "invert-colors", @ptrCast(&invert_colors_activated), null);
@@ -2513,6 +2527,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.g_menu_append(filters_menu, "Blur (5px)", "app.blur-small");
     c.g_menu_append(filters_menu, "Blur (10px)", "app.blur-medium");
     c.g_menu_append(filters_menu, "Blur (20px)", "app.blur-large");
+    c.g_menu_append(filters_menu, "Motion Blur...", "app.motion-blur");
     c.g_menu_append(filters_menu, "Split View", "app.split-view");
 
     const filters_btn = c.gtk_menu_button_new();

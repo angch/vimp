@@ -126,7 +126,7 @@
 - [x] Implement On-Canvas Preview ("Split View")
 
 ### Blur Filters
-- [ ] Implement Motion Blur
+- [x] Implement Motion Blur
 - [ ] Implement Pixelize/Mosaic
 
 ### Enhancement Filters
