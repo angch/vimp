@@ -6,6 +6,7 @@ const CanvasUtils = @import("canvas_utils.zig");
 const RecentManager = @import("recent.zig").RecentManager;
 const RecentColorsManager = @import("recent_colors.zig").RecentColorsManager;
 const ImportDialogs = @import("widgets/import_dialogs.zig");
+const TextDialog = @import("widgets/text_dialog.zig");
 const FileChooser = @import("widgets/file_chooser.zig");
 const OpenLocationDialog = @import("widgets/open_location_dialog.zig");
 const CanvasDialog = @import("widgets/canvas_dialog.zig");
@@ -30,6 +31,7 @@ const Tool = enum {
     curve,
     polygon,
     lasso,
+    text,
     // pencil, // Reorder if desired, but append is safer for diffs usually
 };
 
@@ -239,6 +241,9 @@ fn tool_toggled(
                 polygon_active = false;
                 polygon_points.clearRetainingCapacity();
             },
+            .text => {
+                osd_show("Text Tool (Click to insert text)");
+            },
         }
     }
 }
@@ -301,6 +306,7 @@ var line_tool = Tool.line;
 var curve_tool = Tool.curve;
 var polygon_tool = Tool.polygon;
 var lasso_tool = Tool.lasso;
+var text_tool = Tool.text;
 
 // Curve Tool State
 const Point = struct { x: f64, y: f64 };
@@ -1074,6 +1080,39 @@ fn drag_end(
     offset_y: f64,
     user_data: ?*anyopaque,
 ) callconv(std.builtin.CallingConvention.c) void {
+    if (current_tool == .text) {
+        var start_sx: f64 = 0;
+        var start_sy: f64 = 0;
+        _ = c.gtk_gesture_drag_get_start_point(gesture, &start_sx, &start_sy);
+
+        const dist = offset_x * offset_x + offset_y * offset_y;
+        if (dist < 25.0) {
+            const start_world_x = (view_x + start_sx) / view_scale;
+            const start_world_y = (view_y + start_sy) / view_scale;
+
+            const x: i32 = @intFromFloat(start_world_x);
+            const y: i32 = @intFromFloat(start_world_y);
+
+            if (std.heap.c_allocator.create(TextContext)) |ctx| {
+                ctx.* = .{ .x = x, .y = y };
+
+                var parent_window: ?*c.GtkWindow = null;
+                if (user_data) |ud| {
+                    const widget: *c.GtkWidget = @ptrCast(@alignCast(ud));
+                    if (c.gtk_widget_get_root(widget)) |root| {
+                        parent_window = @ptrCast(@alignCast(root));
+                    }
+                }
+
+                TextDialog.showTextDialog(parent_window, &on_text_insert, ctx, &destroy_text_context) catch |err| {
+                    show_toast("Failed to show text dialog: {}", .{err});
+                    std.heap.c_allocator.destroy(ctx);
+                };
+            } else |_| {}
+        }
+        return;
+    }
+
     if (current_tool == .rect_shape or current_tool == .ellipse_shape) {
         var start_sx: f64 = 0;
         var start_sy: f64 = 0;
@@ -1479,6 +1518,30 @@ fn convertRawAndOpen(path: [:0]const u8, as_layers: bool, add_to_recent: bool) v
         allocator.free(path_dup);
         allocator.destroy(ctx);
     }
+}
+
+const TextContext = struct {
+    x: i32,
+    y: i32,
+};
+
+fn destroy_text_context(data: ?*anyopaque) void {
+    const ctx: *TextContext = @ptrCast(@alignCast(data));
+    std.heap.c_allocator.destroy(ctx);
+}
+
+fn on_text_insert(user_data: ?*anyopaque, text: [:0]const u8, size: i32) void {
+    const ctx: *TextContext = @ptrCast(@alignCast(user_data));
+
+    engine.drawText(text, ctx.x, ctx.y, size) catch |err| {
+        show_toast("Failed to draw text: {}", .{err});
+    };
+
+    refresh_layers_ui();
+    refresh_undo_ui();
+    update_view_mode();
+    canvas_dirty = true;
+    queue_draw();
 }
 
 fn finish_file_open(path: [:0]const u8, as_layers: bool, success: bool, add_to_recent: bool) void {
@@ -2521,6 +2584,10 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     // Lasso Select
     const lasso_btn = createToolButton(&lasso_tool, "edit-select-text-symbolic", "Lasso Select", @ptrCast(brush_btn), true);
     c.gtk_box_append(@ptrCast(tools_box), lasso_btn);
+
+    // Text Tool
+    const text_btn = createToolButton(&text_tool, "insert-text-symbolic", "Text Tool", @ptrCast(brush_btn), true);
+    c.gtk_box_append(@ptrCast(tools_box), text_btn);
 
     // Rectangle Shape
     const rect_shape_btn = createToolButton(&rect_shape_tool, "media-stop-symbolic", "Rectangle Tool", @ptrCast(brush_btn), true);

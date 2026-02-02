@@ -1716,6 +1716,67 @@ pub const Engine = struct {
         };
     }
 
+    pub fn drawText(self: *Engine, text: []const u8, x: i32, y: i32, size: i32) !void {
+        // 1. Create Cairo Surface
+        const w = self.canvas_width;
+        const h = self.canvas_height;
+        const surface = c.cairo_image_surface_create(c.CAIRO_FORMAT_ARGB32, w, h);
+        if (c.cairo_surface_status(surface) != c.CAIRO_STATUS_SUCCESS) return error.CairoFailed;
+        defer c.cairo_surface_destroy(surface);
+
+        const cr = c.cairo_create(surface);
+        defer c.cairo_destroy(cr);
+
+        // Clear (Transparent)
+        c.cairo_set_operator(cr, c.CAIRO_OPERATOR_CLEAR);
+        c.cairo_paint(cr);
+        c.cairo_set_operator(cr, c.CAIRO_OPERATOR_OVER);
+
+        // 2. Render Text
+        const layout = c.pango_cairo_create_layout(cr);
+        defer c.g_object_unref(layout);
+
+        c.pango_layout_set_text(layout, text.ptr, @intCast(text.len));
+
+        var desc_str: [64]u8 = undefined;
+        const desc_z = std.fmt.bufPrintZ(&desc_str, "Sans {d}px", .{size}) catch "Sans 12px";
+
+        const desc = c.pango_font_description_from_string(desc_z.ptr);
+        defer c.pango_font_description_free(desc);
+        c.pango_layout_set_font_description(layout, desc);
+
+        // Set color
+        const fg = self.fg_color;
+        c.cairo_set_source_rgba(cr, @as(f64, @floatFromInt(fg[0])) / 255.0, @as(f64, @floatFromInt(fg[1])) / 255.0, @as(f64, @floatFromInt(fg[2])) / 255.0, @as(f64, @floatFromInt(fg[3])) / 255.0);
+
+        c.cairo_move_to(cr, @floatFromInt(x), @floatFromInt(y));
+        c.pango_cairo_show_layout(cr, layout);
+
+        // 3. Convert to GeglBuffer
+        const bbox = c.GeglRectangle{ .x = 0, .y = 0, .width = w, .height = h };
+        const src_format = c.babl_format("cairo-ARGB32");
+        const layer_format = c.babl_format("R'G'B'A u8");
+        const new_buffer = c.gegl_buffer_new(&bbox, layer_format);
+        if (new_buffer == null) return error.GeglBufferFailed;
+
+        c.cairo_surface_flush(surface);
+        const data = c.cairo_image_surface_get_data(surface);
+        const stride = c.cairo_image_surface_get_stride(surface);
+
+        c.gegl_buffer_set(new_buffer, &bbox, 0, src_format, data, stride);
+
+        // 4. Add Layer
+        try self.addLayerInternal(new_buffer.?, "Text Layer", true, false, self.layers.items.len);
+
+        // Push Undo
+        const cmd = Command{
+            .layer = .{ .add = .{ .index = self.layers.items.len - 1, .snapshot = null } },
+        };
+        self.undo_stack.append(std.heap.c_allocator, cmd) catch {};
+        for (self.redo_stack.items) |*r_cmd| r_cmd.deinit();
+        self.redo_stack.clearRetainingCapacity();
+    }
+
     pub fn drawGradient(self: *Engine, x1: c_int, y1: c_int, x2: c_int, y2: c_int) !void {
         if (self.active_layer_idx >= self.layers.items.len) return;
         const layer = &self.layers.items[self.active_layer_idx];
@@ -3668,4 +3729,42 @@ test "Engine lasso undo redo" {
     try std.testing.expectEqual(engine.selection_mode, .lasso);
     try std.testing.expectEqual(engine.selection_points.items.len, 3);
     try std.testing.expectEqual(engine.selection_points.items[0].x, 10.0);
+}
+
+test "Engine draw text" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+    try engine.addLayer("Background");
+
+    engine.setFgColor(255, 0, 0, 255); // Red
+
+    // Draw text at 50,50
+    try engine.drawText("Hello", 50, 50, 24);
+
+    // Should have 2 layers now (Background + Text)
+    try std.testing.expectEqual(engine.layers.items.len, 2);
+    try std.testing.expectEqualStrings("Text Layer", std.mem.span(@as([*:0]const u8, @ptrCast(&engine.layers.items[1].name))));
+
+    // Check pixels
+    const buf = engine.layers.items[1].buffer;
+    const format = c.babl_format("R'G'B'A u8");
+    var pixel: [4]u8 = undefined;
+
+    var found = false;
+    var y: c_int = 50;
+    while (y < 80) : (y += 1) {
+        var x: c_int = 50;
+        while (x < 100) : (x += 1) {
+            c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = x, .y = y, .width = 1, .height = 1 }, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+            if (pixel[3] > 0) {
+                found = true;
+                break;
+            }
+        }
+        if (found) break;
+    }
+
+    try std.testing.expect(found);
 }

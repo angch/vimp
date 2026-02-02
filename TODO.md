@@ -64,7 +64,7 @@
 ### From `ms_paint_spec.md`
 - [x] Implement Pick Color Tool (Eyedropper)
 - [x] Implement Gradient Tool
-- [ ] Implement Text Tool
+- [x] Implement Text Tool
 - [x] Implement Line Tool (Shift for constrained angles)
 - [x] Implement Curve Tool (click to bend)
 
@@ -226,7 +226,7 @@
 - [ ] Generate detailed TODOs from `doc/gimp-file-open-spec.md`
 - [ ] Generate detailed TODOs from `doc/ms_paint_spec.md`
 - [ ] Ensure colored icons for all tools
-- [ ] Fix failing Engine PDF load test
+- [x] Fix failing Engine PDF load test
 
 ---
 
