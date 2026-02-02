@@ -141,7 +141,7 @@
 
 ### Light & Shadow
 - [ ] Implement Lighting Effects (Directional, Point, Spot)
-- [ ] Implement Supernova/Flare effect
+- [x] Implement Supernova/Flare effect
 
 ---
 

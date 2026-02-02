@@ -779,3 +779,146 @@ pub fn showWavesDialog(
 
     c.gtk_window_present(@ptrCast(dialog));
 }
+
+const SupernovaContext = struct {
+    engine: *Engine,
+    x_spin: *c.GtkWidget,
+    y_spin: *c.GtkWidget,
+    radius_spin: *c.GtkWidget,
+    spokes_spin: *c.GtkWidget,
+    color_btn: *c.GtkWidget,
+    update_cb: *const fn () void,
+};
+
+fn on_supernova_preview_change(_: *c.GtkWidget, data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const ctx: *SupernovaContext = @ptrCast(@alignCast(data));
+    const x = c.gtk_spin_button_get_value(@ptrCast(ctx.x_spin));
+    const y = c.gtk_spin_button_get_value(@ptrCast(ctx.y_spin));
+    const radius = c.gtk_spin_button_get_value(@ptrCast(ctx.radius_spin));
+    const spokes_val = c.gtk_spin_button_get_value_as_int(@ptrCast(ctx.spokes_spin));
+
+    var rgba: c.GdkRGBA = undefined;
+    c.gtk_color_chooser_get_rgba(@ptrCast(ctx.color_btn), &rgba);
+    const r: u8 = @intFromFloat(rgba.red * 255.0);
+    const g: u8 = @intFromFloat(rgba.green * 255.0);
+    const b: u8 = @intFromFloat(rgba.blue * 255.0);
+    const a: u8 = @intFromFloat(rgba.alpha * 255.0);
+
+    ctx.engine.setPreviewSupernova(x, y, radius, @intCast(spokes_val), .{r, g, b, a});
+    ctx.update_cb();
+}
+
+pub fn showSupernovaDialog(
+    parent: ?*c.GtkWindow,
+    engine: *Engine,
+    update_cb: *const fn () void,
+) void {
+    const dialog = c.adw_message_dialog_new(
+        parent,
+        "Supernova",
+        "Add a supernova flare.",
+    );
+
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "Cancel");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "apply", "Apply");
+    c.adw_message_dialog_set_default_response(@ptrCast(dialog), "apply");
+    c.adw_message_dialog_set_close_response(@ptrCast(dialog), "cancel");
+
+    const box = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 10);
+    c.gtk_widget_set_margin_top(box, 10);
+    c.gtk_widget_set_margin_bottom(box, 10);
+    c.gtk_widget_set_margin_start(box, 10);
+    c.gtk_widget_set_margin_end(box, 10);
+
+    const grid = c.gtk_grid_new();
+    c.gtk_grid_set_row_spacing(@ptrCast(grid), 10);
+    c.gtk_grid_set_column_spacing(@ptrCast(grid), 10);
+    c.gtk_widget_set_halign(grid, c.GTK_ALIGN_CENTER);
+    c.gtk_box_append(@ptrCast(box), grid);
+
+    // Center X
+    const x_label = c.gtk_label_new("Center X (px):");
+    c.gtk_widget_set_halign(x_label, c.GTK_ALIGN_END);
+    c.gtk_grid_attach(@ptrCast(grid), x_label, 0, 0, 1, 1);
+    const x_spin = c.gtk_spin_button_new_with_range(-2000.0, 10000.0, 1.0);
+    const cx: f64 = @floatFromInt(@divFloor(engine.canvas_width, 2));
+    c.gtk_spin_button_set_value(@ptrCast(x_spin), cx);
+    c.gtk_grid_attach(@ptrCast(grid), x_spin, 1, 0, 1, 1);
+
+    // Center Y
+    const y_label = c.gtk_label_new("Center Y (px):");
+    c.gtk_widget_set_halign(y_label, c.GTK_ALIGN_END);
+    c.gtk_grid_attach(@ptrCast(grid), y_label, 0, 1, 1, 1);
+    const y_spin = c.gtk_spin_button_new_with_range(-2000.0, 10000.0, 1.0);
+    const cy: f64 = @floatFromInt(@divFloor(engine.canvas_height, 2));
+    c.gtk_spin_button_set_value(@ptrCast(y_spin), cy);
+    c.gtk_grid_attach(@ptrCast(grid), y_spin, 1, 1, 1, 1);
+
+    // Radius
+    const r_label = c.gtk_label_new("Radius:");
+    c.gtk_widget_set_halign(r_label, c.GTK_ALIGN_END);
+    c.gtk_grid_attach(@ptrCast(grid), r_label, 0, 2, 1, 1);
+    const radius_spin = c.gtk_spin_button_new_with_range(1.0, 1000.0, 1.0);
+    c.gtk_spin_button_set_value(@ptrCast(radius_spin), 20.0);
+    c.gtk_grid_attach(@ptrCast(grid), radius_spin, 1, 2, 1, 1);
+
+    // Spokes
+    const s_label = c.gtk_label_new("Spokes:");
+    c.gtk_widget_set_halign(s_label, c.GTK_ALIGN_END);
+    c.gtk_grid_attach(@ptrCast(grid), s_label, 0, 3, 1, 1);
+    const spokes_spin = c.gtk_spin_button_new_with_range(1.0, 1000.0, 1.0);
+    c.gtk_spin_button_set_value(@ptrCast(spokes_spin), 100.0);
+    c.gtk_grid_attach(@ptrCast(grid), spokes_spin, 1, 3, 1, 1);
+
+    // Color
+    const c_label = c.gtk_label_new("Color:");
+    c.gtk_widget_set_halign(c_label, c.GTK_ALIGN_END);
+    c.gtk_grid_attach(@ptrCast(grid), c_label, 0, 4, 1, 1);
+
+    const color_btn = c.gtk_color_button_new();
+    const blue = c.GdkRGBA{ .red = 0.4, .green = 0.4, .blue = 1.0, .alpha = 1.0 };
+    c.gtk_color_chooser_set_rgba(@ptrCast(color_btn), &blue);
+    c.gtk_grid_attach(@ptrCast(grid), color_btn, 1, 4, 1, 1);
+
+    c.adw_message_dialog_set_extra_child(@ptrCast(dialog), box);
+
+    const ctx = std.heap.c_allocator.create(SupernovaContext) catch return;
+    ctx.* = .{
+        .engine = engine,
+        .x_spin = x_spin,
+        .y_spin = y_spin,
+        .radius_spin = radius_spin,
+        .spokes_spin = spokes_spin,
+        .color_btn = color_btn,
+        .update_cb = update_cb,
+    };
+
+    _ = c.g_signal_connect_data(x_spin, "value-changed", @ptrCast(&on_supernova_preview_change), ctx, null, 0);
+    _ = c.g_signal_connect_data(y_spin, "value-changed", @ptrCast(&on_supernova_preview_change), ctx, null, 0);
+    _ = c.g_signal_connect_data(radius_spin, "value-changed", @ptrCast(&on_supernova_preview_change), ctx, null, 0);
+    _ = c.g_signal_connect_data(spokes_spin, "value-changed", @ptrCast(&on_supernova_preview_change), ctx, null, 0);
+    _ = c.g_signal_connect_data(color_btn, "color-set", @ptrCast(&on_supernova_preview_change), ctx, null, 0);
+
+    engine.setPreviewSupernova(cx, cy, 20.0, 100, .{ 102, 102, 255, 255 });
+    update_cb();
+
+    const on_response = struct {
+        fn func(d: *c.AdwMessageDialog, response: [*c]const u8, data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+            const context: *SupernovaContext = @ptrCast(@alignCast(data));
+            defer std.heap.c_allocator.destroy(context);
+
+            const resp_span = std.mem.span(response);
+            if (std.mem.eql(u8, resp_span, "apply")) {
+                context.engine.commitPreview() catch {};
+            } else {
+                context.engine.cancelPreview();
+            }
+            context.update_cb();
+            c.gtk_window_destroy(@ptrCast(d));
+        }
+    }.func;
+
+    _ = c.g_signal_connect_data(dialog, "response", @ptrCast(&on_response), ctx, null, 0);
+
+    c.gtk_window_present(@ptrCast(dialog));
+}
