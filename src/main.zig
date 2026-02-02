@@ -12,6 +12,7 @@ const OpenLocationDialog = @import("widgets/open_location_dialog.zig");
 const CanvasDialog = @import("widgets/canvas_dialog.zig");
 const FilterDialog = @import("widgets/filter_dialog.zig");
 const FullscreenPreview = @import("widgets/fullscreen_preview.zig");
+const ThumbnailWindow = @import("widgets/thumbnail_window.zig");
 const CommandPalette = @import("widgets/command_palette.zig");
 const RawLoader = @import("raw_loader.zig").RawLoader;
 
@@ -50,6 +51,8 @@ var current_tool: Tool = .brush;
 
 var ants_offset: f64 = 0.0;
 var ants_timer_id: c_uint = 0;
+
+var thumbnail_ctx: ThumbnailWindow.ThumbnailContext = undefined;
 
 var layers_list_box: ?*c.GtkWidget = null;
 var recent_list_box: ?*c.GtkWidget = null;
@@ -897,7 +900,7 @@ fn scroll_func(
         canvas_dirty = true;
     }
 
-    c.gtk_widget_queue_draw(widget);
+    queue_draw();
 
     return 1; // Handled
 }
@@ -1047,7 +1050,7 @@ fn drag_update(
         view_y -= dy;
         canvas_dirty = true;
 
-        c.gtk_widget_queue_draw(widget);
+        queue_draw();
     } else if (button == 1) {
         // Paint (Left Mouse)
         if (current_tool == .bucket_fill) {
@@ -2184,6 +2187,13 @@ fn view_bitmap_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyo
     }
 }
 
+fn view_thumbnail_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
+    if (window) |w| {
+        ThumbnailWindow.show(w, &thumbnail_ctx);
+    }
+}
+
 fn command_palette_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
     // We need the app pointer, which we can get from the window or pass it?
@@ -2217,6 +2227,7 @@ fn queue_draw() void {
     if (drawing_area) |w| {
         c.gtk_widget_queue_draw(w);
     }
+    ThumbnailWindow.refresh();
 }
 
 fn refresh_layers_ui() void {
@@ -2603,6 +2614,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     add_action(app, "rotate-270", @ptrCast(&rotate_270_activated), null);
     add_action(app, "canvas-size", @ptrCast(&canvas_size_activated), window);
     add_action(app, "view-bitmap", @ptrCast(&view_bitmap_activated), window);
+    add_action(app, "view-thumbnail", @ptrCast(&view_thumbnail_activated), window);
     add_action(app, "command-palette", @ptrCast(&command_palette_activated), window);
 
     // Split View Action (Stateful)
@@ -2714,6 +2726,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     // View Menu
     const view_menu = c.g_menu_new();
     c.g_menu_append(view_menu, "View Bitmap", "app.view-bitmap");
+    c.g_menu_append(view_menu, "Overview (Thumbnail)", "app.view-thumbnail");
 
     const view_btn = c.gtk_menu_button_new();
     c.gtk_menu_button_set_label(@ptrCast(view_btn), "View");
@@ -3022,6 +3035,16 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.gtk_widget_set_vexpand(area, 1);
     c.gtk_drawing_area_set_draw_func(@ptrCast(area), draw_func, null, null);
     c.gtk_overlay_set_child(@ptrCast(overlay), area);
+
+    // Init Thumbnail Context
+    thumbnail_ctx = .{
+        .engine = &engine,
+        .view_x = &view_x,
+        .view_y = &view_y,
+        .view_scale = &view_scale,
+        .main_drawing_area = area,
+        .queue_draw_main = &queue_draw,
+    };
 
     // OSD Widget
     const osd_revealer = c.gtk_revealer_new();
