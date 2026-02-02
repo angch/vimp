@@ -127,7 +127,7 @@
 
 ### Blur Filters
 - [x] Implement Motion Blur
-- [ ] Implement Pixelize/Mosaic
+- [x] Implement Pixelize/Mosaic
 
 ### Enhancement Filters
 - [ ] Implement Unsharp Mask (Sharpen)

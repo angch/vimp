@@ -2075,6 +2075,11 @@ fn refresh_ui_callback() void {
     queue_draw();
 }
 
+fn pixelize_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
+    FilterDialog.showPixelizeDialog(window, &engine, &refresh_ui_callback);
+}
+
 fn motion_blur_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
     FilterDialog.showMotionBlurDialog(window, &engine, &refresh_ui_callback);
@@ -2602,6 +2607,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     add_action(app, "blur-small", @ptrCast(&blur_small_activated), null);
     add_action(app, "blur-medium", @ptrCast(&blur_medium_activated), null);
     add_action(app, "blur-large", @ptrCast(&blur_large_activated), null);
+    add_action(app, "pixelize", @ptrCast(&pixelize_activated), window);
     add_action(app, "motion-blur", @ptrCast(&motion_blur_activated), window);
     add_action(app, "apply-preview", @ptrCast(&apply_preview_activated), null);
     add_action(app, "discard-preview", @ptrCast(&discard_preview_activated), null);
@@ -2714,6 +2720,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.g_menu_append(filters_menu, "Blur (5px)", "app.blur-small");
     c.g_menu_append(filters_menu, "Blur (10px)", "app.blur-medium");
     c.g_menu_append(filters_menu, "Blur (20px)", "app.blur-large");
+    c.g_menu_append(filters_menu, "Pixelize...", "app.pixelize");
     c.g_menu_append(filters_menu, "Motion Blur...", "app.motion-blur");
     c.g_menu_append(filters_menu, "Split View", "app.split-view");
 
