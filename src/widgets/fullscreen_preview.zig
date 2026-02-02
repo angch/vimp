@@ -12,7 +12,7 @@ pub fn showFullscreenPreview(parent: *c.GtkWindow, engine: *Engine) void {
     const window = c.gtk_window_new();
     c.gtk_window_set_transient_for(@ptrCast(window), parent);
     c.gtk_window_set_modal(@ptrCast(window), 1);
-    c.gtk_window_set_fullscreened(@ptrCast(window), 1);
+    c.gtk_window_fullscreen(@ptrCast(window));
     c.gtk_window_set_decorated(@ptrCast(window), 0);
 
     // Set background black using CSS
