@@ -48,7 +48,7 @@
 - [ ] Implement Properties Sidebar (contextual tool options)
 
 ### Selection Feedback
-- [ ] Implement HUD for live dimensions during selection/transform
+- [x] Implement HUD for live dimensions during selection/transform
 
 ---
 

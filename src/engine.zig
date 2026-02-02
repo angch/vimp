@@ -238,6 +238,7 @@ pub const Engine = struct {
     selection: ?c.GeglRectangle = null,
     selection_mode: SelectionMode = .rectangle,
     preview_shape: ?ShapePreview = null,
+    preview_bbox: ?c.GeglRectangle = null,
 
     // Preview State
     preview_mode: PreviewMode = .none,
@@ -299,6 +300,8 @@ pub const Engine = struct {
         // Reset state
         self.active_layer_idx = 0;
         self.selection = null;
+        self.preview_shape = null;
+        self.preview_bbox = null;
         self.preview_mode = .none;
         self.canvas_width = 800;
         self.canvas_height = 600;
@@ -646,6 +649,8 @@ pub const Engine = struct {
     }
 
     pub fn rebuildGraph(self: *Engine) void {
+        self.preview_bbox = null;
+
         // 1. Clear old composition nodes
         for (self.composition_nodes.items) |node| {
             _ = c.gegl_node_remove_child(self.graph, node);
@@ -972,15 +977,28 @@ pub const Engine = struct {
                     const cy = @as(f64, @floatFromInt(extent.*.y)) + @as(f64, @floatFromInt(extent.*.height)) / 2.0;
                     const tp = self.preview_transform;
 
-                    var buf: [256]u8 = undefined;
-                    // Order: Translate Center -> Scale -> Rotate -> Translate Back -> Translate Offset
-                    // String: "translate(cx+tx, cy+ty) rotate(r) scale(s) translate(-cx, -cy)"
-                    const transform_str = std.fmt.bufPrintZ(&buf, "translate({d}, {d}) rotate({d}) scale({d}) translate({d}, {d})", .{ cx + tp.x, cy + tp.y, tp.rotate, tp.scale, -cx, -cy }) catch "translate(0,0)";
+                    // Chain: Translate(-cx, -cy) -> Scale -> Rotate -> Translate(cx+tx, cy+ty)
+                    // Note: GEGL operations apply transformation to the content.
+                    // To pivot around center: Move content so center is at origin, rotate/scale, move back.
 
-                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:transform", "transform", transform_str.ptr, @as(?*anyopaque, null))) |trans_node| {
-                        _ = c.gegl_node_connect(trans_node, "input", source_output, "output");
-                        self.composition_nodes.append(std.heap.c_allocator, trans_node) catch {};
-                        source_output = trans_node;
+                    const t1 = c.gegl_node_new_child(self.graph, "operation", "gegl:translate", "x", -cx, "y", -cy, @as(?*anyopaque, null));
+                    const scale = c.gegl_node_new_child(self.graph, "operation", "gegl:scale-ratio", "x", tp.scale, "y", tp.scale, @as(?*anyopaque, null));
+                    const rotate = c.gegl_node_new_child(self.graph, "operation", "gegl:rotate", "degrees", tp.rotate, @as(?*anyopaque, null));
+                    const t2 = c.gegl_node_new_child(self.graph, "operation", "gegl:translate", "x", cx + tp.x, "y", cy + tp.y, @as(?*anyopaque, null));
+
+                    if (t1 != null and scale != null and rotate != null and t2 != null) {
+                        _ = c.gegl_node_connect(t1, "input", source_output, "output");
+                        _ = c.gegl_node_connect(scale, "input", t1, "output");
+                        _ = c.gegl_node_connect(rotate, "input", scale, "output");
+                        _ = c.gegl_node_connect(t2, "input", rotate, "output");
+
+                        self.composition_nodes.append(std.heap.c_allocator, t1.?) catch {};
+                        self.composition_nodes.append(std.heap.c_allocator, scale.?) catch {};
+                        self.composition_nodes.append(std.heap.c_allocator, rotate.?) catch {};
+                        self.composition_nodes.append(std.heap.c_allocator, t2.?) catch {};
+
+                        source_output = t2.?;
+                        self.preview_bbox = c.gegl_node_get_bounding_box(t2);
                     }
                 } else if (self.preview_mode == .drop_shadow) {
                     if (c.gegl_node_new_child(self.graph, "operation", "gegl:dropshadow",
@@ -4978,4 +4996,30 @@ test "Engine supernova" {
     // If applied, it would be > 0.
     // We can assert pixel[3] >= 0 which is trivial, but confirms we read something.
     try std.testing.expect(pixel[3] >= 0);
+}
+
+test "Engine transform preview bbox" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+    try engine.addLayer("Background");
+
+    // Paint to ensure layer has content if needed, but buffer is allocated with size.
+    engine.setFgColor(255, 0, 0, 255);
+    engine.paintStroke(100, 100, 100, 100, 1.0);
+
+    // Set Transform Preview: Translate +50, +50
+    engine.setTransformPreview(.{ .x = 50.0, .y = 50.0 });
+
+    // Check preview_bbox
+    try std.testing.expect(engine.preview_bbox != null);
+    if (engine.preview_bbox) |bbox| {
+        // Original Layer Extent: 0, 0, 800, 600
+        // Translated by 50, 50 -> 50, 50, 800, 600
+        try std.testing.expectEqual(bbox.x, 50);
+        try std.testing.expectEqual(bbox.y, 50);
+        try std.testing.expectEqual(bbox.width, 800);
+        try std.testing.expectEqual(bbox.height, 600);
+    }
 }

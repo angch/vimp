@@ -689,6 +689,40 @@ fn draw_func(
                 }
             }
 
+            // Draw Transform Preview HUD
+            if (current_tool == .unified_transform and engine.preview_mode == .transform) {
+                if (engine.preview_bbox) |bbox| {
+                    const r: f64 = @floatFromInt(bbox.x);
+                    const g: f64 = @floatFromInt(bbox.y);
+                    const w: f64 = @floatFromInt(bbox.width);
+                    const h: f64 = @floatFromInt(bbox.height);
+
+                    const sx = r * view_scale - view_x;
+                    const sy = g * view_scale - view_y;
+                    const sw = w * view_scale;
+                    const sh = h * view_scale;
+
+                    c.cairo_save(cr_ctx);
+                    c.cairo_rectangle(cr_ctx, sx, sy, sw, sh);
+
+                    const dash = [_]f64{ 4.0, 4.0 };
+                    c.cairo_set_dash(cr_ctx, &dash, 2, 0.0);
+                    c.cairo_set_line_width(cr_ctx, 1.0);
+
+                    // Contrast stroke (Black on White)
+                    c.cairo_set_source_rgb(cr_ctx, 1.0, 1.0, 1.0); // White
+                    c.cairo_stroke_preserve(cr_ctx);
+
+                    c.cairo_set_source_rgb(cr_ctx, 0.0, 0.0, 0.0); // Black
+                    c.cairo_set_dash(cr_ctx, &dash, 2, 4.0); // Offset
+                    c.cairo_stroke(cr_ctx);
+
+                    c.cairo_restore(cr_ctx);
+
+                    drawDimensions(cr_ctx, sx + sw, sy + sh, bbox.width, bbox.height);
+                }
+            }
+
             // Draw Shape Preview
             if (engine.preview_shape) |shape| {
                 if (shape.type == .rectangle) {
