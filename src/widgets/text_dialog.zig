@@ -39,6 +39,7 @@ fn dialog_response(dialog: *c.AdwMessageDialog, response: [*c]const u8, user_dat
 
 pub fn showTextDialog(
     parent: ?*c.GtkWindow,
+    initial_size: i32,
     callback: TextDialogCallback,
     user_data: ?*anyopaque,
     destroy: ?DestroyCallback,
@@ -66,7 +67,7 @@ pub fn showTextDialog(
     c.gtk_box_append(@ptrCast(size_row), c.gtk_label_new("Size (px):"));
 
     const size_spin = c.gtk_spin_button_new_with_range(8.0, 500.0, 1.0);
-    c.gtk_spin_button_set_value(@ptrCast(size_spin), 24.0);
+    c.gtk_spin_button_set_value(@ptrCast(size_spin), @as(f64, @floatFromInt(initial_size)));
     c.gtk_box_append(@ptrCast(size_row), size_spin);
     c.gtk_box_append(@ptrCast(box), size_row);
 
