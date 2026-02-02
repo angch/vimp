@@ -2230,6 +2230,11 @@ fn red_eye_removal_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*
     FilterDialog.showRedEyeRemovalDialog(window, &engine, &refresh_ui_callback);
 }
 
+fn waves_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
+    FilterDialog.showWavesDialog(window, &engine, &refresh_ui_callback);
+}
+
 fn apply_preview_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     engine.commitPreview() catch |err| {
         show_toast("Commit preview failed: {}", .{err});
@@ -2759,6 +2764,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     add_action(app, "oilify", @ptrCast(&oilify_activated), window);
     add_action(app, "drop-shadow", @ptrCast(&drop_shadow_activated), window);
     add_action(app, "red-eye-removal", @ptrCast(&red_eye_removal_activated), window);
+    add_action(app, "waves", @ptrCast(&waves_activated), window);
     add_action(app, "apply-preview", @ptrCast(&apply_preview_activated), null);
     add_action(app, "discard-preview", @ptrCast(&discard_preview_activated), null);
     add_action(app, "invert-colors", @ptrCast(&invert_colors_activated), null);
@@ -2877,6 +2883,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.g_menu_append(filters_menu, "Oilify...", "app.oilify");
     c.g_menu_append(filters_menu, "Drop Shadow...", "app.drop-shadow");
     c.g_menu_append(filters_menu, "Red Eye Removal...", "app.red-eye-removal");
+    c.g_menu_append(filters_menu, "Waves...", "app.waves");
     c.g_menu_append(filters_menu, "Split View", "app.split-view");
 
     const filters_btn = c.gtk_menu_button_new();

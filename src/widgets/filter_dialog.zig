@@ -671,3 +671,111 @@ pub fn showRedEyeRemovalDialog(
 
     c.gtk_window_present(@ptrCast(dialog));
 }
+
+const WavesContext = struct {
+    engine: *Engine,
+    amplitude_spin: *c.GtkWidget,
+    phase_spin: *c.GtkWidget,
+    wavelength_spin: *c.GtkWidget,
+    update_cb: *const fn () void,
+};
+
+fn on_waves_preview_change(_: *c.GtkWidget, data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const ctx: *WavesContext = @ptrCast(@alignCast(data));
+    const amplitude = c.gtk_spin_button_get_value(@ptrCast(ctx.amplitude_spin));
+    const phase = c.gtk_spin_button_get_value(@ptrCast(ctx.phase_spin));
+    const wavelength = c.gtk_spin_button_get_value(@ptrCast(ctx.wavelength_spin));
+    ctx.engine.setPreviewWaves(amplitude, phase, wavelength);
+    ctx.update_cb();
+}
+
+pub fn showWavesDialog(
+    parent: ?*c.GtkWindow,
+    engine: *Engine,
+    update_cb: *const fn () void,
+) void {
+    const dialog = c.adw_message_dialog_new(
+        parent,
+        "Waves",
+        "Add concentric waves.",
+    );
+
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "Cancel");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "apply", "Apply");
+    c.adw_message_dialog_set_default_response(@ptrCast(dialog), "apply");
+    c.adw_message_dialog_set_close_response(@ptrCast(dialog), "cancel");
+
+    const box = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 10);
+    c.gtk_widget_set_margin_top(box, 10);
+    c.gtk_widget_set_margin_bottom(box, 10);
+    c.gtk_widget_set_margin_start(box, 10);
+    c.gtk_widget_set_margin_end(box, 10);
+
+    const grid = c.gtk_grid_new();
+    c.gtk_grid_set_row_spacing(@ptrCast(grid), 10);
+    c.gtk_grid_set_column_spacing(@ptrCast(grid), 10);
+    c.gtk_widget_set_halign(grid, c.GTK_ALIGN_CENTER);
+    c.gtk_box_append(@ptrCast(box), grid);
+
+    // Amplitude
+    const a_label = c.gtk_label_new("Amplitude:");
+    c.gtk_widget_set_halign(a_label, c.GTK_ALIGN_END);
+    c.gtk_grid_attach(@ptrCast(grid), a_label, 0, 0, 1, 1);
+    const amplitude_spin = c.gtk_spin_button_new_with_range(0.0, 100.0, 1.0);
+    c.gtk_spin_button_set_value(@ptrCast(amplitude_spin), 30.0);
+    c.gtk_grid_attach(@ptrCast(grid), amplitude_spin, 1, 0, 1, 1);
+
+    // Phase
+    const p_label = c.gtk_label_new("Phase:");
+    c.gtk_widget_set_halign(p_label, c.GTK_ALIGN_END);
+    c.gtk_grid_attach(@ptrCast(grid), p_label, 0, 1, 1, 1);
+    const phase_spin = c.gtk_spin_button_new_with_range(0.0, 360.0, 1.0);
+    c.gtk_spin_button_set_value(@ptrCast(phase_spin), 0.0);
+    c.gtk_grid_attach(@ptrCast(grid), phase_spin, 1, 1, 1, 1);
+
+    // Wavelength
+    const w_label = c.gtk_label_new("Wavelength:");
+    c.gtk_widget_set_halign(w_label, c.GTK_ALIGN_END);
+    c.gtk_grid_attach(@ptrCast(grid), w_label, 0, 2, 1, 1);
+    const wavelength_spin = c.gtk_spin_button_new_with_range(0.1, 100.0, 1.0);
+    c.gtk_spin_button_set_value(@ptrCast(wavelength_spin), 20.0);
+    c.gtk_grid_attach(@ptrCast(grid), wavelength_spin, 1, 2, 1, 1);
+
+    c.adw_message_dialog_set_extra_child(@ptrCast(dialog), box);
+
+    const ctx = std.heap.c_allocator.create(WavesContext) catch return;
+    ctx.* = .{
+        .engine = engine,
+        .amplitude_spin = amplitude_spin,
+        .phase_spin = phase_spin,
+        .wavelength_spin = wavelength_spin,
+        .update_cb = update_cb,
+    };
+
+    _ = c.g_signal_connect_data(amplitude_spin, "value-changed", @ptrCast(&on_waves_preview_change), ctx, null, 0);
+    _ = c.g_signal_connect_data(phase_spin, "value-changed", @ptrCast(&on_waves_preview_change), ctx, null, 0);
+    _ = c.g_signal_connect_data(wavelength_spin, "value-changed", @ptrCast(&on_waves_preview_change), ctx, null, 0);
+
+    engine.setPreviewWaves(30.0, 0.0, 20.0);
+    update_cb();
+
+    const on_response = struct {
+        fn func(d: *c.AdwMessageDialog, response: [*c]const u8, data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+            const context: *WavesContext = @ptrCast(@alignCast(data));
+            defer std.heap.c_allocator.destroy(context);
+
+            const resp_span = std.mem.span(response);
+            if (std.mem.eql(u8, resp_span, "apply")) {
+                context.engine.commitPreview() catch {};
+            } else {
+                context.engine.cancelPreview();
+            }
+            context.update_cb();
+            c.gtk_window_destroy(@ptrCast(d));
+        }
+    }.func;
+
+    _ = c.g_signal_connect_data(dialog, "response", @ptrCast(&on_response), ctx, null, 0);
+
+    c.gtk_window_present(@ptrCast(dialog));
+}

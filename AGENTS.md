@@ -184,3 +184,8 @@ term planning.
   - If single page selected + "Separate Images": Resets engine and loads page (Standard "Open").
   - If multiple pages selected + "Separate Images": Shows warning toast and falls back to "Open as Layers" (appending to current or new image), as creating multiple windows/tabs is not supported yet.
 - **Future**: When MDI/Tabs are supported, `on_pdf_import` should be updated to spawn new instances for each page.
+
+### 2026-01-31: Ripple/Waves Filter
+- Implemented `gegl:waves` support in `src/engine.zig`.
+- Added "Waves" dialog with Amplitude, Phase, and Wavelength controls.
+- Note: `gegl:waves` operation is missing in the development environment (similar to oilify), causing passthrough behavior in tests.
