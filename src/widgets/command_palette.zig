@@ -27,6 +27,11 @@ const commands = [_]CommandEntry{
     .{ .name = "Blur (10px)", .action = "app.blur-medium" },
     .{ .name = "Blur (20px)", .action = "app.blur-large" },
     .{ .name = "Motion Blur...", .action = "app.motion-blur" },
+    // Missing filters added for completeness
+    .{ .name = "Unsharp Mask...", .action = "app.unsharp-mask" },
+    .{ .name = "Noise Reduction...", .action = "app.noise-reduction" },
+    .{ .name = "Oilify...", .action = "app.oilify" },
+    .{ .name = "Drop Shadow...", .action = "app.drop-shadow" },
     .{ .name = "Toggle Split View", .action = "app.split-view" }, // Note: Toggle actions usually take a parameter, but stateful actions can be toggled by activating with no param or handling it.
     // However, split-view is stateful. Activating it might not toggle it automatically if not handled.
     // In main.zig: c.g_signal_connect_data(split_action, "change-state", ...)
