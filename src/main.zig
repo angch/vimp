@@ -25,6 +25,7 @@ const Tool = enum {
     ellipse_select,
     rect_shape,
     ellipse_shape,
+    rounded_rect_shape,
     unified_transform,
     color_picker,
     gradient,
@@ -218,6 +219,9 @@ fn tool_toggled(
             .ellipse_shape => {
                 osd_show("Ellipse Tool");
             },
+            .rounded_rect_shape => {
+                osd_show("Rounded Rectangle Tool");
+            },
             .unified_transform => {
                 osd_show("Unified Transform");
             },
@@ -309,6 +313,7 @@ var rect_select_tool = Tool.rect_select;
 var ellipse_select_tool = Tool.ellipse_select;
 var rect_shape_tool = Tool.rect_shape;
 var ellipse_shape_tool = Tool.ellipse_shape;
+var rounded_rect_shape_tool = Tool.rounded_rect_shape;
 var unified_transform_tool = Tool.unified_transform;
 var color_picker_tool = Tool.color_picker;
 var gradient_tool = Tool.gradient;
@@ -553,6 +558,41 @@ fn draw_func(
                     c.cairo_restore(cr_ctx);
 
                     c.cairo_save(cr_ctx);
+                    const fg = engine.fg_color;
+                    c.cairo_set_source_rgba(cr_ctx, @as(f64, @floatFromInt(fg[0])) / 255.0, @as(f64, @floatFromInt(fg[1])) / 255.0, @as(f64, @floatFromInt(fg[2])) / 255.0, @as(f64, @floatFromInt(fg[3])) / 255.0);
+
+                    if (shape.filled) {
+                        c.cairo_fill(cr_ctx);
+                    } else {
+                        const thickness = @as(f64, @floatFromInt(shape.thickness)) * view_scale;
+                        c.cairo_set_line_width(cr_ctx, thickness);
+                        c.cairo_stroke(cr_ctx);
+                    }
+                    c.cairo_restore(cr_ctx);
+                } else if (shape.type == .rounded_rectangle) {
+                    const r: f64 = @floatFromInt(shape.x);
+                    const g: f64 = @floatFromInt(shape.y);
+                    const w: f64 = @floatFromInt(shape.width);
+                    const h: f64 = @floatFromInt(shape.height);
+                    const radius: f64 = @floatFromInt(shape.radius);
+
+                    const sx = r * view_scale - view_x;
+                    const sy = g * view_scale - view_y;
+                    const sw = w * view_scale;
+                    const sh = h * view_scale;
+                    const sr = radius * view_scale;
+
+                    c.cairo_save(cr_ctx);
+
+                    // Rounded rect path
+                    const degrees = std.math.pi / 180.0;
+                    c.cairo_new_sub_path(cr_ctx);
+                    c.cairo_arc(cr_ctx, sx + sw - sr, sy + sr, sr, -90.0 * degrees, 0.0 * degrees);
+                    c.cairo_arc(cr_ctx, sx + sw - sr, sy + sh - sr, sr, 0.0 * degrees, 90.0 * degrees);
+                    c.cairo_arc(cr_ctx, sx + sr, sy + sh - sr, sr, 90.0 * degrees, 180.0 * degrees);
+                    c.cairo_arc(cr_ctx, sx + sr, sy + sr, sr, 180.0 * degrees, 270.0 * degrees);
+                    c.cairo_close_path(cr_ctx);
+
                     const fg = engine.fg_color;
                     c.cairo_set_source_rgba(cr_ctx, @as(f64, @floatFromInt(fg[0])) / 255.0, @as(f64, @floatFromInt(fg[1])) / 255.0, @as(f64, @floatFromInt(fg[2])) / 255.0, @as(f64, @floatFromInt(fg[3])) / 255.0);
 
@@ -823,7 +863,7 @@ fn drag_begin(
                         c.gtk_color_chooser_set_rgba(@ptrCast(btn), &rgba);
                     }
                 } else |_| {}
-            } else if (current_tool == .rect_shape or current_tool == .ellipse_shape) {
+            } else if (current_tool == .rect_shape or current_tool == .ellipse_shape or current_tool == .rounded_rect_shape) {
                 // Do nothing at start, render preview during drag
             } else if (current_tool == .gradient) {
                 engine.beginTransaction();
@@ -1024,7 +1064,7 @@ fn drag_update(
             return;
         }
 
-        if (current_tool == .rect_shape or current_tool == .ellipse_shape) {
+        if (current_tool == .rect_shape or current_tool == .ellipse_shape or current_tool == .rounded_rect_shape) {
             // Dragging shape
             const start_world_x = (view_x + start_sx) / view_scale;
             const start_world_y = (view_y + start_sy) / view_scale;
@@ -1038,6 +1078,11 @@ fn drag_update(
             if (current_tool == .ellipse_shape) {
                 // Update type
                 if (engine.preview_shape) |*s| s.type = .ellipse;
+            } else if (current_tool == .rounded_rect_shape) {
+                if (engine.preview_shape) |*s| {
+                    s.type = .rounded_rectangle;
+                    s.radius = 20;
+                }
             }
 
             c.gtk_widget_queue_draw(widget);
@@ -1142,7 +1187,7 @@ fn drag_end(
         return;
     }
 
-    if (current_tool == .rect_shape or current_tool == .ellipse_shape) {
+    if (current_tool == .rect_shape or current_tool == .ellipse_shape or current_tool == .rounded_rect_shape) {
         var start_sx: f64 = 0;
         var start_sy: f64 = 0;
         _ = c.gtk_gesture_drag_get_start_point(gesture, &start_sx, &start_sy);
@@ -1163,6 +1208,10 @@ fn drag_end(
         if (current_tool == .rect_shape) {
             engine.drawRectangle(min_x, min_y, w, h, engine.brush_size, false) catch |err| {
                 show_toast("Failed to draw rect: {}", .{err});
+            };
+        } else if (current_tool == .rounded_rect_shape) {
+            engine.drawRoundedRectangle(min_x, min_y, w, h, 20, engine.brush_size, false) catch |err| {
+                show_toast("Failed to draw rounded rect: {}", .{err});
             };
         } else {
             engine.drawEllipse(min_x, min_y, w, h, engine.brush_size, false) catch |err| {
@@ -2635,6 +2684,10 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     // Rectangle Shape
     const rect_shape_btn = createToolButton(&rect_shape_tool, "media-stop-symbolic", "Rectangle Tool", @ptrCast(brush_btn), true);
     c.gtk_box_append(@ptrCast(tools_box), rect_shape_btn);
+
+    // Rounded Rectangle Shape
+    const rounded_rect_shape_btn = createToolButton(&rounded_rect_shape_tool, "media-playlist-consecutive-symbolic", "Rounded Rectangle Tool", @ptrCast(brush_btn), true);
+    c.gtk_box_append(@ptrCast(tools_box), rounded_rect_shape_btn);
 
     // Ellipse Shape
     const ellipse_shape_btn = createToolButton(&ellipse_shape_tool, "media-record-symbolic", "Ellipse Tool", @ptrCast(brush_btn), true);

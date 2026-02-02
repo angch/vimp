@@ -71,7 +71,7 @@
 ### Shape Tools (from `ms_paint_spec.md`)
 - [x] Implement Rectangle Shape Tool
 - [x] Implement Ellipse Shape Tool
-- [ ] Implement Rounded Rectangle Tool
+- [x] Implement Rounded Rectangle Tool
 - [x] Implement Polygon Tool
 
 ---
