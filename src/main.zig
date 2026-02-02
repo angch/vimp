@@ -2633,10 +2633,27 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     const tools_label = c.gtk_label_new("Tools");
     c.gtk_box_append(@ptrCast(sidebar), tools_label);
 
-    // Tools Container
-    const tools_box = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 5);
-    c.gtk_widget_set_halign(tools_box, c.GTK_ALIGN_CENTER);
-    c.gtk_box_append(@ptrCast(sidebar), tools_box);
+    // Tools Container (Vertical to hold rows)
+    const tools_container = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 5);
+    c.gtk_widget_set_halign(tools_container, c.GTK_ALIGN_CENTER);
+    c.gtk_box_append(@ptrCast(sidebar), tools_container);
+
+    var tools_row_box: ?*c.GtkWidget = null;
+    var tools_in_row: usize = 0;
+
+    const appendTool = struct {
+        fn func(container: *c.GtkWidget, btn: *c.GtkWidget, row_ref: *?*c.GtkWidget, count_ref: *usize) void {
+            if (row_ref.* == null or count_ref.* >= 6) {
+                const row = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 5);
+                c.gtk_widget_set_halign(row, c.GTK_ALIGN_CENTER);
+                c.gtk_box_append(@ptrCast(container), row);
+                row_ref.* = row;
+                count_ref.* = 0;
+            }
+            c.gtk_box_append(@ptrCast(row_ref.*.?), btn);
+            count_ref.* += 1;
+        }
+    }.func;
 
     const createToolButton = struct {
         fn func(tool_val: *Tool, icon_path: [:0]const u8, tooltip: [:0]const u8, group: ?*c.GtkToggleButton, is_icon_name: bool) *c.GtkWidget {
@@ -2659,76 +2676,76 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
 
     // Brush
     const brush_btn = createToolButton(&brush_tool, "assets/brush.png", "Brush", null, false);
-    c.gtk_box_append(@ptrCast(tools_box), brush_btn);
+    appendTool(tools_container, brush_btn, &tools_row_box, &tools_in_row);
     c.gtk_toggle_button_set_active(@ptrCast(brush_btn), 1);
 
     // Pencil
     const pencil_btn = createToolButton(&pencil_tool, "assets/pencil.png", "Pencil", @ptrCast(brush_btn), false);
-    c.gtk_box_append(@ptrCast(tools_box), pencil_btn);
+    appendTool(tools_container, pencil_btn, &tools_row_box, &tools_in_row);
 
     // Airbrush
     const airbrush_btn = createToolButton(&airbrush_tool, "assets/airbrush.png", "Airbrush", @ptrCast(brush_btn), false);
-    c.gtk_box_append(@ptrCast(tools_box), airbrush_btn);
+    appendTool(tools_container, airbrush_btn, &tools_row_box, &tools_in_row);
 
     // Eraser
     const eraser_btn = createToolButton(&eraser_tool, "assets/eraser.png", "Eraser", @ptrCast(brush_btn), false);
-    c.gtk_box_append(@ptrCast(tools_box), eraser_btn);
+    appendTool(tools_container, eraser_btn, &tools_row_box, &tools_in_row);
 
     // Bucket Fill
     const fill_btn = createToolButton(&bucket_fill_tool, "assets/bucket.png", "Bucket Fill", @ptrCast(brush_btn), false);
-    c.gtk_box_append(@ptrCast(tools_box), fill_btn);
+    appendTool(tools_container, fill_btn, &tools_row_box, &tools_in_row);
 
     // Rect Select
     const select_btn = createToolButton(&rect_select_tool, "edit-select-symbolic", "Rectangle Select", @ptrCast(brush_btn), true);
-    c.gtk_box_append(@ptrCast(tools_box), select_btn);
+    appendTool(tools_container, select_btn, &tools_row_box, &tools_in_row);
 
     // Ellipse Select
     const ellipse_btn = createToolButton(&ellipse_select_tool, "media-record-symbolic", "Ellipse Select", @ptrCast(brush_btn), true);
-    c.gtk_box_append(@ptrCast(tools_box), ellipse_btn);
+    appendTool(tools_container, ellipse_btn, &tools_row_box, &tools_in_row);
 
     // Lasso Select
     const lasso_btn = createToolButton(&lasso_tool, "edit-select-text-symbolic", "Lasso Select", @ptrCast(brush_btn), true);
-    c.gtk_box_append(@ptrCast(tools_box), lasso_btn);
+    appendTool(tools_container, lasso_btn, &tools_row_box, &tools_in_row);
 
     // Text Tool
     const text_btn = createToolButton(&text_tool, "insert-text-symbolic", "Text Tool", @ptrCast(brush_btn), true);
-    c.gtk_box_append(@ptrCast(tools_box), text_btn);
+    appendTool(tools_container, text_btn, &tools_row_box, &tools_in_row);
 
     // Rectangle Shape
     const rect_shape_btn = createToolButton(&rect_shape_tool, "media-stop-symbolic", "Rectangle Tool", @ptrCast(brush_btn), true);
-    c.gtk_box_append(@ptrCast(tools_box), rect_shape_btn);
+    appendTool(tools_container, rect_shape_btn, &tools_row_box, &tools_in_row);
 
     // Rounded Rectangle Shape
     const rounded_rect_shape_btn = createToolButton(&rounded_rect_shape_tool, "media-playlist-consecutive-symbolic", "Rounded Rectangle Tool", @ptrCast(brush_btn), true);
-    c.gtk_box_append(@ptrCast(tools_box), rounded_rect_shape_btn);
+    appendTool(tools_container, rounded_rect_shape_btn, &tools_row_box, &tools_in_row);
 
     // Ellipse Shape
     const ellipse_shape_btn = createToolButton(&ellipse_shape_tool, "media-record-symbolic", "Ellipse Tool", @ptrCast(brush_btn), true);
-    c.gtk_box_append(@ptrCast(tools_box), ellipse_shape_btn);
+    appendTool(tools_container, ellipse_shape_btn, &tools_row_box, &tools_in_row);
 
     // Unified Transform
     const transform_btn = createToolButton(&unified_transform_tool, "object-rotate-right-symbolic", "Unified Transform", @ptrCast(brush_btn), true);
-    c.gtk_box_append(@ptrCast(tools_box), transform_btn);
+    appendTool(tools_container, transform_btn, &tools_row_box, &tools_in_row);
 
     // Color Picker
     const picker_btn = createToolButton(&color_picker_tool, "preferences-color-symbolic", "Color Picker", @ptrCast(brush_btn), true);
-    c.gtk_box_append(@ptrCast(tools_box), picker_btn);
+    appendTool(tools_container, picker_btn, &tools_row_box, &tools_in_row);
 
     // Gradient Tool
     const gradient_btn = createToolButton(&gradient_tool, "applications-graphics-symbolic", "Gradient Tool", @ptrCast(brush_btn), true);
-    c.gtk_box_append(@ptrCast(tools_box), gradient_btn);
+    appendTool(tools_container, gradient_btn, &tools_row_box, &tools_in_row);
 
     // Line Tool
     const line_btn = createToolButton(&line_tool, "list-remove-symbolic", "Line Tool (Shift to snap)", @ptrCast(brush_btn), true);
-    c.gtk_box_append(@ptrCast(tools_box), line_btn);
+    appendTool(tools_container, line_btn, &tools_row_box, &tools_in_row);
 
     // Curve Tool
     const curve_btn = createToolButton(&curve_tool, "call-start-symbolic", "Curve Tool (Drag Line -> Bend 1 -> Bend 2)", @ptrCast(brush_btn), true);
-    c.gtk_box_append(@ptrCast(tools_box), curve_btn);
+    appendTool(tools_container, curve_btn, &tools_row_box, &tools_in_row);
 
     // Polygon Tool
     const polygon_btn = createToolButton(&polygon_tool, "shapes-symbolic", "Polygon Tool", @ptrCast(brush_btn), true);
-    c.gtk_box_append(@ptrCast(tools_box), polygon_btn);
+    appendTool(tools_container, polygon_btn, &tools_row_box, &tools_in_row);
 
     // Separator
     c.gtk_box_append(@ptrCast(sidebar), c.gtk_separator_new(c.GTK_ORIENTATION_HORIZONTAL));
