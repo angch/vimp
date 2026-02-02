@@ -235,6 +235,7 @@ fn tool_toggled(
                 engine.setMode(.paint);
                 engine.setBrushType(.circle);
                 osd_show("Curve Tool (Drag Line -> Bend 1 -> Bend 2)");
+                curve_phase = 0;
             },
             .polygon => {
                 engine.setMode(.paint);
