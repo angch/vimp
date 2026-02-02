@@ -71,6 +71,7 @@ pub const Engine = struct {
     pub const PreviewMode = enum {
         none,
         blur,
+        motion_blur,
         transform,
     };
 
@@ -231,6 +232,7 @@ pub const Engine = struct {
     // Preview State
     preview_mode: PreviewMode = .none,
     preview_radius: f64 = 0.0,
+    preview_angle: f64 = 0.0,
     preview_transform: TransformParams = .{},
     split_view_enabled: bool = false,
     split_x: f64 = 400.0,
@@ -633,6 +635,37 @@ pub const Engine = struct {
                 if (self.preview_mode == .blur) {
                     // 1. Create Blur Node
                     if (c.gegl_node_new_child(self.graph, "operation", "gegl:gaussian-blur", "std-dev-x", self.preview_radius, "std-dev-y", self.preview_radius, @as(?*anyopaque, null))) |blur_node| {
+                        _ = c.gegl_node_connect(blur_node, "input", source_output, "output");
+                        self.composition_nodes.append(std.heap.c_allocator, blur_node) catch {};
+
+                        if (self.split_view_enabled) {
+                            const w: f64 = @floatFromInt(self.canvas_width);
+                            const h: f64 = @floatFromInt(self.canvas_height);
+                            const sx = self.split_x;
+
+                            if (c.gegl_node_new_child(self.graph, "operation", "gegl:crop", "x", @as(f64, 0.0), "y", @as(f64, 0.0), "width", sx, "height", h, @as(?*anyopaque, null))) |left_crop| {
+                                _ = c.gegl_node_connect(left_crop, "input", source_output, "output");
+                                self.composition_nodes.append(std.heap.c_allocator, left_crop) catch {};
+
+                                if (c.gegl_node_new_child(self.graph, "operation", "gegl:crop", "x", sx, "y", @as(f64, 0.0), "width", w - sx, "height", h, @as(?*anyopaque, null))) |right_crop| {
+                                    _ = c.gegl_node_connect(right_crop, "input", blur_node, "output");
+                                    self.composition_nodes.append(std.heap.c_allocator, right_crop) catch {};
+
+                                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:over", @as(?*anyopaque, null))) |split_over| {
+                                        _ = c.gegl_node_connect(split_over, "input", left_crop, "output");
+                                        _ = c.gegl_node_connect(split_over, "aux", right_crop, "output");
+                                        self.composition_nodes.append(std.heap.c_allocator, split_over) catch {};
+
+                                        source_output = split_over;
+                                    }
+                                }
+                            }
+                        } else {
+                            source_output = blur_node;
+                        }
+                    }
+                } else if (self.preview_mode == .motion_blur) {
+                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:motion-blur-linear", "length", self.preview_radius, "angle", self.preview_angle, @as(?*anyopaque, null))) |blur_node| {
                         _ = c.gegl_node_connect(blur_node, "input", source_output, "output");
                         self.composition_nodes.append(std.heap.c_allocator, blur_node) catch {};
 
@@ -1520,9 +1553,48 @@ pub const Engine = struct {
         self.commitTransaction();
     }
 
+    pub fn applyMotionBlur(self: *Engine, length: f64, angle: f64) !void {
+        if (self.active_layer_idx >= self.layers.items.len) return;
+        const layer = &self.layers.items[self.active_layer_idx];
+        if (layer.locked) return;
+
+        self.beginTransaction();
+
+        const temp_graph = c.gegl_node_new();
+        defer c.g_object_unref(temp_graph);
+
+        const input_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:buffer-source", "buffer", layer.buffer, @as(?*anyopaque, null));
+        const blur_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:motion-blur-linear", "length", length, "angle", angle, @as(?*anyopaque, null));
+
+        const format = c.babl_format("R'G'B'A u8");
+        const extent = c.gegl_buffer_get_extent(layer.buffer);
+        const new_buffer = c.gegl_buffer_new(extent, format);
+        if (new_buffer == null) return;
+
+        const write_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:write-buffer", "buffer", new_buffer, @as(?*anyopaque, null));
+
+        _ = c.gegl_node_link_many(input_node, blur_node, write_node, @as(?*anyopaque, null));
+
+        _ = c.gegl_node_process(write_node);
+
+        // Update Layer
+        c.g_object_unref(layer.buffer);
+        layer.buffer = new_buffer.?;
+        _ = c.gegl_node_set(layer.source_node, "buffer", new_buffer, @as(?*anyopaque, null));
+
+        self.commitTransaction();
+    }
+
     pub fn setPreviewBlur(self: *Engine, radius: f64) void {
         self.preview_mode = .blur;
         self.preview_radius = radius;
+        self.rebuildGraph();
+    }
+
+    pub fn setPreviewMotionBlur(self: *Engine, length: f64, angle: f64) void {
+        self.preview_mode = .motion_blur;
+        self.preview_radius = length;
+        self.preview_angle = angle;
         self.rebuildGraph();
     }
 
@@ -1591,6 +1663,8 @@ pub const Engine = struct {
     pub fn commitPreview(self: *Engine) !void {
         if (self.preview_mode == .blur) {
             try self.applyGaussianBlur(self.preview_radius);
+        } else if (self.preview_mode == .motion_blur) {
+            try self.applyMotionBlur(self.preview_radius, self.preview_angle);
         } else if (self.preview_mode == .transform) {
             try self.applyTransform();
         }
@@ -3767,4 +3841,45 @@ test "Engine draw text" {
     }
 
     try std.testing.expect(found);
+}
+
+test "Engine motion blur" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+    try engine.addLayer("Background");
+
+    // Paint a white square
+    engine.setFgColor(255, 255, 255, 255);
+    engine.setBrushSize(10);
+    engine.setBrushType(.square);
+    engine.paintStroke(100, 100, 100, 100, 1.0); // Center 100,100. Size 10. Range 95-105.
+
+    // Apply Motion Blur: Length 10, Angle 0 (Horizontal)
+    try engine.applyMotionBlur(10.0, 0.0);
+
+    // Verify
+    const buf = engine.layers.items[0].buffer;
+    const format = c.babl_format("R'G'B'A u8");
+    var pixel: [4]u8 = undefined;
+
+    // Center should still be white (or very bright)
+    c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 100, .y = 100, .width = 1, .height = 1 }, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+    try std.testing.expect(pixel[0] > 200);
+
+    // Edges horizontally should be blurred (extended)
+    // Original X range: 95 to 105.
+    // With blur length 10, it should spread.
+    // Check x=110 (Originally black).
+    c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 110, .y = 100, .width = 1, .height = 1 }, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+    // Should be non-black
+    try std.testing.expect(pixel[0] > 10);
+
+    // Edges vertically should be relatively sharp (Angle 0)
+    // Original Y range: 95 to 105.
+    // Check y=110 (Originally black).
+    c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 100, .y = 110, .width = 1, .height = 1 }, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+    // Should be black (or very dark)
+    try std.testing.expect(pixel[0] < 50);
 }
