@@ -437,6 +437,9 @@ var curve_p4: Point = .{ .x = 0, .y = 0 };
 var polygon_points: std.ArrayList(Engine.Point) = undefined;
 var polygon_active: bool = false;
 
+// Drag State
+var is_dragging_interaction: bool = false;
+
 // View State
 var view_scale: f64 = 1.0;
 var view_x: f64 = 0.0;
@@ -462,6 +465,53 @@ fn ants_timer_callback(user_data: ?*anyopaque) callconv(std.builtin.CallingConve
     if (ants_offset >= 8.0) ants_offset -= 8.0;
     queue_draw();
     return 1;
+}
+
+fn drawDimensions(cr: *c.cairo_t, sx: f64, sy: f64, w: c_int, h: c_int) void {
+    var buf: [64]u8 = undefined;
+    const txt = std.fmt.bufPrintZ(&buf, "{d} x {d}", .{ @abs(w), @abs(h) }) catch return;
+
+    c.cairo_save(cr);
+    c.cairo_set_font_size(cr, 12.0);
+    c.cairo_select_font_face(cr, "Sans", c.CAIRO_FONT_SLANT_NORMAL, c.CAIRO_FONT_WEIGHT_BOLD);
+
+    var extents: c.cairo_text_extents_t = undefined;
+    c.cairo_text_extents(cr, txt.ptr, &extents);
+
+    const pad = 6.0;
+    const rect_w = extents.width + pad * 2.0;
+    const rect_h = extents.height + pad * 2.0;
+
+    const x = sx + 15.0;
+    const y = sy + 15.0;
+
+    // Draw background
+    c.cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.7);
+
+    // Simple rounded rect manual path
+    const r = 4.0;
+    const degrees = std.math.pi / 180.0;
+    c.cairo_new_sub_path(cr);
+    c.cairo_arc(cr, x + rect_w - r, y + r, r, -90.0 * degrees, 0.0 * degrees);
+    c.cairo_arc(cr, x + rect_w - r, y + rect_h - r, r, 0.0 * degrees, 90.0 * degrees);
+    c.cairo_arc(cr, x + r, y + rect_h - r, r, 90.0 * degrees, 180.0 * degrees);
+    c.cairo_arc(cr, x + r, y + r, r, 180.0 * degrees, 270.0 * degrees);
+    c.cairo_close_path(cr);
+    c.cairo_fill(cr);
+
+    // Draw text
+    c.cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
+    // Center text in box
+    // Box center: x + rect_w/2, y + rect_h/2.
+    // Text center: width/2, height/2? No, bearing.
+    // Let's rely on simple padding from top-left of box.
+    // Text origin is baseline.
+    // y + pad + height of font? extents.height is tight bounds.
+    // Let's use extents.height + pad.
+    c.cairo_move_to(cr, x + pad, y + pad + extents.height);
+    c.cairo_show_text(cr, txt.ptr);
+
+    c.cairo_restore(cr);
 }
 
 fn draw_func(
@@ -596,6 +646,10 @@ fn draw_func(
                     c.cairo_rectangle(cr_ctx, sx, sy, sw, sh);
                 }
 
+                if (is_dragging_interaction) {
+                    drawDimensions(cr_ctx, sx + sw, sy + sh, sel.width, sel.height);
+                }
+
                 // Marching ants
                 const dash: [2]f64 = .{ 4.0, 4.0 };
                 c.cairo_set_dash(cr_ctx, &dash, 2, ants_offset);
@@ -646,6 +700,11 @@ fn draw_func(
                         c.cairo_set_line_width(cr_ctx, thickness);
                         c.cairo_stroke(cr_ctx);
                     }
+
+                    if (is_dragging_interaction) {
+                        drawDimensions(cr_ctx, sx + sw, sy + sh, shape.width, shape.height);
+                    }
+
                     c.cairo_restore(cr_ctx);
                 } else if (shape.type == .ellipse) {
                     const r: f64 = @floatFromInt(shape.x);
@@ -675,6 +734,11 @@ fn draw_func(
                         c.cairo_set_line_width(cr_ctx, thickness);
                         c.cairo_stroke(cr_ctx);
                     }
+
+                    if (is_dragging_interaction) {
+                        drawDimensions(cr_ctx, sx + sw, sy + sh, shape.width, shape.height);
+                    }
+
                     c.cairo_restore(cr_ctx);
                 } else if (shape.type == .rounded_rectangle) {
                     const r: f64 = @floatFromInt(shape.x);
@@ -710,6 +774,11 @@ fn draw_func(
                         c.cairo_set_line_width(cr_ctx, thickness);
                         c.cairo_stroke(cr_ctx);
                     }
+
+                    if (is_dragging_interaction) {
+                        drawDimensions(cr_ctx, sx + sw, sy + sh, shape.width, shape.height);
+                    }
+
                     c.cairo_restore(cr_ctx);
                 } else if (shape.type == .line) {
                     const r: f64 = @floatFromInt(shape.x);
@@ -961,6 +1030,7 @@ fn drag_begin(
 ) callconv(std.builtin.CallingConvention.c) void {
     prev_x = x;
     prev_y = y;
+    is_dragging_interaction = true;
 
     if (user_data != null) {
         const ud = user_data.?;
@@ -1304,6 +1374,8 @@ fn drag_end(
     offset_y: f64,
     user_data: ?*anyopaque,
 ) callconv(std.builtin.CallingConvention.c) void {
+    is_dragging_interaction = false;
+
     if (current_tool == .text) {
         var start_sx: f64 = 0;
         var start_sy: f64 = 0;
