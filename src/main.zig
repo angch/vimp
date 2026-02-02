@@ -442,6 +442,11 @@ var view_scale: f64 = 1.0;
 var view_x: f64 = 0.0;
 var view_y: f64 = 0.0;
 
+// Zoom Gesture State
+var zoom_base_scale: f64 = 1.0;
+var zoom_base_view_x: f64 = 0.0;
+var zoom_base_view_y: f64 = 0.0;
+
 const OsdState = struct {
     label: ?*c.GtkWidget = null,
     revealer: ?*c.GtkWidget = null,
@@ -857,14 +862,57 @@ fn motion_func(
     }
 }
 
+fn zoom_begin(
+    controller: *c.GtkGestureZoom,
+    sequence: ?*c.GdkEventSequence,
+    user_data: ?*anyopaque,
+) callconv(std.builtin.CallingConvention.c) void {
+    _ = controller;
+    _ = sequence;
+    _ = user_data;
+    zoom_base_scale = view_scale;
+    zoom_base_view_x = view_x;
+    zoom_base_view_y = view_y;
+}
+
+fn zoom_scale_changed(
+    controller: *c.GtkGestureZoom,
+    scale: f64,
+    user_data: ?*anyopaque,
+) callconv(std.builtin.CallingConvention.c) void {
+    _ = user_data;
+    // Get focal point
+    var cx: f64 = 0;
+    var cy: f64 = 0;
+    // We need bounding box center
+    _ = c.gtk_gesture_get_bounding_box_center(@ptrCast(controller), &cx, &cy);
+
+    const res = CanvasUtils.calculateZoom(zoom_base_scale, zoom_base_view_x, zoom_base_view_y, cx, cy, scale);
+
+    // Limit scale
+    if (res.scale < 0.1 or res.scale > 50.0) return;
+
+    view_scale = res.scale;
+    view_x = res.view_x;
+    view_y = res.view_y;
+    canvas_dirty = true;
+
+    // OSD
+    var buf: [32]u8 = undefined;
+    const pct: i32 = @intFromFloat(view_scale * 100.0);
+    const txt = std.fmt.bufPrint(&buf, "Zoom: {d}%", .{pct}) catch "Zoom";
+    osd_show(txt);
+
+    queue_draw();
+}
+
 fn scroll_func(
     controller: *c.GtkEventControllerScroll,
     dx: f64,
     dy: f64,
     user_data: ?*anyopaque,
 ) callconv(std.builtin.CallingConvention.c) c.gboolean {
-    const widget: *c.GtkWidget = @ptrCast(@alignCast(user_data));
-
+    _ = user_data;
     // Check modifiers (Ctrl for Zoom)
     const state = c.gtk_event_controller_get_current_event_state(@ptrCast(controller));
     const is_ctrl = (state & c.GDK_CONTROL_MASK) != 0;
@@ -874,14 +922,14 @@ fn scroll_func(
         // Zoom factor
         const zoom_factor: f64 = if (dy > 0) 0.9 else 1.1; // Scroll down = Zoom out
 
-        const new_scale = view_scale * zoom_factor;
-        // Limit scale
-        if (new_scale < 0.1 or new_scale > 20.0) return 0;
+        const res = CanvasUtils.calculateZoom(view_scale, view_x, view_y, mouse_x, mouse_y, zoom_factor);
 
-        // ViewX_new = (ViewX_old + MouseX) * Factor - MouseX
-        view_x = (view_x + mouse_x) * zoom_factor - mouse_x;
-        view_y = (view_y + mouse_y) * zoom_factor - mouse_y;
-        view_scale = new_scale;
+        // Limit scale
+        if (res.scale < 0.1 or res.scale > 50.0) return 0;
+
+        view_scale = res.scale;
+        view_x = res.view_x;
+        view_y = res.view_y;
         canvas_dirty = true;
 
         var buf: [32]u8 = undefined;
@@ -3153,6 +3201,12 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     const scroll = c.gtk_event_controller_scroll_new(scroll_flags);
     c.gtk_widget_add_controller(area, @ptrCast(scroll));
     _ = c.g_signal_connect_data(scroll, "scroll", @ptrCast(&scroll_func), area, null, 0);
+
+    // Zoom Gesture
+    const zoom = c.gtk_gesture_zoom_new();
+    c.gtk_widget_add_controller(area, @ptrCast(zoom));
+    _ = c.g_signal_connect_data(zoom, "begin", @ptrCast(&zoom_begin), null, null, 0);
+    _ = c.g_signal_connect_data(zoom, "scale-changed", @ptrCast(&zoom_scale_changed), null, null, 0);
 
     // Refresh Layers UI initially
     refresh_layers_ui();

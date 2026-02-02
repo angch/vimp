@@ -16,7 +16,7 @@ var active_area: ?*c.GtkWidget = null;
 var active_context: ?*ThumbnailContext = null;
 
 fn draw_func(
-    _: *c.GtkDrawingArea,
+    _: [*c]c.GtkDrawingArea,
     cr: ?*c.cairo_t,
     width: c_int,
     height: c_int,
