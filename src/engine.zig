@@ -40,6 +40,7 @@ pub const Engine = struct {
     pub const SelectionMode = enum {
         rectangle,
         ellipse,
+        lasso,
     };
 
     pub const ShapeType = enum {
@@ -140,6 +141,13 @@ pub const Engine = struct {
         before_mode: SelectionMode,
         after: ?c.GeglRectangle = null,
         after_mode: SelectionMode = .rectangle,
+        before_points: ?[]Point = null,
+        after_points: ?[]Point = null,
+
+        pub fn deinit(self: *SelectionCommand) void {
+            if (self.before_points) |p| std.heap.c_allocator.free(p);
+            if (self.after_points) |p| std.heap.c_allocator.free(p);
+        }
     };
 
     pub const CanvasSizeCommand = struct {
@@ -177,7 +185,7 @@ pub const Engine = struct {
                 .paint => |*cmd| cmd.deinit(),
                 .transform => |*cmd| cmd.deinit(),
                 .layer => |*cmd| cmd.deinit(),
-                .selection => {},
+                .selection => |*cmd| cmd.deinit(),
                 .canvas_size => {},
             }
         }
@@ -207,6 +215,7 @@ pub const Engine = struct {
 
     fill_buffer: std.ArrayList(u8) = undefined,
     preview_points: std.ArrayList(Point) = undefined,
+    selection_points: std.ArrayList(Point) = undefined,
 
     canvas_width: c_int = 800,
     canvas_height: c_int = 600,
@@ -250,6 +259,7 @@ pub const Engine = struct {
         self.paths = std.ArrayList(VectorPath){};
         self.fill_buffer = std.ArrayList(u8){};
         self.preview_points = std.ArrayList(Point){};
+        self.selection_points = std.ArrayList(Point){};
         self.current_command = null;
         self.graph = null;
         self.output_node = null;
@@ -278,6 +288,7 @@ pub const Engine = struct {
 
         self.fill_buffer.deinit(std.heap.c_allocator);
         self.preview_points.deinit(std.heap.c_allocator);
+        self.selection_points.deinit(std.heap.c_allocator);
 
         for (self.paths.items) |*vp| {
             std.heap.c_allocator.free(vp.name);
@@ -381,10 +392,15 @@ pub const Engine = struct {
     pub fn beginSelection(self: *Engine) void {
         if (self.current_command != null) return;
 
-        const cmd = SelectionCommand{
+        var cmd = SelectionCommand{
             .before = self.selection,
             .before_mode = self.selection_mode,
         };
+
+        if (self.selection_mode == .lasso) {
+            cmd.before_points = std.heap.c_allocator.dupe(Point, self.selection_points.items) catch null;
+        }
+
         self.current_command = Command{ .selection = cmd };
     }
 
@@ -405,6 +421,9 @@ pub const Engine = struct {
                 .selection => |*s_cmd| {
                     s_cmd.after = self.selection;
                     s_cmd.after_mode = self.selection_mode;
+                    if (self.selection_mode == .lasso) {
+                        s_cmd.after_points = std.heap.c_allocator.dupe(Point, self.selection_points.items) catch null;
+                    }
                 },
                 .canvas_size => {},
             }
@@ -473,6 +492,16 @@ pub const Engine = struct {
                 },
                 .selection => |*s_cmd| {
                     self.setSelectionMode(s_cmd.before_mode);
+                    if (s_cmd.before_mode == .lasso) {
+                        if (s_cmd.before_points) |points| {
+                            self.setSelectionLasso(points);
+                        } else {
+                            self.selection_points.clearRetainingCapacity();
+                        }
+                    } else {
+                        self.selection_points.clearRetainingCapacity();
+                    }
+
                     if (s_cmd.before) |r| {
                         self.setSelection(r.x, r.y, r.width, r.height);
                     } else {
@@ -539,6 +568,16 @@ pub const Engine = struct {
                 },
                 .selection => |*s_cmd| {
                     self.setSelectionMode(s_cmd.after_mode);
+                    if (s_cmd.after_mode == .lasso) {
+                        if (s_cmd.after_points) |points| {
+                            self.setSelectionLasso(points);
+                        } else {
+                            self.selection_points.clearRetainingCapacity();
+                        }
+                    } else {
+                        self.selection_points.clearRetainingCapacity();
+                    }
+
                     if (s_cmd.after) |r| {
                         self.setSelection(r.x, r.y, r.width, r.height);
                     } else {
@@ -1110,6 +1149,22 @@ pub const Engine = struct {
                 const dy_p = @as(f64, @floatFromInt(y)) + 0.5 - self.sel_cy;
 
                 if ((dx_p * dx_p) * self.sel_inv_rx_sq + (dy_p * dy_p) * self.sel_inv_ry_sq > 1.0) return false;
+            } else if (self.selection_mode == .lasso) {
+                // Ray Casting Algorithm (Even-Odd Rule)
+                const px = @as(f64, @floatFromInt(x)) + 0.5;
+                const py = @as(f64, @floatFromInt(y)) + 0.5;
+                var inside = false;
+                const points = self.selection_points.items;
+                var j = points.len - 1;
+                for (points, 0..) |pi, i| {
+                    const pj = points[j];
+                    if (((pi.y > py) != (pj.y > py)) and
+                        (px < (pj.x - pi.x) * (py - pi.y) / (pj.y - pi.y) + pi.x)) {
+                        inside = !inside;
+                    }
+                    j = i;
+                }
+                return inside;
             }
         }
         return true;
@@ -1592,6 +1647,36 @@ pub const Engine = struct {
             self.sel_inv_ry_sq = 1.0 / (ry * ry);
         } else {
             self.sel_inv_ry_sq = 0.0;
+        }
+    }
+
+    pub fn setSelectionLasso(self: *Engine, points: []const Point) void {
+        self.selection_points.clearRetainingCapacity();
+        self.selection_points.appendSlice(std.heap.c_allocator, points) catch {};
+        self.selection_mode = .lasso;
+
+        // Calculate Bounding Box for 'selection' optimization
+        if (points.len > 0) {
+            var min_x: f64 = points[0].x;
+            var max_x: f64 = points[0].x;
+            var min_y: f64 = points[0].y;
+            var max_y: f64 = points[0].y;
+
+            for (points) |p| {
+                if (p.x < min_x) min_x = p.x;
+                if (p.x > max_x) max_x = p.x;
+                if (p.y < min_y) min_y = p.y;
+                if (p.y > max_y) max_y = p.y;
+            }
+
+            const x = @as(c_int, @intFromFloat(min_x));
+            const y = @as(c_int, @intFromFloat(min_y));
+            const w = @as(c_int, @intFromFloat(max_x - min_x + 1.0));
+            const h = @as(c_int, @intFromFloat(max_y - min_y + 1.0));
+
+            self.setSelection(x, y, w, h);
+        } else {
+            self.clearSelection();
         }
     }
 
@@ -3547,4 +3632,40 @@ test "Engine draw line" {
     // Check 15,11 (Below) -> Transparent
     c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 15, .y = 11, .width = 1, .height = 1 }, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
     try std.testing.expectEqual(pixel[0], 0);
+}
+
+test "Engine lasso undo redo" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+    try engine.addLayer("Background");
+
+    // 1. Initial State: No Selection
+    try std.testing.expect(engine.selection == null);
+
+    // 2. Select Lasso (Triangle)
+    var points = std.ArrayList(Engine.Point){};
+    defer points.deinit(std.heap.c_allocator);
+    try points.append(std.heap.c_allocator, .{ .x = 10, .y = 10 });
+    try points.append(std.heap.c_allocator, .{ .x = 20, .y = 10 });
+    try points.append(std.heap.c_allocator, .{ .x = 10, .y = 20 });
+
+    engine.beginSelection();
+    engine.setSelectionLasso(points.items);
+    engine.commitTransaction();
+
+    try std.testing.expectEqual(engine.selection_mode, .lasso);
+    try std.testing.expectEqual(engine.selection_points.items.len, 3);
+
+    // 3. Undo -> No Selection
+    engine.undo();
+    try std.testing.expect(engine.selection == null);
+    try std.testing.expectEqual(engine.selection_points.items.len, 0);
+
+    // 4. Redo -> Lasso
+    engine.redo();
+    try std.testing.expectEqual(engine.selection_mode, .lasso);
+    try std.testing.expectEqual(engine.selection_points.items.len, 3);
+    try std.testing.expectEqual(engine.selection_points.items[0].x, 10.0);
 }
