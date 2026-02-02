@@ -83,9 +83,9 @@
 - [x] Implement Ellipse Select Tool
 
 ### From `ms_paint_spec.md` & `gimp-feature-spec-gnome-hig.md`
-- [ ] Implement Free-Form Select Tool (Lasso)
+- [x] Implement Free-Form Select Tool (Lasso)
 - [ ] Implement Selection Mode toggle (Opaque/Transparent)
-- [ ] Implement Marching Ants animation for selections
+- [x] Implement Marching Ants animation for selections
 
 ---
 
