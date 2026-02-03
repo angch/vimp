@@ -3017,30 +3017,31 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     _ = c.g_object_bind_property(@ptrCast(split_view), "collapsed", @ptrCast(sidebar_btn), "visible", c.G_BINDING_SYNC_CREATE);
 
     // Primary Actions (Start)
+    // Updated tooltips to include keyboard shortcuts for better UX (Ctrl+N, Ctrl+O, etc.)
     const new_btn = c.gtk_button_new_from_icon_name("document-new-symbolic");
     c.gtk_actionable_set_action_name(@ptrCast(new_btn), "app.new");
-    c.gtk_widget_set_tooltip_text(new_btn, "New");
+    c.gtk_widget_set_tooltip_text(new_btn, "New Image (Ctrl+N)");
     c.adw_header_bar_pack_start(@ptrCast(header_bar), new_btn);
 
     const open_btn = c.gtk_button_new_from_icon_name("document-open-symbolic");
     c.gtk_actionable_set_action_name(@ptrCast(open_btn), "app.open");
-    c.gtk_widget_set_tooltip_text(open_btn, "Open");
+    c.gtk_widget_set_tooltip_text(open_btn, "Open Image (Ctrl+O)");
     c.adw_header_bar_pack_start(@ptrCast(header_bar), open_btn);
 
     const save_btn = c.gtk_button_new_from_icon_name("document-save-symbolic");
     c.gtk_actionable_set_action_name(@ptrCast(save_btn), "app.save");
-    c.gtk_widget_set_tooltip_text(save_btn, "Save");
+    c.gtk_widget_set_tooltip_text(save_btn, "Save Image (Ctrl+S)");
     c.adw_header_bar_pack_start(@ptrCast(header_bar), save_btn);
 
     // Undo/Redo
     const undo_btn = c.gtk_button_new_from_icon_name("edit-undo-symbolic");
     c.gtk_actionable_set_action_name(@ptrCast(undo_btn), "app.undo");
-    c.gtk_widget_set_tooltip_text(undo_btn, "Undo");
+    c.gtk_widget_set_tooltip_text(undo_btn, "Undo (Ctrl+Z)");
     c.adw_header_bar_pack_start(@ptrCast(header_bar), undo_btn);
 
     const redo_btn = c.gtk_button_new_from_icon_name("edit-redo-symbolic");
     c.gtk_actionable_set_action_name(@ptrCast(redo_btn), "app.redo");
-    c.gtk_widget_set_tooltip_text(redo_btn, "Redo");
+    c.gtk_widget_set_tooltip_text(redo_btn, "Redo (Ctrl+Y)");
     c.adw_header_bar_pack_start(@ptrCast(header_bar), redo_btn);
 
     // Image Menu
