@@ -56,8 +56,14 @@ pub fn showTextDialog(
     c.gtk_widget_set_margin_end(box, 20);
 
     // Text Entry
+    const label = c.gtk_label_new("_Text:");
+    c.gtk_label_set_use_underline(@ptrCast(label), 1);
+    c.gtk_widget_set_halign(label, c.GTK_ALIGN_START);
+    c.gtk_box_append(@ptrCast(box), label);
+
     const entry = c.gtk_entry_new();
     c.gtk_entry_set_placeholder_text(@ptrCast(entry), "Text");
+    c.gtk_label_set_mnemonic_widget(@ptrCast(label), entry);
     c.gtk_box_append(@ptrCast(box), entry);
     // Focus entry
     // c.gtk_widget_grab_focus(entry); // Not available in GTK4 directly? Use gtk_widget_grab_focus.
