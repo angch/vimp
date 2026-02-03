@@ -2567,16 +2567,16 @@ pub const Engine = struct {
         const cy = @as(f64, @floatFromInt(extent.*.y)) + @as(f64, @floatFromInt(extent.*.height)) / 2.0;
         const tp = self.preview_transform;
 
-        var buf: [256]u8 = undefined;
-        // SkewX/SkewY omitted as they are not reliably supported in current env
-        const transform_str = std.fmt.bufPrintZ(&buf, "translate({d}, {d}) rotate({d}) scale({d}, {d}) translate({d}, {d})", .{ cx + tp.x, cy + tp.y, tp.rotate, tp.scale_x, tp.scale_y, -cx, -cy }) catch "translate(0,0)";
+        const t1 = c.gegl_node_new_child(temp_graph, "operation", "gegl:translate", "x", -cx, "y", -cy, @as(?*anyopaque, null));
+        const scale = c.gegl_node_new_child(temp_graph, "operation", "gegl:scale-ratio", "x", tp.scale_x, "y", tp.scale_y, @as(?*anyopaque, null));
+        const rotate = c.gegl_node_new_child(temp_graph, "operation", "gegl:rotate", "degrees", tp.rotate, @as(?*anyopaque, null));
+        const t2 = c.gegl_node_new_child(temp_graph, "operation", "gegl:translate", "x", cx + tp.x, "y", cy + tp.y, @as(?*anyopaque, null));
 
-        const trans_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:transform", "transform", transform_str.ptr, @as(?*anyopaque, null));
-        if (trans_node == null) return;
+        if (t1 == null or scale == null or rotate == null or t2 == null) return;
 
-        _ = c.gegl_node_link_many(input_node, trans_node, @as(?*anyopaque, null));
+        _ = c.gegl_node_link_many(input_node, t1, scale, rotate, t2, @as(?*anyopaque, null));
 
-        const bbox = c.gegl_node_get_bounding_box(trans_node);
+        const bbox = c.gegl_node_get_bounding_box(t2);
         const format = c.babl_format("R'G'B'A u8");
         const new_buffer = c.gegl_buffer_new(&bbox, format);
 
@@ -2591,7 +2591,7 @@ pub const Engine = struct {
         const mem = try std.heap.c_allocator.alloc(u8, size);
         defer std.heap.c_allocator.free(mem);
 
-        c.gegl_node_blit(trans_node, 1.0, &bbox, format, mem.ptr, stride, c.GEGL_BLIT_DEFAULT);
+        c.gegl_node_blit(t2, 1.0, &bbox, format, mem.ptr, stride, c.GEGL_BLIT_DEFAULT);
         c.gegl_buffer_set(new_buffer, &bbox, 0, format, mem.ptr, stride);
 
         c.g_object_unref(layer.buffer);
@@ -3483,6 +3483,9 @@ pub const Engine = struct {
             if (err != error.PathAlreadyExists) return err;
         };
 
+        var dir = try std.fs.cwd().openDir(path, .{});
+        defer dir.close();
+
         const abs_path = try std.fs.cwd().realpathAlloc(allocator, path);
         defer allocator.free(abs_path);
 
@@ -3525,10 +3528,7 @@ pub const Engine = struct {
 
         try stringifyProjectMetadata(meta, json_string.writer(allocator));
 
-        const json_path = try std.fs.path.join(allocator, &[_][]const u8{ abs_path, "project.json" });
-        defer allocator.free(json_path);
-
-        const json_file = try std.fs.createFileAbsolute(json_path, .{});
+        const json_file = try dir.createFile("project.json", .{});
         defer json_file.close();
         try json_file.writeAll(json_string.items);
     }
@@ -4296,7 +4296,7 @@ test "Engine transform apply" {
 
         // Note: Coordinates might be float-aligned or interpolated.
         // But pure translation by integer amount should be exact.
-        // try std.testing.expectEqual(pixel[0], 255); // FIXME: Fails in CI (found 0), investigating coordinate mapping.
+        try std.testing.expectEqual(pixel[0], 255);
 
         // Check old position 100,100 (Should be Transparent/Background color? Layer started transparent).
         var pixel_old: [4]u8 = undefined;
