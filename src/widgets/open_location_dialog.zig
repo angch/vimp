@@ -48,24 +48,35 @@ pub fn showOpenLocationDialog(
         "Enter the URI of the image to open:",
     );
 
-    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "Cancel");
-    c.adw_message_dialog_add_response(@ptrCast(dialog), "open", "Open");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "_Cancel");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "open", "_Open");
     c.adw_message_dialog_set_default_response(@ptrCast(dialog), "open");
     c.adw_message_dialog_set_close_response(@ptrCast(dialog), "cancel");
+
+    // Body
+    const box = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 10);
+    c.gtk_widget_set_margin_top(box, 10);
+    c.gtk_widget_set_margin_bottom(box, 10);
+    c.gtk_widget_set_margin_start(box, 10);
+    c.gtk_widget_set_margin_end(box, 10);
+
+    const label = c.gtk_label_new("_Location:");
+    c.gtk_label_set_use_underline(@ptrCast(label), 1);
+    c.gtk_widget_set_halign(label, c.GTK_ALIGN_START);
+    c.gtk_box_append(@ptrCast(box), label);
 
     // Entry
     const entry = c.gtk_entry_new();
     c.gtk_editable_set_text(@ptrCast(entry), "https://");
     c.gtk_entry_set_placeholder_text(@ptrCast(entry), "https://example.com/image.png");
-    c.gtk_widget_set_margin_top(entry, 10);
-    c.gtk_widget_set_margin_bottom(entry, 10);
-    c.gtk_widget_set_margin_start(entry, 10);
-    c.gtk_widget_set_margin_end(entry, 10);
+
+    c.gtk_label_set_mnemonic_widget(@ptrCast(label), entry);
+    c.gtk_box_append(@ptrCast(box), entry);
 
     // Activate "open" response on Enter
     c.gtk_entry_set_activates_default(@ptrCast(entry), 1);
 
-    c.adw_message_dialog_set_extra_child(@ptrCast(dialog), entry);
+    c.adw_message_dialog_set_extra_child(@ptrCast(dialog), box);
 
     // Clipboard detection
     const display = c.gdk_display_get_default();

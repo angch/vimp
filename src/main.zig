@@ -293,60 +293,74 @@ fn update_tool_options() void {
         // Add widgets based on tool
         switch (current_tool) {
             .brush, .pencil, .airbrush, .eraser, .line, .curve, .polygon => {
-                c.gtk_box_append(@ptrCast(box), c.gtk_label_new("Size"));
+                const label = c.gtk_label_new_with_mnemonic("_Size");
+                c.gtk_box_append(@ptrCast(box), label);
                 const slider = c.gtk_scale_new_with_range(c.GTK_ORIENTATION_HORIZONTAL, 1.0, 100.0, 1.0);
+                c.gtk_label_set_mnemonic_widget(@ptrCast(label), slider);
                 c.gtk_range_set_value(@ptrCast(slider), @floatFromInt(engine.brush_size));
                 c.gtk_widget_set_hexpand(slider, 1);
                 c.gtk_box_append(@ptrCast(box), slider);
                 _ = c.g_signal_connect_data(slider, "value-changed", @ptrCast(&brush_size_changed), null, null, 0);
             },
             .rect_shape, .ellipse_shape, .rounded_rect_shape => {
-                c.gtk_box_append(@ptrCast(box), c.gtk_label_new("Thickness"));
+                const label = c.gtk_label_new_with_mnemonic("_Thickness");
+                c.gtk_box_append(@ptrCast(box), label);
                 const slider = c.gtk_scale_new_with_range(c.GTK_ORIENTATION_HORIZONTAL, 1.0, 100.0, 1.0);
+                c.gtk_label_set_mnemonic_widget(@ptrCast(label), slider);
                 c.gtk_range_set_value(@ptrCast(slider), @floatFromInt(engine.brush_size));
                 c.gtk_widget_set_hexpand(slider, 1);
                 c.gtk_box_append(@ptrCast(box), slider);
                 _ = c.g_signal_connect_data(slider, "value-changed", @ptrCast(&brush_size_changed), null, null, 0);
 
-                const check = c.gtk_check_button_new_with_label("Filled");
+                const check = c.gtk_check_button_new_with_mnemonic("_Filled");
                 c.gtk_check_button_set_active(@ptrCast(check), if (tool_filled) 1 else 0);
                 c.gtk_box_append(@ptrCast(box), check);
                 _ = c.g_signal_connect_data(check, "toggled", @ptrCast(&shape_fill_toggled), null, null, 0);
             },
             .rect_select, .ellipse_select, .lasso => {
-                const check = c.gtk_check_button_new_with_label("Transparent");
+                const check = c.gtk_check_button_new_with_mnemonic("_Transparent");
                 c.gtk_check_button_set_active(@ptrCast(check), if (engine.selection_transparent) 1 else 0);
                 c.gtk_box_append(@ptrCast(box), check);
                 _ = c.g_signal_connect_data(check, "toggled", @ptrCast(&selection_transparent_toggled), null, null, 0);
             },
             .text => {
-                c.gtk_box_append(@ptrCast(box), c.gtk_label_new("Font Size"));
+                const label = c.gtk_label_new_with_mnemonic("_Font Size");
+                c.gtk_box_append(@ptrCast(box), label);
                 const spin = c.gtk_spin_button_new_with_range(8.0, 500.0, 1.0);
+                c.gtk_label_set_mnemonic_widget(@ptrCast(label), spin);
                 c.gtk_spin_button_set_value(@ptrCast(spin), @floatFromInt(tool_font_size));
                 c.gtk_box_append(@ptrCast(box), spin);
                 _ = c.g_signal_connect_data(spin, "value-changed", @ptrCast(&font_size_changed), null, null, 0);
             },
             .unified_transform => {
-                c.gtk_box_append(@ptrCast(box), c.gtk_label_new("Translate X"));
+                const label_x = c.gtk_label_new_with_mnemonic("Translate _X");
+                c.gtk_box_append(@ptrCast(box), label_x);
                 const t_x = c.gtk_spin_button_new_with_range(-1000.0, 1000.0, 1.0);
+                c.gtk_label_set_mnemonic_widget(@ptrCast(label_x), t_x);
                 transform_x_spin = t_x;
                 c.gtk_box_append(@ptrCast(box), t_x);
                 _ = c.g_signal_connect_data(t_x, "value-changed", @ptrCast(&transform_param_changed), null, null, 0);
 
-                c.gtk_box_append(@ptrCast(box), c.gtk_label_new("Translate Y"));
+                const label_y = c.gtk_label_new_with_mnemonic("Translate _Y");
+                c.gtk_box_append(@ptrCast(box), label_y);
                 const t_y = c.gtk_spin_button_new_with_range(-1000.0, 1000.0, 1.0);
+                c.gtk_label_set_mnemonic_widget(@ptrCast(label_y), t_y);
                 transform_y_spin = t_y;
                 c.gtk_box_append(@ptrCast(box), t_y);
                 _ = c.g_signal_connect_data(t_y, "value-changed", @ptrCast(&transform_param_changed), null, null, 0);
 
-                c.gtk_box_append(@ptrCast(box), c.gtk_label_new("Rotate (Deg)"));
+                const label_r = c.gtk_label_new_with_mnemonic("_Rotate (Deg)");
+                c.gtk_box_append(@ptrCast(box), label_r);
                 const t_r = c.gtk_scale_new_with_range(c.GTK_ORIENTATION_HORIZONTAL, -180.0, 180.0, 1.0);
+                c.gtk_label_set_mnemonic_widget(@ptrCast(label_r), t_r);
                 transform_r_scale = t_r;
                 c.gtk_box_append(@ptrCast(box), t_r);
                 _ = c.g_signal_connect_data(t_r, "value-changed", @ptrCast(&transform_param_changed), null, null, 0);
 
-                c.gtk_box_append(@ptrCast(box), c.gtk_label_new("Scale"));
+                const label_s = c.gtk_label_new_with_mnemonic("_Scale");
+                c.gtk_box_append(@ptrCast(box), label_s);
                 const t_s = c.gtk_scale_new_with_range(c.GTK_ORIENTATION_HORIZONTAL, 0.1, 5.0, 0.1);
+                c.gtk_label_set_mnemonic_widget(@ptrCast(label_s), t_s);
                 c.gtk_range_set_value(@ptrCast(t_s), 1.0);
                 transform_s_scale = t_s;
                 c.gtk_box_append(@ptrCast(box), t_s);
