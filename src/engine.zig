@@ -84,6 +84,7 @@ pub const Engine = struct {
         waves,
         supernova,
         lighting,
+        move_selection,
     };
 
     pub const TransformParams = struct {
@@ -276,6 +277,10 @@ pub const Engine = struct {
     preview_lighting_color: [4]u8 = .{ 255, 255, 255, 255 },
     split_view_enabled: bool = false,
     split_x: f64 = 400.0,
+
+    floating_buffer: ?*c.GeglBuffer = null,
+    floating_x: f64 = 0.0,
+    floating_y: f64 = 0.0,
 
     sel_cx: f64 = 0,
     sel_cy: f64 = 0,
@@ -656,6 +661,140 @@ pub const Engine = struct {
         _ = c.gegl_node_link_many(bg_node, bg_crop, @as(?*anyopaque, null));
 
         self.base_node = bg_crop;
+    }
+
+    pub fn beginMoveSelection(self: *Engine, x: f64, y: f64) !void {
+        _ = x;
+        _ = y;
+        if (self.active_layer_idx >= self.layers.items.len) return;
+        if (self.selection == null) return;
+        if (self.preview_mode == .move_selection) return;
+
+        const layer = &self.layers.items[self.active_layer_idx];
+        if (layer.locked) return;
+
+        self.beginTransaction();
+
+        const sel = self.selection.?;
+        const format = c.babl_format("R'G'B'A u8");
+        const floating_rect = c.GeglRectangle{ .x = 0, .y = 0, .width = sel.width, .height = sel.height };
+        self.floating_buffer = c.gegl_buffer_new(&floating_rect, format);
+        if (self.floating_buffer == null) return error.GeglBufferFailed;
+
+        const layer_buf = layer.buffer;
+        const float_buf = self.floating_buffer.?;
+
+        const allocator = std.heap.c_allocator;
+        const stride = sel.width * 4;
+        const size: usize = @intCast(sel.width * sel.height * 4);
+
+        const src_pixels = try allocator.alloc(u8, size);
+        defer allocator.free(src_pixels);
+        c.gegl_buffer_get(layer_buf, &sel, 1.0, format, src_pixels.ptr, stride, c.GEGL_ABYSS_NONE);
+
+        const dest_pixels = try allocator.alloc(u8, size);
+        defer allocator.free(dest_pixels);
+        @memset(dest_pixels, 0);
+
+        const bg = self.bg_color;
+
+        var py: c_int = 0;
+        while (py < sel.height) : (py += 1) {
+            var px: c_int = 0;
+            while (px < sel.width) : (px += 1) {
+                const global_x = sel.x + px;
+                const global_y = sel.y + py;
+
+                if (self.isPointInSelection(global_x, global_y)) {
+                    const idx = (@as(usize, @intCast(py)) * @as(usize, @intCast(sel.width)) + @as(usize, @intCast(px))) * 4;
+                    @memcpy(dest_pixels[idx..][0..4], src_pixels[idx..][0..4]);
+                    @memcpy(src_pixels[idx..][0..4], &bg);
+                }
+            }
+        }
+
+        c.gegl_buffer_set(float_buf, &floating_rect, 0, format, dest_pixels.ptr, stride);
+        c.gegl_buffer_set(layer_buf, &sel, 0, format, src_pixels.ptr, stride);
+
+        self.floating_x = @floatFromInt(sel.x);
+        self.floating_y = @floatFromInt(sel.y);
+        self.preview_mode = .move_selection;
+
+        self.rebuildGraph();
+    }
+
+    pub fn updateMoveSelection(self: *Engine, dx: f64, dy: f64) void {
+        if (self.preview_mode != .move_selection) return;
+        if (self.selection) |sel| {
+            self.floating_x = @as(f64, @floatFromInt(sel.x)) + dx;
+            self.floating_y = @as(f64, @floatFromInt(sel.y)) + dy;
+            self.rebuildGraph();
+        }
+    }
+
+    pub fn commitMoveSelection(self: *Engine) !void {
+        if (self.preview_mode != .move_selection) return;
+        if (self.active_layer_idx >= self.layers.items.len) return;
+
+        const layer = &self.layers.items[self.active_layer_idx];
+        const layer_buf = layer.buffer;
+
+        if (self.floating_buffer) |float_buf| {
+            const format = c.babl_format("R'G'B'A u8");
+            const extent = c.gegl_buffer_get_extent(float_buf);
+
+            const w = extent.*.width;
+            const h = extent.*.height;
+            const stride = w * 4;
+            const size: usize = @intCast(w * h * 4);
+            const allocator = std.heap.c_allocator;
+            const pixels = try allocator.alloc(u8, size);
+            defer allocator.free(pixels);
+
+            c.gegl_buffer_get(float_buf, extent, 1.0, format, pixels.ptr, stride, c.GEGL_ABYSS_NONE);
+
+            if (self.selection_transparent) {
+                const bg = self.bg_color;
+                var i: usize = 0;
+                while (i < size) : (i += 4) {
+                    if (pixels[i] == bg[0] and pixels[i + 1] == bg[1] and pixels[i + 2] == bg[2] and pixels[i + 3] == bg[3]) {
+                        pixels[i + 3] = 0;
+                    }
+                }
+                c.gegl_buffer_set(float_buf, extent, 0, format, pixels.ptr, stride);
+            }
+
+            const temp_graph = c.gegl_node_new();
+            defer c.g_object_unref(temp_graph);
+
+            const layer_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:buffer-source", "buffer", layer_buf, @as(?*anyopaque, null));
+            const float_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:buffer-source", "buffer", float_buf, @as(?*anyopaque, null));
+            const translate = c.gegl_node_new_child(temp_graph, "operation", "gegl:translate", "x", self.floating_x, "y", self.floating_y, @as(?*anyopaque, null));
+
+            _ = c.gegl_node_link_many(float_node, translate, @as(?*anyopaque, null));
+
+            const over = c.gegl_node_new_child(temp_graph, "operation", "gegl:over", @as(?*anyopaque, null));
+            _ = c.gegl_node_connect(over, "input", layer_node, "output");
+            _ = c.gegl_node_connect(over, "aux", translate, "output");
+
+            const layer_extent = c.gegl_buffer_get_extent(layer_buf);
+            const new_layer_buf = c.gegl_buffer_new(layer_extent, format);
+
+            const write = c.gegl_node_new_child(temp_graph, "operation", "gegl:write-buffer", "buffer", new_layer_buf, @as(?*anyopaque, null));
+            _ = c.gegl_node_connect(write, "input", over, "output");
+            _ = c.gegl_node_process(write);
+
+            c.g_object_unref(layer.buffer);
+            layer.buffer = new_layer_buf.?;
+            _ = c.gegl_node_set(layer.source_node, "buffer", new_layer_buf, @as(?*anyopaque, null));
+
+            c.g_object_unref(float_buf);
+            self.floating_buffer = null;
+        }
+
+        self.preview_mode = .none;
+        self.commitTransaction();
+        self.rebuildGraph();
     }
 
     pub fn rebuildGraph(self: *Engine) void {
@@ -1068,6 +1207,24 @@ pub const Engine = struct {
                         } else {
                             source_output = filter_node;
                         }
+                    }
+                } else if (self.preview_mode == .move_selection) {
+                    if (self.floating_buffer) |fb| {
+                        const float_src = c.gegl_node_new_child(self.graph, "operation", "gegl:buffer-source", "buffer", fb, @as(?*anyopaque, null));
+                        const translate = c.gegl_node_new_child(self.graph, "operation", "gegl:translate", "x", self.floating_x, "y", self.floating_y, @as(?*anyopaque, null));
+
+                        _ = c.gegl_node_link_many(float_src, translate, @as(?*anyopaque, null));
+
+                        const over = c.gegl_node_new_child(self.graph, "operation", "gegl:over", @as(?*anyopaque, null));
+                        _ = c.gegl_node_connect(over, "input", source_output, "output");
+                        _ = c.gegl_node_connect(over, "aux", translate, "output");
+
+                        self.composition_nodes.append(std.heap.c_allocator, float_src.?) catch {};
+                        self.composition_nodes.append(std.heap.c_allocator, translate.?) catch {};
+                        self.composition_nodes.append(std.heap.c_allocator, over.?) catch {};
+
+                        source_output = over.?;
+                        self.preview_bbox = c.gegl_node_get_bounding_box(translate);
                     }
                 }
             }
@@ -1531,7 +1688,7 @@ pub const Engine = struct {
         }
     }
 
-    fn isPointInSelection(self: *Engine, x: c_int, y: c_int) bool {
+    pub fn isPointInSelection(self: *Engine, x: c_int, y: c_int) bool {
         if (self.selection) |sel| {
             if (x < sel.x or x >= sel.x + sel.width or y < sel.y or y >= sel.y + sel.height) return false;
 
@@ -5138,4 +5295,69 @@ test "Engine lighting" {
 
     // Assert something was read (Paint stroke succeeded)
     try std.testing.expect(pixel[3] > 0);
+}
+
+test "Engine transparent move selection" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+    try engine.addLayer("Background");
+
+    engine.setBgColor(255, 255, 255, 255);
+    engine.setFgColor(255, 0, 0, 255);
+
+    try engine.clearActiveLayer();
+
+    engine.setBrushSize(20);
+    engine.setBrushType(.square);
+    engine.paintStroke(60, 60, 60, 60, 1.0);
+
+    engine.setSelectionMode(.rectangle);
+    engine.setSelection(40, 40, 40, 40);
+
+    engine.setSelectionTransparent(true);
+
+    try engine.beginMoveSelection(0, 0);
+
+    {
+        const buf = engine.layers.items[0].buffer;
+        var pixel: [4]u8 = undefined;
+        const rect = c.GeglRectangle{ .x = 60, .y = 60, .width = 1, .height = 1 };
+        const format = c.babl_format("R'G'B'A u8");
+        c.gegl_buffer_get(buf, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+        try std.testing.expectEqual(pixel[0], 255);
+        try std.testing.expectEqual(pixel[1], 255);
+        try std.testing.expectEqual(pixel[2], 255);
+        try std.testing.expectEqual(pixel[3], 255);
+    }
+
+    engine.updateMoveSelection(50, 50);
+
+    // Manually paint Blue at 90,90 on Layer (destination)
+    {
+        const buf = engine.layers.items[0].buffer;
+        var blue: [4]u8 = .{ 0, 0, 255, 255 };
+        const rect = c.GeglRectangle{ .x = 90, .y = 90, .width = 1, .height = 1 };
+        const format = c.babl_format("R'G'B'A u8");
+        c.gegl_buffer_set(buf, &rect, 0, format, &blue, c.GEGL_AUTO_ROWSTRIDE);
+    }
+
+    try engine.commitMoveSelection();
+
+    {
+        const buf = engine.layers.items[0].buffer;
+        var pixel: [4]u8 = undefined;
+        c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 100, .y = 100, .width = 1, .height = 1 }, 1.0, c.babl_format("R'G'B'A u8"), &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+        try std.testing.expectEqual(pixel[0], 255);
+        try std.testing.expectEqual(pixel[2], 0);
+    }
+
+    {
+        const buf = engine.layers.items[0].buffer;
+        var pixel: [4]u8 = undefined;
+        c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 90, .y = 90, .width = 1, .height = 1 }, 1.0, c.babl_format("R'G'B'A u8"), &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+        try std.testing.expectEqual(pixel[2], 255);
+        try std.testing.expectEqual(pixel[0], 0);
+    }
 }

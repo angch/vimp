@@ -520,6 +520,7 @@ var polygon_active: bool = false;
 
 // Drag State
 var is_dragging_interaction: bool = false;
+var is_moving_selection: bool = false;
 
 // View State
 var view_scale: f64 = 1.0;
@@ -1184,17 +1185,42 @@ fn drag_begin(
                 canvas_dirty = true;
                 c.gtk_widget_queue_draw(widget);
             } else if (current_tool == .rect_select or current_tool == .ellipse_select) {
-                // Start selection - maybe clear existing?
-                engine.beginSelection();
-                engine.clearSelection();
+                const c_x = (view_x + x) / view_scale;
+                const c_y = (view_y + y) / view_scale;
+                const ix: i32 = @intFromFloat(c_x);
+                const iy: i32 = @intFromFloat(c_y);
+
+                if (engine.selection != null and engine.isPointInSelection(ix, iy)) {
+                    engine.beginMoveSelection(c_x, c_y) catch |err| {
+                        show_toast("Failed to move selection: {}", .{err});
+                        return;
+                    };
+                    is_moving_selection = true;
+                } else {
+                    engine.beginSelection();
+                    engine.clearSelection();
+                }
                 c.gtk_widget_queue_draw(widget);
             } else if (current_tool == .lasso) {
-                engine.beginSelection();
-                engine.clearSelection(); // Clear previous selection immediately
-                polygon_points.clearRetainingCapacity();
-                const wx = (view_x + x) / view_scale;
-                const wy = (view_y + y) / view_scale;
-                polygon_points.append(std.heap.c_allocator, Engine.Point{ .x = wx, .y = wy }) catch {};
+                const c_x = (view_x + x) / view_scale;
+                const c_y = (view_y + y) / view_scale;
+                const ix: i32 = @intFromFloat(c_x);
+                const iy: i32 = @intFromFloat(c_y);
+
+                if (engine.selection != null and engine.isPointInSelection(ix, iy)) {
+                    engine.beginMoveSelection(c_x, c_y) catch |err| {
+                        show_toast("Failed to move selection: {}", .{err});
+                        return;
+                    };
+                    is_moving_selection = true;
+                } else {
+                    engine.beginSelection();
+                    engine.clearSelection(); // Clear previous selection immediately
+                    polygon_points.clearRetainingCapacity();
+                    const wx = (view_x + x) / view_scale;
+                    const wy = (view_y + y) / view_scale;
+                    polygon_points.append(std.heap.c_allocator, Engine.Point{ .x = wx, .y = wy }) catch {};
+                }
                 c.gtk_widget_queue_draw(widget);
             } else if (current_tool == .color_picker) {
                 const c_x: i32 = @intFromFloat((view_x + x) / view_scale);
@@ -1330,8 +1356,15 @@ fn drag_update(
         }
 
         if (current_tool == .lasso) {
-            polygon_points.append(std.heap.c_allocator, Engine.Point{ .x = c_curr_x, .y = c_curr_y }) catch {};
-            engine.setShapePreviewPolygon(polygon_points.items, 1, false);
+            if (is_moving_selection) {
+                const dx = offset_x / view_scale;
+                const dy = offset_y / view_scale;
+                engine.updateMoveSelection(dx, dy);
+                canvas_dirty = true;
+            } else {
+                polygon_points.append(std.heap.c_allocator, Engine.Point{ .x = c_curr_x, .y = c_curr_y }) catch {};
+                engine.setShapePreviewPolygon(polygon_points.items, 1, false);
+            }
             c.gtk_widget_queue_draw(widget);
             prev_x = current_x;
             prev_y = current_y;
@@ -1464,21 +1497,24 @@ fn drag_update(
         }
 
         if (current_tool == .rect_select or current_tool == .ellipse_select) {
-            // Dragging selection
-            // Start point was recorded in drag_begin implicitly?
-            // No, drag_update gives offset from start.
-            // start_sx, start_sy from gtk_gesture_drag_get_start_point are screen coords.
+            if (is_moving_selection) {
+                const dx = offset_x / view_scale;
+                const dy = offset_y / view_scale;
+                engine.updateMoveSelection(dx, dy);
+                canvas_dirty = true;
+            } else {
+                // Dragging selection
+                const start_world_x = (view_x + start_sx) / view_scale;
+                const start_world_y = (view_y + start_sy) / view_scale;
 
-            const start_world_x = (view_x + start_sx) / view_scale;
-            const start_world_y = (view_y + start_sy) / view_scale;
+                // Calculate min/max
+                const min_x: c_int = @intFromFloat(@min(start_world_x, c_curr_x));
+                const min_y: c_int = @intFromFloat(@min(start_world_y, c_curr_y));
+                const max_x: c_int = @intFromFloat(@max(start_world_x, c_curr_x));
+                const max_y: c_int = @intFromFloat(@max(start_world_y, c_curr_y));
 
-            // Calculate min/max
-            const min_x: c_int = @intFromFloat(@min(start_world_x, c_curr_x));
-            const min_y: c_int = @intFromFloat(@min(start_world_y, c_curr_y));
-            const max_x: c_int = @intFromFloat(@max(start_world_x, c_curr_x));
-            const max_y: c_int = @intFromFloat(@max(start_world_y, c_curr_y));
-
-            engine.setSelection(min_x, min_y, max_x - min_x, max_y - min_y);
+                engine.setSelection(min_x, min_y, max_x - min_x, max_y - min_y);
+            }
             c.gtk_widget_queue_draw(widget);
 
             prev_x = current_x;
@@ -1503,6 +1539,20 @@ fn drag_end(
     user_data: ?*anyopaque,
 ) callconv(std.builtin.CallingConvention.c) void {
     is_dragging_interaction = false;
+
+    if (is_moving_selection) {
+        engine.commitMoveSelection() catch |err| {
+            show_toast("Failed to commit move: {}", .{err});
+        };
+        is_moving_selection = false;
+        refresh_undo_ui();
+        canvas_dirty = true;
+        if (user_data) |ud| {
+            const widget: *c.GtkWidget = @ptrCast(@alignCast(ud));
+            c.gtk_widget_queue_draw(widget);
+        }
+        return;
+    }
 
     if (current_tool == .text) {
         var start_sx: f64 = 0;
