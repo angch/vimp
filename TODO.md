@@ -100,7 +100,7 @@
 - [ ] Implement GNOME standard color picker dialog
 
 ### From `ms_paint_spec.md`
-- [ ] Implement Color Box palette (default colors)
+- [x] Implement Color Box palette (default colors)
 - [ ] Implement Edit Colors dialog (RGB/HSL spectrum)
 
 ---
