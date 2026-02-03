@@ -3255,43 +3255,43 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
 
     // Selection Group
     const select_entries = [_]ToolEntry{
-        .{ .tool = .rect_select, .icon = "edit-select-symbolic", .tooltip = "Rectangle Select", .is_icon_name = true },
-        .{ .tool = .ellipse_select, .icon = "media-record-symbolic", .tooltip = "Ellipse Select", .is_icon_name = true },
-        .{ .tool = .lasso, .icon = "edit-select-text-symbolic", .tooltip = "Lasso Select", .is_icon_name = true },
+        .{ .tool = .rect_select, .icon = "assets/rect-select.svg", .tooltip = "Rectangle Select", .is_icon_name = false },
+        .{ .tool = .ellipse_select, .icon = "assets/ellipse-select.svg", .tooltip = "Ellipse Select", .is_icon_name = false },
+        .{ .tool = .lasso, .icon = "assets/lasso-select.svg", .tooltip = "Lasso Select", .is_icon_name = false },
     };
     const select_group_btn = createToolGroup(&active_selection_tool, &select_entries, @ptrCast(paint_group_btn));
     appendTool(tools_container, select_group_btn, &tools_row_box, &tools_in_row);
 
     // Text Tool
-    const text_btn = createToolButton(&text_tool, "insert-text-symbolic", "Text Tool", @ptrCast(paint_group_btn), true);
+    const text_btn = createToolButton(&text_tool, "assets/text.svg", "Text Tool", @ptrCast(paint_group_btn), false);
     appendTool(tools_container, text_btn, &tools_row_box, &tools_in_row);
 
     // Shapes Group
     const shape_entries = [_]ToolEntry{
-        .{ .tool = .rect_shape, .icon = "media-stop-symbolic", .tooltip = "Rectangle Tool", .is_icon_name = true },
-        .{ .tool = .ellipse_shape, .icon = "media-record-symbolic", .tooltip = "Ellipse Tool", .is_icon_name = true },
-        .{ .tool = .rounded_rect_shape, .icon = "media-playlist-consecutive-symbolic", .tooltip = "Rounded Rectangle Tool", .is_icon_name = true },
-        .{ .tool = .polygon, .icon = "shapes-symbolic", .tooltip = "Polygon Tool", .is_icon_name = true },
+        .{ .tool = .rect_shape, .icon = "assets/rect-shape.svg", .tooltip = "Rectangle Tool", .is_icon_name = false },
+        .{ .tool = .ellipse_shape, .icon = "assets/ellipse-shape.svg", .tooltip = "Ellipse Tool", .is_icon_name = false },
+        .{ .tool = .rounded_rect_shape, .icon = "assets/rounded-rect-shape.svg", .tooltip = "Rounded Rectangle Tool", .is_icon_name = false },
+        .{ .tool = .polygon, .icon = "assets/polygon.svg", .tooltip = "Polygon Tool", .is_icon_name = false },
     };
     const shape_group_btn = createToolGroup(&active_shape_tool, &shape_entries, @ptrCast(paint_group_btn));
     appendTool(tools_container, shape_group_btn, &tools_row_box, &tools_in_row);
 
     // Unified Transform
-    const transform_btn = createToolButton(&unified_transform_tool, "object-rotate-right-symbolic", "Unified Transform", @ptrCast(paint_group_btn), true);
+    const transform_btn = createToolButton(&unified_transform_tool, "assets/transform.svg", "Unified Transform", @ptrCast(paint_group_btn), false);
     appendTool(tools_container, transform_btn, &tools_row_box, &tools_in_row);
 
     // Color Picker
-    const picker_btn = createToolButton(&color_picker_tool, "preferences-color-symbolic", "Color Picker", @ptrCast(paint_group_btn), true);
+    const picker_btn = createToolButton(&color_picker_tool, "assets/color-picker.svg", "Color Picker", @ptrCast(paint_group_btn), false);
     appendTool(tools_container, picker_btn, &tools_row_box, &tools_in_row);
 
     // Gradient Tool
-    const gradient_btn = createToolButton(&gradient_tool, "applications-graphics-symbolic", "Gradient Tool", @ptrCast(paint_group_btn), true);
+    const gradient_btn = createToolButton(&gradient_tool, "assets/gradient.svg", "Gradient Tool", @ptrCast(paint_group_btn), false);
     appendTool(tools_container, gradient_btn, &tools_row_box, &tools_in_row);
 
     // Lines Group
     const line_entries = [_]ToolEntry{
-        .{ .tool = .line, .icon = "list-remove-symbolic", .tooltip = "Line Tool (Shift to snap)", .is_icon_name = true },
-        .{ .tool = .curve, .icon = "call-start-symbolic", .tooltip = "Curve Tool (Drag Line -> Bend 1 -> Bend 2)", .is_icon_name = true },
+        .{ .tool = .line, .icon = "assets/line.svg", .tooltip = "Line Tool (Shift to snap)", .is_icon_name = false },
+        .{ .tool = .curve, .icon = "assets/curve.svg", .tooltip = "Curve Tool (Drag Line -> Bend 1 -> Bend 2)", .is_icon_name = false },
     };
     const line_group_btn = createToolGroup(&active_line_tool, &line_entries, @ptrCast(paint_group_btn));
     appendTool(tools_container, line_group_btn, &tools_row_box, &tools_in_row);

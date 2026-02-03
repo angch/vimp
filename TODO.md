@@ -225,7 +225,8 @@
 
 - [ ] Generate detailed TODOs from `doc/gimp-file-open-spec.md`
 - [ ] Generate detailed TODOs from `doc/ms_paint_spec.md`
-- [ ] Ensure colored icons for all tools
+- [x] Ensure colored icons for all tools
+- [ ] Embed assets/resources into binary
 - [x] Fix failing Engine PDF load test
 
 ---
