@@ -41,8 +41,7 @@ pub fn showCanvasSizeDialog(
     c.gtk_box_append(@ptrCast(box), grid);
 
     // Width
-    const w_label = c.gtk_label_new("_Width (px):");
-    c.gtk_label_set_use_underline(@ptrCast(w_label), 1);
+    const w_label = c.gtk_label_new_with_mnemonic("_Width (px):");
     c.gtk_widget_set_halign(w_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), w_label, 0, 0, 1, 1);
     const width_spin = c.gtk_spin_button_new_with_range(1.0, 10000.0, 1.0);
@@ -51,8 +50,7 @@ pub fn showCanvasSizeDialog(
     c.gtk_grid_attach(@ptrCast(grid), width_spin, 1, 0, 1, 1);
 
     // Height
-    const h_label = c.gtk_label_new("_Height (px):");
-    c.gtk_label_set_use_underline(@ptrCast(h_label), 1);
+    const h_label = c.gtk_label_new_with_mnemonic("_Height (px):");
     c.gtk_widget_set_halign(h_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), h_label, 0, 1, 1, 1);
     const height_spin = c.gtk_spin_button_new_with_range(1.0, 10000.0, 1.0);

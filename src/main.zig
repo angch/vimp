@@ -3527,21 +3527,18 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     const welcome_box = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 10);
     c.gtk_widget_set_halign(welcome_box, c.GTK_ALIGN_CENTER);
 
-    const welcome_new_btn = c.gtk_button_new_with_label("_New Image");
-    c.gtk_button_set_use_underline(@ptrCast(welcome_new_btn), 1);
+    const welcome_new_btn = c.gtk_button_new_with_mnemonic("_New Image");
     c.gtk_widget_add_css_class(welcome_new_btn, "pill");
     c.gtk_widget_add_css_class(welcome_new_btn, "suggested-action");
     c.gtk_actionable_set_action_name(@ptrCast(welcome_new_btn), "app.new");
     c.gtk_box_append(@ptrCast(welcome_box), welcome_new_btn);
 
-    const welcome_open_btn = c.gtk_button_new_with_label("_Open Image");
-    c.gtk_button_set_use_underline(@ptrCast(welcome_open_btn), 1);
+    const welcome_open_btn = c.gtk_button_new_with_mnemonic("_Open Image");
     c.gtk_widget_add_css_class(welcome_open_btn, "pill");
     c.gtk_actionable_set_action_name(@ptrCast(welcome_open_btn), "app.open");
     c.gtk_box_append(@ptrCast(welcome_box), welcome_open_btn);
 
-    const welcome_open_loc_btn = c.gtk_button_new_with_label("Open _Location");
-    c.gtk_button_set_use_underline(@ptrCast(welcome_open_loc_btn), 1);
+    const welcome_open_loc_btn = c.gtk_button_new_with_mnemonic("Open _Location");
     c.gtk_widget_add_css_class(welcome_open_loc_btn, "pill");
     c.gtk_actionable_set_action_name(@ptrCast(welcome_open_loc_btn), "app.open-location");
     c.gtk_box_append(@ptrCast(welcome_box), welcome_open_loc_btn);
@@ -3619,15 +3616,13 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.gtk_widget_set_margin_top(t_action_bar, 20);
     c.gtk_widget_add_css_class(t_action_bar, "osd-box");
 
-    const t_apply = c.gtk_button_new_with_label("_Apply");
-    c.gtk_button_set_use_underline(@ptrCast(t_apply), 1);
+    const t_apply = c.gtk_button_new_with_mnemonic("_Apply");
     c.gtk_widget_add_css_class(t_apply, "suggested-action");
     c.gtk_widget_set_tooltip_text(t_apply, "Apply Transformation");
     c.gtk_box_append(@ptrCast(t_action_bar), t_apply);
     _ = c.g_signal_connect_data(t_apply, "clicked", @ptrCast(&transform_apply_clicked), null, null, 0);
 
-    const t_cancel = c.gtk_button_new_with_label("_Cancel");
-    c.gtk_button_set_use_underline(@ptrCast(t_cancel), 1);
+    const t_cancel = c.gtk_button_new_with_mnemonic("_Cancel");
     c.gtk_widget_set_tooltip_text(t_cancel, "Cancel Transformation");
     c.gtk_box_append(@ptrCast(t_action_bar), t_cancel);
     _ = c.g_signal_connect_data(t_cancel, "clicked", @ptrCast(&transform_cancel_clicked), null, null, 0);

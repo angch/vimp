@@ -28,7 +28,7 @@
 ### Accessibility
 - [ ] Ensure High Contrast mode support
 - [ ] Verify keyboard navigation for all functionality
-- [ ] Add Mnemonics (underlined letters) in menus and dialogs
+- [x] Add Mnemonics (underlined letters) in menus and dialogs
 
 ---
 

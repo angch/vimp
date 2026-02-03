@@ -156,8 +156,7 @@ pub fn showPdfImportDialog(
 
     // PPI Row
     const ppi_row = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 10);
-    const ppi_label = c.gtk_label_new("_Resolution (PPI):");
-    c.gtk_label_set_use_underline(@ptrCast(ppi_label), 1);
+    const ppi_label = c.gtk_label_new_with_mnemonic("_Resolution (PPI):");
     c.gtk_box_append(@ptrCast(ppi_row), ppi_label);
     const ppi_spin = c.gtk_spin_button_new_with_range(72.0, 2400.0, 1.0);
     c.gtk_label_set_mnemonic_widget(@ptrCast(ppi_label), ppi_spin);
@@ -283,8 +282,7 @@ pub fn showSvgImportDialog(
 
     // Width Row
     const w_row = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 10);
-    const w_label = c.gtk_label_new("_Width (px):");
-    c.gtk_label_set_use_underline(@ptrCast(w_label), 1);
+    const w_label = c.gtk_label_new_with_mnemonic("_Width (px):");
     c.gtk_box_append(@ptrCast(w_row), w_label);
     const w_spin = c.gtk_spin_button_new_with_range(0.0, 10000.0, 1.0);
     c.gtk_label_set_mnemonic_widget(@ptrCast(w_label), w_spin);
@@ -294,8 +292,7 @@ pub fn showSvgImportDialog(
 
     // Height Row
     const h_row = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 10);
-    const h_label = c.gtk_label_new("_Height (px):");
-    c.gtk_label_set_use_underline(@ptrCast(h_label), 1);
+    const h_label = c.gtk_label_new_with_mnemonic("_Height (px):");
     c.gtk_box_append(@ptrCast(h_row), h_label);
     const h_spin = c.gtk_spin_button_new_with_range(0.0, 10000.0, 1.0);
     c.gtk_label_set_mnemonic_widget(@ptrCast(h_label), h_spin);

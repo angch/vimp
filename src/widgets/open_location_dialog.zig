@@ -60,8 +60,7 @@ pub fn showOpenLocationDialog(
     c.gtk_widget_set_margin_start(box, 10);
     c.gtk_widget_set_margin_end(box, 10);
 
-    const label = c.gtk_label_new("_Location:");
-    c.gtk_label_set_use_underline(@ptrCast(label), 1);
+    const label = c.gtk_label_new_with_mnemonic("_Location:");
     c.gtk_widget_set_halign(label, c.GTK_ALIGN_START);
     c.gtk_box_append(@ptrCast(box), label);
 
