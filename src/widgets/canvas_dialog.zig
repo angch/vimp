@@ -21,8 +21,8 @@ pub fn showCanvasSizeDialog(
         "Adjust the canvas dimensions. This will not scale the image content.",
     );
 
-    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "Cancel");
-    c.adw_message_dialog_add_response(@ptrCast(dialog), "apply", "Apply");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "_Cancel");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "apply", "_Apply");
     c.adw_message_dialog_set_default_response(@ptrCast(dialog), "apply");
     c.adw_message_dialog_set_close_response(@ptrCast(dialog), "cancel");
 
@@ -41,18 +41,22 @@ pub fn showCanvasSizeDialog(
     c.gtk_box_append(@ptrCast(box), grid);
 
     // Width
-    const w_label = c.gtk_label_new("Width (px):");
+    const w_label = c.gtk_label_new("_Width (px):");
+    c.gtk_label_set_use_underline(@ptrCast(w_label), 1);
     c.gtk_widget_set_halign(w_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), w_label, 0, 0, 1, 1);
     const width_spin = c.gtk_spin_button_new_with_range(1.0, 10000.0, 1.0);
+    c.gtk_label_set_mnemonic_widget(@ptrCast(w_label), width_spin);
     c.gtk_spin_button_set_value(@ptrCast(width_spin), @floatFromInt(current_width));
     c.gtk_grid_attach(@ptrCast(grid), width_spin, 1, 0, 1, 1);
 
     // Height
-    const h_label = c.gtk_label_new("Height (px):");
+    const h_label = c.gtk_label_new("_Height (px):");
+    c.gtk_label_set_use_underline(@ptrCast(h_label), 1);
     c.gtk_widget_set_halign(h_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), h_label, 0, 1, 1, 1);
     const height_spin = c.gtk_spin_button_new_with_range(1.0, 10000.0, 1.0);
+    c.gtk_label_set_mnemonic_widget(@ptrCast(h_label), height_spin);
     c.gtk_spin_button_set_value(@ptrCast(height_spin), @floatFromInt(current_height));
     c.gtk_grid_attach(@ptrCast(grid), height_spin, 1, 1, 1, 1);
 
