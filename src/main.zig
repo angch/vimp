@@ -116,6 +116,18 @@ pub fn main() !void {
     _ = status;
 }
 
+fn populate_recent_colors(chooser: *c.GtkColorChooser) void {
+    if (recent_colors_manager.colors.items.len > 0) {
+        c.gtk_color_chooser_add_palette(
+            chooser,
+            c.GTK_ORIENTATION_HORIZONTAL,
+            5, // colors per line
+            @intCast(recent_colors_manager.colors.items.len),
+            recent_colors_manager.colors.items.ptr,
+        );
+    }
+}
+
 fn create_color_button() *c.GtkWidget {
     const btn = c.gtk_color_button_new();
     c.gtk_widget_set_valign(btn, c.GTK_ALIGN_START);
@@ -123,16 +135,7 @@ fn create_color_button() *c.GtkWidget {
 
     _ = c.g_signal_connect_data(btn, "color-set", @ptrCast(&color_changed), null, null, 0);
 
-    // Populate recent colors palette
-    if (recent_colors_manager.colors.items.len > 0) {
-        c.gtk_color_chooser_add_palette(
-            @ptrCast(btn),
-            c.GTK_ORIENTATION_HORIZONTAL,
-            5, // colors per line
-            @intCast(recent_colors_manager.colors.items.len),
-            recent_colors_manager.colors.items.ptr,
-        );
-    }
+    populate_recent_colors(@ptrCast(btn));
     return btn;
 }
 
@@ -159,7 +162,7 @@ fn rebuild_recent_colors_ui_callback(_: ?*anyopaque) callconv(std.builtin.Callin
     };
     c.gtk_color_chooser_set_rgba(@ptrCast(color_btn.?), &rgba);
 
-    c.gtk_widget_insert_before(color_btn.?, parent, tool_options_box.?);
+    c.gtk_box_prepend(@ptrCast(parent), color_btn.?);
 
     // Restore focus to the new button to maintain keyboard navigation
     _ = c.gtk_widget_grab_focus(color_btn.?);
@@ -185,6 +188,50 @@ fn color_changed(
     recent_colors_manager.add(rgba) catch {};
 
     _ = c.g_idle_add(@ptrCast(&rebuild_recent_colors_ui_callback), null);
+}
+
+fn on_edit_colors_response(
+    dialog: *c.GtkDialog,
+    response_id: c_int,
+    user_data: ?*anyopaque,
+) callconv(std.builtin.CallingConvention.c) void {
+    _ = user_data;
+    if (response_id == c.GTK_RESPONSE_OK) {
+        var rgba: c.GdkRGBA = undefined;
+        c.gtk_color_chooser_get_rgba(@ptrCast(dialog), &rgba);
+
+        const r: u8 = @intFromFloat(rgba.red * 255.0);
+        const g: u8 = @intFromFloat(rgba.green * 255.0);
+        const b: u8 = @intFromFloat(rgba.blue * 255.0);
+        const a: u8 = @intFromFloat(rgba.alpha * 255.0);
+
+        engine.setFgColor(r, g, b, a);
+        recent_colors_manager.add(rgba) catch {};
+        _ = c.g_idle_add(@ptrCast(&rebuild_recent_colors_ui_callback), null);
+    }
+    c.gtk_window_destroy(@ptrCast(dialog));
+}
+
+fn on_edit_colors_clicked(
+    _: *c.GtkButton,
+    user_data: ?*anyopaque,
+) callconv(std.builtin.CallingConvention.c) void {
+    const parent: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
+    const dialog = c.gtk_color_chooser_dialog_new("Edit Colors", parent);
+    populate_recent_colors(@ptrCast(dialog));
+    c.gtk_color_chooser_set_use_alpha(@ptrCast(dialog), 1);
+
+    const fg = engine.fg_color;
+    const rgba = c.GdkRGBA{
+        .red = @as(f32, @floatFromInt(fg[0])) / 255.0,
+        .green = @as(f32, @floatFromInt(fg[1])) / 255.0,
+        .blue = @as(f32, @floatFromInt(fg[2])) / 255.0,
+        .alpha = @as(f32, @floatFromInt(fg[3])) / 255.0,
+    };
+    c.gtk_color_chooser_set_rgba(@ptrCast(dialog), &rgba);
+
+    _ = c.g_signal_connect_data(dialog, "response", @ptrCast(&on_edit_colors_response), null, null, 0);
+    c.gtk_window_present(@ptrCast(dialog));
 }
 
 fn brush_size_changed(
@@ -3436,9 +3483,17 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     const palette = ColorPalette.create(&engine, &update_color_btn_visual);
     c.gtk_box_append(@ptrCast(sidebar), palette);
 
-    // Color Selection
+    // Color Selection & Edit
+    const color_box = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 5);
+    c.gtk_widget_set_halign(color_box, c.GTK_ALIGN_CENTER);
+    c.gtk_box_append(@ptrCast(sidebar), color_box);
+
     color_btn = create_color_button();
-    c.gtk_box_append(@ptrCast(sidebar), color_btn);
+    c.gtk_box_append(@ptrCast(color_box), color_btn);
+
+    const edit_colors_btn = c.gtk_button_new_with_mnemonic("_Edit Colors");
+    _ = c.g_signal_connect_data(edit_colors_btn, "clicked", @ptrCast(&on_edit_colors_clicked), window, null, 0);
+    c.gtk_box_append(@ptrCast(color_box), edit_colors_btn);
 
     // Tool Options Box
     const options_box = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 5);
