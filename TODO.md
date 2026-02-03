@@ -5,8 +5,6 @@
 > Tracks alignment with design docs in `doc/`. Cross-reference when picking up tasks.
 
 ### Core Design Docs Status
-- [x] `doc/gimp_gnome_hig_gap_analysis.md` - Header Bar, Adaptive Layouts, Save/Export Flow
-- [x] `doc/gimp-feature-spec-gnome-hig.md` - Core user stories
 - [ ] `doc/gimp-file-open-spec.md` - File open/import workflows
 - [ ] `doc/ms_paint_spec.md` - Classic paint features
 - [ ] `doc/gnome-hig-analysis.md` - GNOME HIG compliance
@@ -15,192 +13,15 @@
 
 ## GNOME HIG Compliance (from `gnome-hig-analysis.md`)
 
-### Architecture (Completed)
-- [x] Migrate to Libadwaita (AdwApplication)
-- [x] Implement Header Bar (Hamburger Menu, Primary Actions)
-- [x] Implement Adaptive Layouts (Collapsible Sidebar/Flap)
-- [x] Implement Unified Save/Export Flow
-
-### Navigation & Controls
-- [x] Implement Command Palette (searchable action interface)
-- [x] Add Tooltips to all Header Bar buttons
-
 ### Accessibility
 - [ ] Ensure High Contrast mode support
 - [ ] Verify keyboard navigation for all functionality
-- [x] Add Mnemonics (underlined letters) in menus and dialogs
-
----
-
-## Canvas & Interaction (from `gimp-feature-spec-gnome-hig.md`)
-
-### Canvas Navigation (Completed)
-- [x] Implement Canvas Navigation (Zoom/Scroll)
-- [x] Implement Empty State (Welcome Screen)
-- [x] Implement Overlay Feedback (OSD)
-
-### Canvas Navigation (Pending)
-- [x] Implement pinch-to-zoom gesture support
-- [x] Implement two-finger pan gesture support
-
-### Tool Palette Improvements
-- [x] Implement Tool Grouping (popovers/long-press revealers)
-- [x] Implement Properties Sidebar (contextual tool options)
-
-### Selection Feedback
-- [x] Implement HUD for live dimensions during selection/transform
-
----
-
-## Paint & Drawing Tools
-
-### Completed
-- [x] Implement Brush Tool
-- [x] Implement Pencil Tool (Hard edge painting)
-- [x] Implement Airbrush Tool (Variable pressure)
-- [x] Implement Eraser Tool
-- [x] Implement Bucket Fill Tool
-
-### From `ms_paint_spec.md`
-- [x] Implement Pick Color Tool (Eyedropper)
-- [x] Implement Gradient Tool
-- [x] Implement Text Tool
-- [x] Implement Line Tool (Shift for constrained angles)
-- [x] Implement Curve Tool (click to bend)
-
-### Shape Tools (from `ms_paint_spec.md`)
-- [x] Implement Rectangle Shape Tool
-- [x] Implement Ellipse Shape Tool
-- [x] Implement Rounded Rectangle Tool
-- [x] Implement Polygon Tool
-
----
-
-## Selection Tools
-
-### Completed
-- [x] Implement Rectangle Select Tool
-- [x] Implement Ellipse Select Tool
-
-### From `ms_paint_spec.md` & `gimp-feature-spec-gnome-hig.md`
-- [x] Implement Free-Form Select Tool (Lasso)
-- [x] Implement Selection Mode toggle (Opaque/Transparent)
-- [x] Implement Marching Ants animation for selections
-
----
-
-## Color Features
-
-### Completed
-- [x] Implement Color Selection (Foreground/Background)
-- [x] Implement Brush Size Control
-
-### From `gimp-feature-spec-gnome-hig.md`
-- [x] Implement Recent Colors persistence in color popover
-- [x] Implement GNOME standard color picker dialog
-
-### From `ms_paint_spec.md`
-- [x] Implement Color Box palette (default colors)
-- [x] Implement Edit Colors dialog (RGB/HSL spectrum)
-
----
-
-## Transformations
-
-### Completed
-- [x] Implement Unified Transform Tool
-- [x] Implement Non-destructive preview
-
-### From `ms_paint_spec.md`
-- [x] Implement Flip Horizontal
-- [x] Implement Flip Vertical
-- [x] Implement Rotate by angle (90°, 180°, 270°)
-- [x] Implement Stretch/Skew dialog
-
----
-
-## Filters & Effects (from `gimp-feature-spec-gnome-hig.md`)
-
-### Completed
-- [x] Implement Basic Blur Filters (Gaussian)
-- [x] Implement On-Canvas Preview ("Split View")
-
-### Blur Filters
-- [x] Implement Motion Blur
-- [x] Implement Pixelize/Mosaic
-
-### Enhancement Filters
-- [x] Implement Unsharp Mask (Sharpen)
-- [x] Implement Noise Reduction
-- [x] Implement Red Eye Removal
-
-### Artistic Filters
-- [x] Implement Ripple/Waves
-- [x] Implement Oilify
-- [x] Implement Drop Shadow
-
-### Light & Shadow
-- [x] Implement Lighting Effects (Directional, Point, Spot)
-- [x] Implement Supernova/Flare effect
-
----
-
-## Image Operations (from `ms_paint_spec.md`)
-
-- [x] Implement Invert Colors
-- [x] Implement Canvas Attributes dialog (Width/Height/Units)
-- [x] Implement Clear Image (Ctrl+Shift+N)
-
----
-
-## View Features (from `ms_paint_spec.md`)
-
-- [x] Implement Pixel Grid (visible when zoomed in)
-- [x] Implement Thumbnail window (overview while zoomed)
-- [x] Implement View Bitmap (fullscreen preview)
-
----
-
-## Layers
-
-### Completed
-- [x] Implement Layer Management (Visibility, Locks, Reordering)
-
----
-
-## Undo/Redo System
-
-### Completed
-- [x] Design Command Pattern and History Management
-- [x] Implement transaction logic (beginStroke/endStroke)
-- [x] Implement PaintCommand (Snapshot strategy)
-- [x] Implement LayerCommands
-- [x] Implement SelectionCommands
-- [x] Add Undo/Redo actions (Ctrl+Z, Ctrl+Y)
-- [x] Implement Undo History Panel
 
 ---
 
 ## File Operations (from `gimp-file-open-spec.md`)
 
-### Completed
-- [x] Implement Basic File Open (Ctrl+O, Native Dialog)
-- [x] Implement Open as Layers (Ctrl+Alt+O)
-- [x] Implement Drag and Drop Open
-- [x] Implement Welcome Screen (Recent Grid)
-- [x] Implement Recent Files Persistence
-- [x] Implement file type filtering
-- [x] Implement PDF Import (Page Selection, Thumbnails)
-- [x] Implement SVG Path Import
-- [x] Implement Error Handling (Non-blocking Toasts)
-- [x] Implement Real Thumbnails for Recent Files
-- [x] Implement Open Location (URI)
-- [x] Implement Raw Image Import
-- [x] Implement "Open pages as separate images" for PDF
-
 ### Pending
-- [x] Implement Clipboard Detection for Open Location
-- [x] Investigate/Implement Preview Pane in File Chooser
 - [ ] Implement File Recovery/Salvage actions
 
 ### File Format Support (from `gimp-file-open-spec.md`)
@@ -217,7 +38,6 @@
 
 **Specialized:**
 - [ ] DDS texture format
-- [x] PostScript (.ps, .eps) import
 
 ---
 
@@ -225,10 +45,6 @@
 
 - [ ] Generate detailed TODOs from `doc/gimp-file-open-spec.md`
 - [ ] Generate detailed TODOs from `doc/ms_paint_spec.md`
-- [x] Implement Right-Click (Secondary Color) support for Paint Tools
-- [x] Ensure colored icons for all tools
-- [x] Embed assets/resources into binary
-- [x] Fix failing Engine PDF load test
 
 ---
 
@@ -238,8 +54,5 @@
 <summary>Click to expand completed wishlist items</summary>
 
 ### Document Features
-- [x] Search and document features in GIMP in markdown (GIMP.md)
-- [x] Search and document features implemented in Vimp (VIMP.md)
-- [x] Diff GIMP.md and VIMP.md and add to TODO.md
 
 </details>
