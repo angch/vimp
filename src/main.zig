@@ -3093,6 +3093,22 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.gtk_widget_set_tooltip_text(view_btn, "View Options");
     c.adw_header_bar_pack_start(@ptrCast(header_bar), view_btn);
 
+    // Apply Preview Button (Hidden by default, shown when preview_mode != none)
+    const apply_btn = c.gtk_button_new_from_icon_name("object-select-symbolic");
+    c.gtk_actionable_set_action_name(@ptrCast(apply_btn), "app.apply-preview");
+    c.gtk_widget_set_tooltip_text(apply_btn, "Apply Filter");
+    c.gtk_widget_set_visible(apply_btn, 0); // Hidden initially
+    apply_preview_btn = apply_btn;
+    c.adw_header_bar_pack_start(@ptrCast(header_bar), apply_btn);
+
+    // Discard Preview Button
+    const discard_btn = c.gtk_button_new_from_icon_name("process-stop-symbolic");
+    c.gtk_actionable_set_action_name(@ptrCast(discard_btn), "app.discard-preview");
+    c.gtk_widget_set_tooltip_text(discard_btn, "Discard Filter");
+    c.gtk_widget_set_visible(discard_btn, 0); // Hidden initially
+    discard_preview_btn = discard_btn;
+    c.adw_header_bar_pack_start(@ptrCast(header_bar), discard_btn);
+
     // Hamburger Menu (End)
     const menu = c.g_menu_new();
     c.g_menu_append(menu, "Command Palette...", "app.command-palette");
@@ -3487,10 +3503,12 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
 
     const t_apply = c.gtk_button_new_with_label("Apply");
     c.gtk_widget_add_css_class(t_apply, "suggested-action");
+    c.gtk_widget_set_tooltip_text(t_apply, "Apply Transformation");
     c.gtk_box_append(@ptrCast(t_action_bar), t_apply);
     _ = c.g_signal_connect_data(t_apply, "clicked", @ptrCast(&transform_apply_clicked), null, null, 0);
 
     const t_cancel = c.gtk_button_new_with_label("Cancel");
+    c.gtk_widget_set_tooltip_text(t_cancel, "Cancel Transformation");
     c.gtk_box_append(@ptrCast(t_action_bar), t_cancel);
     _ = c.g_signal_connect_data(t_cancel, "clicked", @ptrCast(&transform_cancel_clicked), null, null, 0);
 
