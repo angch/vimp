@@ -217,7 +217,7 @@
 
 **Specialized:**
 - [ ] DDS texture format
-- [ ] PostScript (.ps, .eps) import
+- [x] PostScript (.ps, .eps) import
 
 ---
 
