@@ -195,3 +195,9 @@ term planning.
 - Added "Lighting Effects" dialog with Position (X, Y, Z), Intensity, and Color controls.
 - Defaulted to Point light type (0).
 - Validated with `test "Engine lighting"` (note: `gegl:lighting` is missing in current dev env, causing passthrough warning).
+
+### 2026-01-31: Colored Icons Implementation
+- Generated SVG icons for all tools using `scripts/generate_icons.py`.
+- Updated `src/main.zig` to use these SVG assets instead of symbolic icons.
+- **Finding/Gotcha**: The application currently loads assets using relative paths (e.g., `assets/brush.png`). This makes the executable dependent on the current working directory.
+- **Future Task**: Refactor asset loading to embed resources directly into the binary (e.g., using `@embedFile` or GResource) to improve robustness and portability.
