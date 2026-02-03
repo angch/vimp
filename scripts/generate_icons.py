@@ -66,9 +66,9 @@ icons = {
 </svg>''',
 }
 
-os.makedirs("assets", exist_ok=True)
+os.makedirs("src/assets", exist_ok=True)
 for name, content in icons.items():
-    with open(os.path.join("assets", name), "w") as f:
+    with open(os.path.join("src/assets", name), "w") as f:
         f.write(content)
 
 print("Icons generated.")

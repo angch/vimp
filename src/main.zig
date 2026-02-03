@@ -18,12 +18,13 @@ const ColorPalette = @import("widgets/color_palette.zig").ColorPalette;
 const RawLoader = @import("raw_loader.zig").RawLoader;
 const ToolOptionsPanel = @import("widgets/tool_options_panel.zig").ToolOptionsPanel;
 const Tool = @import("tools.zig").Tool;
+const Assets = @import("assets.zig");
 
 const ToolEntry = struct {
     tool: Tool,
-    icon: [:0]const u8,
+    icon_data: ?[]const u8 = null,
+    icon_name: ?[:0]const u8 = null,
     tooltip: [:0]const u8,
-    is_icon_name: bool,
 };
 
 // Tool Group Active States
@@ -2805,9 +2806,9 @@ const ToolGroupItemContext = struct {
     main_btn: *c.GtkWidget,
     active_tool_ref: *Tool,
     tool: Tool,
-    icon: [:0]const u8,
+    icon_data: ?[]const u8,
+    icon_name: ?[:0]const u8,
     tooltip: [:0]const u8,
-    is_icon_name: bool,
     popover: *c.GtkPopover,
 };
 
@@ -2825,11 +2826,17 @@ fn on_group_item_clicked(_: *c.GtkButton, user_data: ?*anyopaque) callconv(std.b
     ctx.active_tool_ref.* = ctx.tool;
 
     // 2. Update Main Button Icon/Tooltip
-    const img = if (ctx.is_icon_name)
-        c.gtk_image_new_from_icon_name(ctx.icon)
-    else
-        c.gtk_image_new_from_file(ctx.icon);
-    c.gtk_widget_set_size_request(img, 24, 24);
+    var img: *c.GtkWidget = undefined;
+    if (ctx.icon_data) |data| {
+        img = Assets.getIconWidget(data, 24);
+    } else if (ctx.icon_name) |name| {
+        img = c.gtk_image_new_from_icon_name(name);
+        c.gtk_widget_set_size_request(img, 24, 24);
+    } else {
+        img = c.gtk_image_new_from_icon_name("image-missing-symbolic");
+        c.gtk_widget_set_size_request(img, 24, 24);
+    }
+
     c.gtk_button_set_child(@ptrCast(ctx.main_btn), img);
     c.gtk_widget_set_tooltip_text(ctx.main_btn, ctx.tooltip);
 
@@ -3136,16 +3143,21 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     }.func;
 
     const createToolButton = struct {
-        fn func(tool_val: *Tool, icon_path: [:0]const u8, tooltip: [:0]const u8, group: ?*c.GtkToggleButton, is_icon_name: bool) *c.GtkWidget {
+        fn func(tool_val: *Tool, icon_data: ?[]const u8, icon_name: ?[:0]const u8, tooltip: [:0]const u8, group: ?*c.GtkToggleButton) *c.GtkWidget {
             const btn = if (group) |_| c.gtk_toggle_button_new() else c.gtk_toggle_button_new();
             if (group) |g| c.gtk_toggle_button_set_group(@ptrCast(btn), g);
 
-            const img = if (is_icon_name)
-                c.gtk_image_new_from_icon_name(icon_path)
-            else
-                c.gtk_image_new_from_file(icon_path);
+            var img: *c.GtkWidget = undefined;
+            if (icon_data) |data| {
+                img = Assets.getIconWidget(data, 24);
+            } else if (icon_name) |name| {
+                img = c.gtk_image_new_from_icon_name(name);
+                c.gtk_widget_set_size_request(img, 24, 24);
+            } else {
+                img = c.gtk_image_new_from_icon_name("image-missing-symbolic");
+                c.gtk_widget_set_size_request(img, 24, 24);
+            }
 
-            c.gtk_widget_set_size_request(img, 24, 24);
             c.gtk_button_set_child(@ptrCast(btn), img);
             c.gtk_widget_set_tooltip_text(btn, tooltip);
 
@@ -3173,11 +3185,17 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
             }
             if (current_entry == null) current_entry = entries[0];
 
-            const img = if (current_entry.?.is_icon_name)
-                c.gtk_image_new_from_icon_name(current_entry.?.icon)
-            else
-                c.gtk_image_new_from_file(current_entry.?.icon);
-            c.gtk_widget_set_size_request(img, 24, 24);
+            var img: *c.GtkWidget = undefined;
+            if (current_entry.?.icon_data) |data| {
+                img = Assets.getIconWidget(data, 24);
+            } else if (current_entry.?.icon_name) |name| {
+                img = c.gtk_image_new_from_icon_name(name);
+                c.gtk_widget_set_size_request(img, 24, 24);
+            } else {
+                img = c.gtk_image_new_from_icon_name("image-missing-symbolic");
+                c.gtk_widget_set_size_request(img, 24, 24);
+            }
+
             c.gtk_button_set_child(@ptrCast(btn), img);
             c.gtk_widget_set_tooltip_text(btn, current_entry.?.tooltip);
 
@@ -3196,11 +3214,17 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
 
             for (entries, 0..) |entry, i| {
                 const item_btn = c.gtk_button_new();
-                const item_img = if (entry.is_icon_name)
-                    c.gtk_image_new_from_icon_name(entry.icon)
-                else
-                    c.gtk_image_new_from_file(entry.icon);
-                c.gtk_widget_set_size_request(item_img, 24, 24);
+                var item_img: *c.GtkWidget = undefined;
+                if (entry.icon_data) |data| {
+                    item_img = Assets.getIconWidget(data, 24);
+                } else if (entry.icon_name) |name| {
+                    item_img = c.gtk_image_new_from_icon_name(name);
+                    c.gtk_widget_set_size_request(item_img, 24, 24);
+                } else {
+                    item_img = c.gtk_image_new_from_icon_name("image-missing-symbolic");
+                    c.gtk_widget_set_size_request(item_img, 24, 24);
+                }
+
                 c.gtk_button_set_child(@ptrCast(item_btn), item_img);
                 c.gtk_widget_set_tooltip_text(item_btn, entry.tooltip);
 
@@ -3213,9 +3237,9 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
                     .main_btn = btn,
                     .active_tool_ref = active_tool_ref,
                     .tool = entry.tool,
-                    .icon = entry.icon,
+                    .icon_data = entry.icon_data,
+                    .icon_name = entry.icon_name,
                     .tooltip = entry.tooltip,
-                    .is_icon_name = entry.is_icon_name,
                     .popover = @ptrCast(popover),
                 };
 
@@ -3237,61 +3261,61 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
 
     // Paint Group (Brush, Pencil, Airbrush)
     const paint_entries = [_]ToolEntry{
-        .{ .tool = .brush, .icon = "assets/brush.png", .tooltip = "Brush", .is_icon_name = false },
-        .{ .tool = .pencil, .icon = "assets/pencil.png", .tooltip = "Pencil", .is_icon_name = false },
-        .{ .tool = .airbrush, .icon = "assets/airbrush.png", .tooltip = "Airbrush", .is_icon_name = false },
+        .{ .tool = .brush, .icon_data = Assets.brush_png, .tooltip = "Brush" },
+        .{ .tool = .pencil, .icon_data = Assets.pencil_png, .tooltip = "Pencil" },
+        .{ .tool = .airbrush, .icon_data = Assets.airbrush_png, .tooltip = "Airbrush" },
     };
     const paint_group_btn = createToolGroup(&active_paint_tool, &paint_entries, null);
     appendTool(tools_container, paint_group_btn, &tools_row_box, &tools_in_row);
     c.gtk_toggle_button_set_active(@ptrCast(paint_group_btn), 1);
 
     // Eraser
-    const eraser_btn = createToolButton(&eraser_tool, "assets/eraser.png", "Eraser", @ptrCast(paint_group_btn), false);
+    const eraser_btn = createToolButton(&eraser_tool, Assets.eraser_png, null, "Eraser", @ptrCast(paint_group_btn));
     appendTool(tools_container, eraser_btn, &tools_row_box, &tools_in_row);
 
     // Bucket Fill
-    const fill_btn = createToolButton(&bucket_fill_tool, "assets/bucket.png", "Bucket Fill", @ptrCast(paint_group_btn), false);
+    const fill_btn = createToolButton(&bucket_fill_tool, Assets.bucket_png, null, "Bucket Fill", @ptrCast(paint_group_btn));
     appendTool(tools_container, fill_btn, &tools_row_box, &tools_in_row);
 
     // Selection Group
     const select_entries = [_]ToolEntry{
-        .{ .tool = .rect_select, .icon = "assets/rect-select.svg", .tooltip = "Rectangle Select", .is_icon_name = false },
-        .{ .tool = .ellipse_select, .icon = "assets/ellipse-select.svg", .tooltip = "Ellipse Select", .is_icon_name = false },
-        .{ .tool = .lasso, .icon = "assets/lasso-select.svg", .tooltip = "Lasso Select", .is_icon_name = false },
+        .{ .tool = .rect_select, .icon_data = Assets.rect_select_svg, .tooltip = "Rectangle Select" },
+        .{ .tool = .ellipse_select, .icon_data = Assets.ellipse_select_svg, .tooltip = "Ellipse Select" },
+        .{ .tool = .lasso, .icon_data = Assets.lasso_select_svg, .tooltip = "Lasso Select" },
     };
     const select_group_btn = createToolGroup(&active_selection_tool, &select_entries, @ptrCast(paint_group_btn));
     appendTool(tools_container, select_group_btn, &tools_row_box, &tools_in_row);
 
     // Text Tool
-    const text_btn = createToolButton(&text_tool, "assets/text.svg", "Text Tool", @ptrCast(paint_group_btn), false);
+    const text_btn = createToolButton(&text_tool, Assets.text_svg, null, "Text Tool", @ptrCast(paint_group_btn));
     appendTool(tools_container, text_btn, &tools_row_box, &tools_in_row);
 
     // Shapes Group
     const shape_entries = [_]ToolEntry{
-        .{ .tool = .rect_shape, .icon = "assets/rect-shape.svg", .tooltip = "Rectangle Tool", .is_icon_name = false },
-        .{ .tool = .ellipse_shape, .icon = "assets/ellipse-shape.svg", .tooltip = "Ellipse Tool", .is_icon_name = false },
-        .{ .tool = .rounded_rect_shape, .icon = "assets/rounded-rect-shape.svg", .tooltip = "Rounded Rectangle Tool", .is_icon_name = false },
-        .{ .tool = .polygon, .icon = "assets/polygon.svg", .tooltip = "Polygon Tool", .is_icon_name = false },
+        .{ .tool = .rect_shape, .icon_data = Assets.rect_shape_svg, .tooltip = "Rectangle Tool" },
+        .{ .tool = .ellipse_shape, .icon_data = Assets.ellipse_shape_svg, .tooltip = "Ellipse Tool" },
+        .{ .tool = .rounded_rect_shape, .icon_data = Assets.rounded_rect_shape_svg, .tooltip = "Rounded Rectangle Tool" },
+        .{ .tool = .polygon, .icon_data = Assets.polygon_svg, .tooltip = "Polygon Tool" },
     };
     const shape_group_btn = createToolGroup(&active_shape_tool, &shape_entries, @ptrCast(paint_group_btn));
     appendTool(tools_container, shape_group_btn, &tools_row_box, &tools_in_row);
 
     // Unified Transform
-    const transform_btn = createToolButton(&unified_transform_tool, "assets/transform.svg", "Unified Transform", @ptrCast(paint_group_btn), false);
+    const transform_btn = createToolButton(&unified_transform_tool, Assets.transform_svg, null, "Unified Transform", @ptrCast(paint_group_btn));
     appendTool(tools_container, transform_btn, &tools_row_box, &tools_in_row);
 
     // Color Picker
-    const picker_btn = createToolButton(&color_picker_tool, "assets/color-picker.svg", "Color Picker", @ptrCast(paint_group_btn), false);
+    const picker_btn = createToolButton(&color_picker_tool, Assets.color_picker_svg, null, "Color Picker", @ptrCast(paint_group_btn));
     appendTool(tools_container, picker_btn, &tools_row_box, &tools_in_row);
 
     // Gradient Tool
-    const gradient_btn = createToolButton(&gradient_tool, "assets/gradient.svg", "Gradient Tool", @ptrCast(paint_group_btn), false);
+    const gradient_btn = createToolButton(&gradient_tool, Assets.gradient_svg, null, "Gradient Tool", @ptrCast(paint_group_btn));
     appendTool(tools_container, gradient_btn, &tools_row_box, &tools_in_row);
 
     // Lines Group
     const line_entries = [_]ToolEntry{
-        .{ .tool = .line, .icon = "assets/line.svg", .tooltip = "Line Tool (Shift to snap)", .is_icon_name = false },
-        .{ .tool = .curve, .icon = "assets/curve.svg", .tooltip = "Curve Tool (Drag Line -> Bend 1 -> Bend 2)", .is_icon_name = false },
+        .{ .tool = .line, .icon_data = Assets.line_svg, .tooltip = "Line Tool (Shift to snap)" },
+        .{ .tool = .curve, .icon_data = Assets.curve_svg, .tooltip = "Curve Tool (Drag Line -> Bend 1 -> Bend 2)" },
     };
     const line_group_btn = createToolGroup(&active_line_tool, &line_entries, @ptrCast(paint_group_btn));
     appendTool(tools_container, line_group_btn, &tools_row_box, &tools_in_row);
