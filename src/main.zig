@@ -204,6 +204,15 @@ fn shape_fill_toggled(
     tool_filled = c.gtk_check_button_get_active(check) != 0;
 }
 
+fn selection_transparent_toggled(
+    check: *c.GtkCheckButton,
+    user_data: ?*anyopaque,
+) callconv(std.builtin.CallingConvention.c) void {
+    _ = user_data;
+    const active = c.gtk_check_button_get_active(check) != 0;
+    engine.setSelectionTransparent(active);
+}
+
 fn font_size_changed(
     spin: *c.GtkSpinButton,
     user_data: ?*anyopaque,
@@ -289,6 +298,12 @@ fn update_tool_options() void {
                 c.gtk_check_button_set_active(@ptrCast(check), if (tool_filled) 1 else 0);
                 c.gtk_box_append(@ptrCast(box), check);
                 _ = c.g_signal_connect_data(check, "toggled", @ptrCast(&shape_fill_toggled), null, null, 0);
+            },
+            .rect_select, .ellipse_select, .lasso => {
+                const check = c.gtk_check_button_new_with_label("Transparent");
+                c.gtk_check_button_set_active(@ptrCast(check), if (engine.selection_transparent) 1 else 0);
+                c.gtk_box_append(@ptrCast(box), check);
+                _ = c.g_signal_connect_data(check, "toggled", @ptrCast(&selection_transparent_toggled), null, null, 0);
             },
             .text => {
                 c.gtk_box_append(@ptrCast(box), c.gtk_label_new("Font Size"));

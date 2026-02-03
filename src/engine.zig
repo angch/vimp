@@ -240,6 +240,7 @@ pub const Engine = struct {
     brush_type: BrushType = .square,
     selection: ?c.GeglRectangle = null,
     selection_mode: SelectionMode = .rectangle,
+    selection_transparent: bool = false,
     preview_shape: ?ShapePreview = null,
     preview_bbox: ?c.GeglRectangle = null,
 
@@ -806,14 +807,7 @@ pub const Engine = struct {
                     const color = c.gegl_color_new(color_str.ptr);
                     defer c.g_object_unref(color);
 
-                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:supernova",
-                        "center-x", self.preview_supernova_x,
-                        "center-y", self.preview_supernova_y,
-                        "radius", self.preview_supernova_radius,
-                        "spokes", self.preview_supernova_spokes,
-                        "color", color,
-                        @as(?*anyopaque, null))) |filter_node|
-                    {
+                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:supernova", "center-x", self.preview_supernova_x, "center-y", self.preview_supernova_y, "radius", self.preview_supernova_radius, "spokes", self.preview_supernova_spokes, "color", color, @as(?*anyopaque, null))) |filter_node| {
                         _ = c.gegl_node_connect(filter_node, "input", source_output, "output");
                         self.composition_nodes.append(std.heap.c_allocator, filter_node) catch {};
 
@@ -844,14 +838,7 @@ pub const Engine = struct {
                         }
                     }
                 } else if (self.preview_mode == .waves) {
-                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:waves",
-                        "amplitude", self.preview_waves_amplitude,
-                        "phase", self.preview_waves_phase,
-                        "wavelength", self.preview_waves_wavelength,
-                        "center-x", self.preview_waves_center_x,
-                        "center-y", self.preview_waves_center_y,
-                        @as(?*anyopaque, null))) |filter_node|
-                    {
+                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:waves", "amplitude", self.preview_waves_amplitude, "phase", self.preview_waves_phase, "wavelength", self.preview_waves_wavelength, "center-x", self.preview_waves_center_x, "center-y", self.preview_waves_center_y, @as(?*anyopaque, null))) |filter_node| {
                         _ = c.gegl_node_connect(filter_node, "input", source_output, "output");
                         self.composition_nodes.append(std.heap.c_allocator, filter_node) catch {};
 
@@ -1005,13 +992,7 @@ pub const Engine = struct {
                         self.preview_bbox = c.gegl_node_get_bounding_box(t2);
                     }
                 } else if (self.preview_mode == .drop_shadow) {
-                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:dropshadow",
-                        "x", self.preview_drop_shadow_x,
-                        "y", self.preview_drop_shadow_y,
-                        "radius", self.preview_drop_shadow_radius,
-                        "opacity", self.preview_drop_shadow_opacity,
-                        @as(?*anyopaque, null))) |filter_node|
-                    {
+                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:dropshadow", "x", self.preview_drop_shadow_x, "y", self.preview_drop_shadow_y, "radius", self.preview_drop_shadow_radius, "opacity", self.preview_drop_shadow_opacity, @as(?*anyopaque, null))) |filter_node| {
                         _ = c.gegl_node_connect(filter_node, "input", source_output, "output");
                         self.composition_nodes.append(std.heap.c_allocator, filter_node) catch {};
 
@@ -1522,7 +1503,8 @@ pub const Engine = struct {
                 for (points, 0..) |pi, i| {
                     const pj = points[j];
                     if (((pi.y > py) != (pj.y > py)) and
-                        (px < (pj.x - pi.x) * (py - pi.y) / (pj.y - pi.y) + pi.x)) {
+                        (px < (pj.x - pi.x) * (py - pi.y) / (pj.y - pi.y) + pi.x))
+                    {
                         inside = !inside;
                     }
                     j = i;
@@ -2080,12 +2062,7 @@ pub const Engine = struct {
         defer c.g_object_unref(temp_graph);
 
         const input_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:buffer-source", "buffer", layer.buffer, @as(?*anyopaque, null));
-        const ds_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:dropshadow",
-            "x", x,
-            "y", y,
-            "radius", radius,
-            "opacity", opacity,
-            @as(?*anyopaque, null));
+        const ds_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:dropshadow", "x", x, "y", y, "radius", radius, "opacity", opacity, @as(?*anyopaque, null));
 
         if (input_node == null or ds_node == null) return error.GeglGraphFailed;
 
@@ -2151,13 +2128,7 @@ pub const Engine = struct {
         defer c.g_object_unref(temp_graph);
 
         const input_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:buffer-source", "buffer", layer.buffer, @as(?*anyopaque, null));
-        const filter_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:waves",
-            "amplitude", amplitude,
-            "phase", phase,
-            "wavelength", wavelength,
-            "center-x", center_x,
-            "center-y", center_y,
-            @as(?*anyopaque, null));
+        const filter_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:waves", "amplitude", amplitude, "phase", phase, "wavelength", wavelength, "center-x", center_x, "center-y", center_y, @as(?*anyopaque, null));
 
         const format = c.babl_format("R'G'B'A u8");
         const extent = c.gegl_buffer_get_extent(layer.buffer);
@@ -2198,13 +2169,7 @@ pub const Engine = struct {
         defer c.g_object_unref(color);
 
         const input_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:buffer-source", "buffer", layer.buffer, @as(?*anyopaque, null));
-        const filter_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:supernova",
-            "center-x", x,
-            "center-y", y,
-            "radius", radius,
-            "spokes", spokes,
-            "color", color,
-            @as(?*anyopaque, null));
+        const filter_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:supernova", "center-x", x, "center-y", y, "radius", radius, "spokes", spokes, "color", color, @as(?*anyopaque, null));
 
         const format = c.babl_format("R'G'B'A u8");
         const extent = c.gegl_buffer_get_extent(layer.buffer);
@@ -2416,6 +2381,10 @@ pub const Engine = struct {
 
     pub fn setSelectionMode(self: *Engine, mode: SelectionMode) void {
         self.selection_mode = mode;
+    }
+
+    pub fn setSelectionTransparent(self: *Engine, transparent: bool) void {
+        self.selection_transparent = transparent;
     }
 
     pub fn setSelection(self: *Engine, x: c_int, y: c_int, w: c_int, h: c_int) void {
@@ -2789,7 +2758,7 @@ pub const Engine = struct {
                 while (k < intersections.items.len) : (k += 2) {
                     if (k + 1 >= intersections.items.len) break;
                     const x1 = intersections.items[k];
-                    const x2 = intersections.items[k+1];
+                    const x2 = intersections.items[k + 1];
 
                     const ix1: c_int = @intFromFloat(std.math.ceil(x1 - 0.5)); // Start pixel
                     const ix2: c_int = @intFromFloat(std.math.floor(x2 - 0.5)); // End pixel
@@ -2816,7 +2785,6 @@ pub const Engine = struct {
 
             // 4. Write Back
             c.gegl_buffer_set(buf, &rect, 0, format, pixels.ptr, stride);
-
         } else {
             // Outline
             const old_size = self.brush_size;
@@ -4921,7 +4889,7 @@ test "Engine drop shadow" {
     // Check Shadow (110,110) -> Should be Black (Shadow of White pixel)
     c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 110, .y = 110, .width = 1, .height = 1 }, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
     try std.testing.expect(pixel[3] > 200); // Alpha
-    try std.testing.expect(pixel[0] < 50);  // R
+    try std.testing.expect(pixel[0] < 50); // R
 }
 
 test "Engine red eye removal" {
@@ -5027,4 +4995,21 @@ test "Engine transform preview bbox" {
         try std.testing.expectEqual(bbox.width, 800);
         try std.testing.expectEqual(bbox.height, 600);
     }
+}
+
+test "Engine selection transparent mode" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+
+    // Default should be false
+    try std.testing.expectEqual(engine.selection_transparent, false);
+
+    // Set to true
+    engine.setSelectionTransparent(true);
+    try std.testing.expectEqual(engine.selection_transparent, true);
+
+    // Set to false
+    engine.setSelectionTransparent(false);
+    try std.testing.expectEqual(engine.selection_transparent, false);
 }
