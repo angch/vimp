@@ -39,6 +39,7 @@ var recent_colors_manager: RecentColorsManager = undefined;
 var surface: ?*c.cairo_surface_t = null;
 var prev_x: f64 = 0;
 var prev_y: f64 = 0;
+var drag_button: c_uint = 0;
 var mouse_x: f64 = 0;
 var mouse_y: f64 = 0;
 var current_tool: Tool = .brush;
@@ -1068,19 +1069,27 @@ fn drag_begin(
         if (gesture) |g| {
             button = c.gtk_gesture_single_get_current_button(@ptrCast(g));
         }
+        drag_button = button;
 
-        if (button == 1) {
+        if (button == 1 or button == 3) {
             if (current_tool == .bucket_fill) {
                 engine.beginTransaction();
                 const c_x = (view_x + x) / view_scale;
                 const c_y = (view_y + y) / view_scale;
-                engine.bucketFill(c_x, c_y) catch |err| {
-                    show_toast("Bucket fill failed: {}", .{err});
-                };
+                if (button == 3) {
+                    engine.bucketFillWithColor(c_x, c_y, engine.bg_color) catch |err| {
+                        show_toast("Bucket fill failed: {}", .{err});
+                    };
+                } else {
+                    engine.bucketFill(c_x, c_y) catch |err| {
+                        show_toast("Bucket fill failed: {}", .{err});
+                    };
+                }
                 engine.commitTransaction();
                 canvas_dirty = true;
                 c.gtk_widget_queue_draw(widget);
             } else if (current_tool == .rect_select or current_tool == .ellipse_select) {
+                if (button != 1) return;
                 const c_x = (view_x + x) / view_scale;
                 const c_y = (view_y + y) / view_scale;
                 const ix: i32 = @intFromFloat(c_x);
@@ -1098,6 +1107,7 @@ fn drag_begin(
                 }
                 c.gtk_widget_queue_draw(widget);
             } else if (current_tool == .lasso) {
+                if (button != 1) return;
                 const c_x = (view_x + x) / view_scale;
                 const c_y = (view_y + y) / view_scale;
                 const ix: i32 = @intFromFloat(c_x);
@@ -1119,6 +1129,7 @@ fn drag_begin(
                 }
                 c.gtk_widget_queue_draw(widget);
             } else if (current_tool == .color_picker) {
+                if (button != 1) return;
                 const c_x: i32 = @intFromFloat((view_x + x) / view_scale);
                 const c_y: i32 = @intFromFloat((view_y + y) / view_scale);
                 if (engine.pickColor(c_x, c_y)) |color| {
@@ -1134,8 +1145,10 @@ fn drag_begin(
                     }
                 } else |_| {}
             } else if (current_tool == .rect_shape or current_tool == .ellipse_shape or current_tool == .rounded_rect_shape) {
+                if (button != 1) return;
                 // Do nothing at start, render preview during drag
             } else if (current_tool == .gradient) {
+                if (button != 1) return;
                 engine.beginTransaction();
             } else if (current_tool == .line) {
                 // Do nothing at start, render preview during drag
@@ -1145,6 +1158,7 @@ fn drag_begin(
                     curve_p1.y = (view_y + y) / view_scale;
                 }
             } else if (current_tool == .polygon) {
+                if (button != 1) return;
                 const wx = (view_x + x) / view_scale;
                 const wy = (view_y + y) / view_scale;
 
@@ -1219,8 +1233,8 @@ fn drag_update(
         canvas_dirty = true;
 
         queue_draw();
-    } else if (button == 1) {
-        // Paint (Left Mouse)
+    } else if (button == 1 or button == 3) {
+        // Paint (Left or Right Mouse)
         if (current_tool == .bucket_fill) {
             // Bucket fill handled in drag_begin, do nothing on drag
             return;
@@ -1419,7 +1433,14 @@ fn drag_update(
         }
 
         // Default pressure 1.0 for now
-        engine.paintStroke(c_prev_x, c_prev_y, c_curr_x, c_curr_y, 1.0);
+        if (button == 3) {
+            // Check tools allowed for right click
+            if (current_tool == .brush or current_tool == .pencil or current_tool == .airbrush or current_tool == .line or current_tool == .curve or current_tool == .eraser) {
+                engine.paintStrokeWithColor(c_prev_x, c_prev_y, c_curr_x, c_curr_y, 1.0, engine.bg_color);
+            }
+        } else {
+            engine.paintStroke(c_prev_x, c_prev_y, c_curr_x, c_curr_y, 1.0);
+        }
         canvas_dirty = true;
         c.gtk_widget_queue_draw(widget);
     }
@@ -1559,9 +1580,14 @@ fn drag_end(
             const cy2: c_int = @intFromFloat(curve_p3.y);
 
             engine.beginTransaction();
+            const original_fg = engine.fg_color;
+            if (drag_button == 3) engine.setFgColor(engine.bg_color[0], engine.bg_color[1], engine.bg_color[2], engine.bg_color[3]);
+
             engine.drawCurve(sx, sy, ex, ey, cx1, cy1, cx2, cy2) catch |err| {
                 show_toast("Failed to draw curve: {}", .{err});
             };
+
+            if (drag_button == 3) engine.setFgColor(original_fg[0], original_fg[1], original_fg[2], original_fg[3]);
             engine.commitTransaction();
             engine.clearShapePreview();
             curve_phase = 0;
@@ -1604,9 +1630,14 @@ fn drag_end(
         const ey: c_int = @intFromFloat(end_y);
 
         engine.beginTransaction();
+        const original_fg = engine.fg_color;
+        if (drag_button == 3) engine.setFgColor(engine.bg_color[0], engine.bg_color[1], engine.bg_color[2], engine.bg_color[3]);
+
         engine.drawLine(sx, sy, ex, ey) catch |err| {
             show_toast("Failed to draw line: {}", .{err});
         };
+
+        if (drag_button == 3) engine.setFgColor(original_fg[0], original_fg[1], original_fg[2], original_fg[3]);
         engine.commitTransaction();
         engine.clearShapePreview();
         refresh_undo_ui();

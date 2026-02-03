@@ -1725,7 +1725,7 @@ pub const Engine = struct {
         return true;
     }
 
-    pub fn paintStroke(self: *Engine, x0: f64, y0: f64, x1: f64, y1: f64, pressure: f64) void {
+    fn paintStrokeInternal(self: *Engine, x0: f64, y0: f64, x1: f64, y1: f64, pressure: f64, color_override: ?[4]u8) void {
         if (self.active_layer_idx >= self.layers.items.len) return;
         const layer = &self.layers.items[self.active_layer_idx];
 
@@ -1743,7 +1743,7 @@ pub const Engine = struct {
         if (self.mode == .erase) {
             pixel = .{ 0, 0, 0, 0 };
         } else {
-            pixel = self.fg_color;
+            pixel = if (color_override) |col| col else self.fg_color;
 
             // Apply Opacity
             var alpha: f64 = @as(f64, @floatFromInt(pixel[3])) * self.brush_opacity;
@@ -1798,7 +1798,15 @@ pub const Engine = struct {
         }
     }
 
-    pub fn bucketFill(self: *Engine, start_x: f64, start_y: f64) !void {
+    pub fn paintStroke(self: *Engine, x0: f64, y0: f64, x1: f64, y1: f64, pressure: f64) void {
+        self.paintStrokeInternal(x0, y0, x1, y1, pressure, null);
+    }
+
+    pub fn paintStrokeWithColor(self: *Engine, x0: f64, y0: f64, x1: f64, y1: f64, pressure: f64, color: [4]u8) void {
+        self.paintStrokeInternal(x0, y0, x1, y1, pressure, color);
+    }
+
+    pub fn bucketFillWithColor(self: *Engine, start_x: f64, start_y: f64, color: [4]u8) !void {
         if (self.active_layer_idx >= self.layers.items.len) return;
         const layer = &self.layers.items[self.active_layer_idx];
 
@@ -1831,7 +1839,7 @@ pub const Engine = struct {
         // 2. Identify Target Color
         const idx: usize = (@as(usize, @intCast(y)) * w + @as(usize, @intCast(x))) * 4;
         const target_color: [4]u8 = pixels[idx..][0..4].*;
-        const fill_color: [4]u8 = self.fg_color;
+        const fill_color: [4]u8 = color;
 
         // If target matches fill, nothing to do
         if (std.mem.eql(u8, &target_color, &fill_color)) return;
@@ -1894,6 +1902,10 @@ pub const Engine = struct {
 
         const offset = (@as(usize, @intCast(min_y)) * w + @as(usize, @intCast(min_x))) * 4;
         c.gegl_buffer_set(buf, &dirty_rect, 0, format, pixels.ptr + offset, rowstride);
+    }
+
+    pub fn bucketFill(self: *Engine, start_x: f64, start_y: f64) !void {
+        return self.bucketFillWithColor(start_x, start_y, self.fg_color);
     }
 
     pub fn invertColors(self: *Engine) !void {

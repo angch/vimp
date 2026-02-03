@@ -225,8 +225,9 @@
 
 - [ ] Generate detailed TODOs from `doc/gimp-file-open-spec.md`
 - [ ] Generate detailed TODOs from `doc/ms_paint_spec.md`
+- [x] Implement Right-Click (Secondary Color) support for Paint Tools
 - [x] Ensure colored icons for all tools
-- [ ] Embed assets/resources into binary
+- [x] Embed assets/resources into binary
 - [x] Fix failing Engine PDF load test
 
 ---
