@@ -115,7 +115,7 @@
 - [x] Implement Flip Horizontal
 - [x] Implement Flip Vertical
 - [x] Implement Rotate by angle (90°, 180°, 270°)
-- [ ] Implement Stretch/Skew dialog
+- [x] Implement Stretch/Skew dialog
 
 ---
 
