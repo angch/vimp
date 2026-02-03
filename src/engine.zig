@@ -238,6 +238,9 @@ pub const Engine = struct {
     fg_color: [4]u8 = .{ 0, 0, 0, 255 },
     bg_color: [4]u8 = .{ 255, 255, 255, 255 },
     brush_size: c_int = 3,
+    brush_opacity: f64 = 1.0,
+    brush_filled: bool = false,
+    font_size: i32 = 24,
     mode: Mode = .paint,
     brush_type: BrushType = .square,
     selection: ?c.GeglRectangle = null,
@@ -320,6 +323,9 @@ pub const Engine = struct {
         self.preview_mode = .none;
         self.canvas_width = 800;
         self.canvas_height = 600;
+        self.brush_opacity = 1.0;
+        self.brush_filled = false;
+        self.font_size = 24;
     }
 
     pub fn deinit(self: *Engine) void {
@@ -1738,13 +1744,16 @@ pub const Engine = struct {
             pixel = .{ 0, 0, 0, 0 };
         } else {
             pixel = self.fg_color;
+
+            // Apply Opacity
+            var alpha: f64 = @as(f64, @floatFromInt(pixel[3])) * self.brush_opacity;
+
             if (self.mode == .airbrush) {
                 // Modulate alpha by pressure
-                // pixel[3] is u8 (0-255)
-                const alpha: f64 = @as(f64, @floatFromInt(pixel[3]));
-                const new_alpha: u8 = @intFromFloat(alpha * pressure);
-                pixel[3] = new_alpha;
+                alpha *= pressure;
             }
+
+            pixel[3] = @intFromFloat(alpha);
         }
 
         // Simple line drawing using interpolation
@@ -5359,5 +5368,34 @@ test "Engine transparent move selection" {
         c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 90, .y = 90, .width = 1, .height = 1 }, 1.0, c.babl_format("R'G'B'A u8"), &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
         try std.testing.expectEqual(pixel[2], 255);
         try std.testing.expectEqual(pixel[0], 0);
+    }
+}
+
+test "Engine paint opacity" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+    try engine.addLayer("Background");
+
+    // Paint White background (just to have something, though opacity overwrites)
+    engine.setFgColor(255, 255, 255, 255);
+    engine.paintStroke(100, 100, 100, 100, 1.0);
+
+    // Paint Red with 50% opacity
+    engine.setFgColor(255, 0, 0, 255);
+    engine.brush_opacity = 0.5;
+    engine.paintStroke(100, 100, 100, 100, 1.0);
+
+    if (engine.layers.items.len > 0) {
+        const buf = engine.layers.items[0].buffer;
+        var pixel: [4]u8 = undefined;
+        const rect = c.GeglRectangle{ .x = 100, .y = 100, .width = 1, .height = 1 };
+        const format = c.babl_format("R'G'B'A u8");
+        c.gegl_buffer_get(buf, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+
+        try std.testing.expectEqual(pixel[0], 255); // Red
+        // Alpha ~127
+        try std.testing.expect(pixel[3] >= 126 and pixel[3] <= 129);
     }
 }

@@ -45,7 +45,7 @@
 
 ### Tool Palette Improvements
 - [x] Implement Tool Grouping (popovers/long-press revealers)
-- [ ] Implement Properties Sidebar (contextual tool options)
+- [x] Implement Properties Sidebar (contextual tool options)
 
 ### Selection Feedback
 - [x] Implement HUD for live dimensions during selection/transform
@@ -97,11 +97,11 @@
 
 ### From `gimp-feature-spec-gnome-hig.md`
 - [x] Implement Recent Colors persistence in color popover
-- [ ] Implement GNOME standard color picker dialog
+- [x] Implement GNOME standard color picker dialog
 
 ### From `ms_paint_spec.md`
 - [x] Implement Color Box palette (default colors)
-- [ ] Implement Edit Colors dialog (RGB/HSL spectrum)
+- [x] Implement Edit Colors dialog (RGB/HSL spectrum)
 
 ---
 
@@ -199,7 +199,7 @@
 - [x] Implement "Open pages as separate images" for PDF
 
 ### Pending
-- [ ] Implement Clipboard Detection for Open Location
+- [x] Implement Clipboard Detection for Open Location
 - [x] Investigate/Implement Preview Pane in File Chooser
 - [ ] Implement File Recovery/Salvage actions
 
