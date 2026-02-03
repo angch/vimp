@@ -14,6 +14,7 @@ const FilterDialog = @import("widgets/filter_dialog.zig");
 const FullscreenPreview = @import("widgets/fullscreen_preview.zig");
 const ThumbnailWindow = @import("widgets/thumbnail_window.zig");
 const CommandPalette = @import("widgets/command_palette.zig");
+const ColorPalette = @import("widgets/color_palette.zig").ColorPalette;
 const RawLoader = @import("raw_loader.zig").RawLoader;
 
 // Global state for simplicity in this phase
@@ -258,6 +259,19 @@ fn transform_cancel_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builti
 
     canvas_dirty = true;
     queue_draw();
+}
+
+fn update_color_btn_visual() void {
+    if (color_btn) |btn| {
+        const fg = engine.fg_color;
+        const rgba = c.GdkRGBA{
+            .red = @as(f32, @floatFromInt(fg[0])) / 255.0,
+            .green = @as(f32, @floatFromInt(fg[1])) / 255.0,
+            .blue = @as(f32, @floatFromInt(fg[2])) / 255.0,
+            .alpha = @as(f32, @floatFromInt(fg[3])) / 255.0,
+        };
+        c.gtk_color_chooser_set_rgba(@ptrCast(btn), &rgba);
+    }
 }
 
 fn update_tool_options() void {
@@ -3400,6 +3414,10 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
 
     // Separator
     c.gtk_box_append(@ptrCast(sidebar), c.gtk_separator_new(c.GTK_ORIENTATION_HORIZONTAL));
+
+    // Color Palette (Default 28 Colors)
+    const palette = ColorPalette.create(&engine, &update_color_btn_visual);
+    c.gtk_box_append(@ptrCast(sidebar), palette);
 
     // Color Selection
     color_btn = create_color_button();
