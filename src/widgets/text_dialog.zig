@@ -56,8 +56,7 @@ pub fn showTextDialog(
     c.gtk_widget_set_margin_end(box, 20);
 
     // Text Entry
-    const label = c.gtk_label_new("_Text:");
-    c.gtk_label_set_use_underline(@ptrCast(label), 1);
+    const label = c.gtk_label_new_with_mnemonic("_Text:");
     c.gtk_widget_set_halign(label, c.GTK_ALIGN_START);
     c.gtk_box_append(@ptrCast(box), label);
 
@@ -70,8 +69,7 @@ pub fn showTextDialog(
 
     // Size Row
     const size_row = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 10);
-    const size_label = c.gtk_label_new("_Size (px):");
-    c.gtk_label_set_use_underline(@ptrCast(size_label), 1);
+    const size_label = c.gtk_label_new_with_mnemonic("_Size (px):");
     c.gtk_box_append(@ptrCast(size_row), size_label);
 
     const size_spin = c.gtk_spin_button_new_with_range(8.0, 500.0, 1.0);

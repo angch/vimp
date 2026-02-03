@@ -48,8 +48,7 @@ pub fn showMotionBlurDialog(
     c.gtk_box_append(@ptrCast(box), grid);
 
     // Length
-    const l_label = c.gtk_label_new("_Length (px):");
-    c.gtk_label_set_use_underline(@ptrCast(l_label), 1);
+    const l_label = c.gtk_label_new_with_mnemonic("_Length (px):");
     c.gtk_widget_set_halign(l_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), l_label, 0, 0, 1, 1);
     const length_spin = c.gtk_spin_button_new_with_range(0.0, 500.0, 1.0);
@@ -58,8 +57,7 @@ pub fn showMotionBlurDialog(
     c.gtk_grid_attach(@ptrCast(grid), length_spin, 1, 0, 1, 1);
 
     // Angle
-    const a_label = c.gtk_label_new("_Angle (deg):");
-    c.gtk_label_set_use_underline(@ptrCast(a_label), 1);
+    const a_label = c.gtk_label_new_with_mnemonic("_Angle (deg):");
     c.gtk_widget_set_halign(a_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), a_label, 0, 1, 1, 1);
     const angle_spin = c.gtk_spin_button_new_with_range(0.0, 360.0, 1.0);
@@ -163,8 +161,7 @@ pub fn showLightingDialog(
     c.gtk_box_append(@ptrCast(box), grid);
 
     // Light X
-    const x_label = c.gtk_label_new("Light _X:");
-    c.gtk_label_set_use_underline(@ptrCast(x_label), 1);
+    const x_label = c.gtk_label_new_with_mnemonic("Light _X:");
     c.gtk_widget_set_halign(x_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), x_label, 0, 0, 1, 1);
     const x_spin = c.gtk_spin_button_new_with_range(-2000.0, 10000.0, 1.0);
@@ -174,8 +171,7 @@ pub fn showLightingDialog(
     c.gtk_grid_attach(@ptrCast(grid), x_spin, 1, 0, 1, 1);
 
     // Light Y
-    const y_label = c.gtk_label_new("Light _Y:");
-    c.gtk_label_set_use_underline(@ptrCast(y_label), 1);
+    const y_label = c.gtk_label_new_with_mnemonic("Light _Y:");
     c.gtk_widget_set_halign(y_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), y_label, 0, 1, 1, 1);
     const y_spin = c.gtk_spin_button_new_with_range(-2000.0, 10000.0, 1.0);
@@ -185,8 +181,7 @@ pub fn showLightingDialog(
     c.gtk_grid_attach(@ptrCast(grid), y_spin, 1, 1, 1, 1);
 
     // Light Z
-    const z_label = c.gtk_label_new("Light _Z:");
-    c.gtk_label_set_use_underline(@ptrCast(z_label), 1);
+    const z_label = c.gtk_label_new_with_mnemonic("Light _Z:");
     c.gtk_widget_set_halign(z_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), z_label, 0, 2, 1, 1);
     const z_spin = c.gtk_spin_button_new_with_range(1.0, 1000.0, 1.0);
@@ -195,8 +190,7 @@ pub fn showLightingDialog(
     c.gtk_grid_attach(@ptrCast(grid), z_spin, 1, 2, 1, 1);
 
     // Intensity
-    const i_label = c.gtk_label_new("_Intensity:");
-    c.gtk_label_set_use_underline(@ptrCast(i_label), 1);
+    const i_label = c.gtk_label_new_with_mnemonic("_Intensity:");
     c.gtk_widget_set_halign(i_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), i_label, 0, 3, 1, 1);
     const intensity_scale = c.gtk_scale_new_with_range(c.GTK_ORIENTATION_HORIZONTAL, 0.0, 5.0, 0.1);
@@ -206,8 +200,7 @@ pub fn showLightingDialog(
     c.gtk_grid_attach(@ptrCast(grid), intensity_scale, 1, 3, 1, 1);
 
     // Color
-    const c_label = c.gtk_label_new("_Color:");
-    c.gtk_label_set_use_underline(@ptrCast(c_label), 1);
+    const c_label = c.gtk_label_new_with_mnemonic("_Color:");
     c.gtk_widget_set_halign(c_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), c_label, 0, 4, 1, 1);
 
@@ -303,8 +296,7 @@ pub fn showUnsharpMaskDialog(
     c.gtk_box_append(@ptrCast(box), grid);
 
     // Std Dev
-    const sd_label = c.gtk_label_new("_Radius (Std Dev):");
-    c.gtk_label_set_use_underline(@ptrCast(sd_label), 1);
+    const sd_label = c.gtk_label_new_with_mnemonic("_Radius (Std Dev):");
     c.gtk_widget_set_halign(sd_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), sd_label, 0, 0, 1, 1);
     const std_dev_spin = c.gtk_spin_button_new_with_range(0.1, 100.0, 0.1);
@@ -313,8 +305,7 @@ pub fn showUnsharpMaskDialog(
     c.gtk_grid_attach(@ptrCast(grid), std_dev_spin, 1, 0, 1, 1);
 
     // Scale
-    const s_label = c.gtk_label_new("_Amount (Scale):");
-    c.gtk_label_set_use_underline(@ptrCast(s_label), 1);
+    const s_label = c.gtk_label_new_with_mnemonic("_Amount (Scale):");
     c.gtk_widget_set_halign(s_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), s_label, 0, 1, 1, 1);
     const scale_spin = c.gtk_spin_button_new_with_range(0.0, 10.0, 0.1);
@@ -401,8 +392,7 @@ pub fn showNoiseReductionDialog(
     c.gtk_box_append(@ptrCast(box), grid);
 
     // Iterations
-    const i_label = c.gtk_label_new("_Iterations:");
-    c.gtk_label_set_use_underline(@ptrCast(i_label), 1);
+    const i_label = c.gtk_label_new_with_mnemonic("_Iterations:");
     c.gtk_widget_set_halign(i_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), i_label, 0, 0, 1, 1);
     const iter_spin = c.gtk_spin_button_new_with_range(1.0, 10.0, 1.0);
@@ -489,8 +479,7 @@ pub fn showPixelizeDialog(
     c.gtk_box_append(@ptrCast(box), grid);
 
     // Size
-    const l_label = c.gtk_label_new("_Block Size (px):");
-    c.gtk_label_set_use_underline(@ptrCast(l_label), 1);
+    const l_label = c.gtk_label_new_with_mnemonic("_Block Size (px):");
     c.gtk_widget_set_halign(l_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), l_label, 0, 0, 1, 1);
     const size_spin = c.gtk_spin_button_new_with_range(2.0, 200.0, 1.0);
@@ -579,8 +568,7 @@ pub fn showOilifyDialog(
     c.gtk_box_append(@ptrCast(box), grid);
 
     // Radius
-    const l_label = c.gtk_label_new("_Mask Radius:");
-    c.gtk_label_set_use_underline(@ptrCast(l_label), 1);
+    const l_label = c.gtk_label_new_with_mnemonic("_Mask Radius:");
     c.gtk_widget_set_halign(l_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), l_label, 0, 0, 1, 1);
     const radius_spin = c.gtk_spin_button_new_with_range(1.0, 50.0, 0.5);
@@ -675,8 +663,7 @@ pub fn showDropShadowDialog(
     c.gtk_box_append(@ptrCast(box), grid);
 
     // X Offset
-    const x_label = c.gtk_label_new("Offset _X:");
-    c.gtk_label_set_use_underline(@ptrCast(x_label), 1);
+    const x_label = c.gtk_label_new_with_mnemonic("Offset _X:");
     c.gtk_widget_set_halign(x_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), x_label, 0, 0, 1, 1);
     const x_spin = c.gtk_spin_button_new_with_range(-500.0, 500.0, 1.0);
@@ -685,8 +672,7 @@ pub fn showDropShadowDialog(
     c.gtk_grid_attach(@ptrCast(grid), x_spin, 1, 0, 1, 1);
 
     // Y Offset
-    const y_label = c.gtk_label_new("Offset _Y:");
-    c.gtk_label_set_use_underline(@ptrCast(y_label), 1);
+    const y_label = c.gtk_label_new_with_mnemonic("Offset _Y:");
     c.gtk_widget_set_halign(y_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), y_label, 0, 1, 1, 1);
     const y_spin = c.gtk_spin_button_new_with_range(-500.0, 500.0, 1.0);
@@ -695,8 +681,7 @@ pub fn showDropShadowDialog(
     c.gtk_grid_attach(@ptrCast(grid), y_spin, 1, 1, 1, 1);
 
     // Radius
-    const r_label = c.gtk_label_new("_Blur Radius:");
-    c.gtk_label_set_use_underline(@ptrCast(r_label), 1);
+    const r_label = c.gtk_label_new_with_mnemonic("_Blur Radius:");
     c.gtk_widget_set_halign(r_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), r_label, 0, 2, 1, 1);
     const radius_spin = c.gtk_spin_button_new_with_range(0.0, 200.0, 1.0);
@@ -705,8 +690,7 @@ pub fn showDropShadowDialog(
     c.gtk_grid_attach(@ptrCast(grid), radius_spin, 1, 2, 1, 1);
 
     // Opacity
-    const o_label = c.gtk_label_new("_Opacity:");
-    c.gtk_label_set_use_underline(@ptrCast(o_label), 1);
+    const o_label = c.gtk_label_new_with_mnemonic("_Opacity:");
     c.gtk_widget_set_halign(o_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), o_label, 0, 3, 1, 1);
     const opacity_scale = c.gtk_scale_new_with_range(c.GTK_ORIENTATION_HORIZONTAL, 0.0, 2.0, 0.1);
@@ -802,8 +786,7 @@ pub fn showRedEyeRemovalDialog(
     c.gtk_box_append(@ptrCast(box), grid);
 
     // Threshold
-    const t_label = c.gtk_label_new("_Threshold:");
-    c.gtk_label_set_use_underline(@ptrCast(t_label), 1);
+    const t_label = c.gtk_label_new_with_mnemonic("_Threshold:");
     c.gtk_widget_set_halign(t_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), t_label, 0, 0, 1, 1);
     const threshold_scale = c.gtk_scale_new_with_range(c.GTK_ORIENTATION_HORIZONTAL, 0.0, 1.0, 0.01);
@@ -895,8 +878,7 @@ pub fn showWavesDialog(
     c.gtk_box_append(@ptrCast(box), grid);
 
     // Amplitude
-    const a_label = c.gtk_label_new("_Amplitude:");
-    c.gtk_label_set_use_underline(@ptrCast(a_label), 1);
+    const a_label = c.gtk_label_new_with_mnemonic("_Amplitude:");
     c.gtk_widget_set_halign(a_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), a_label, 0, 0, 1, 1);
     const amplitude_spin = c.gtk_spin_button_new_with_range(0.0, 100.0, 1.0);
@@ -905,8 +887,7 @@ pub fn showWavesDialog(
     c.gtk_grid_attach(@ptrCast(grid), amplitude_spin, 1, 0, 1, 1);
 
     // Phase
-    const p_label = c.gtk_label_new("_Phase:");
-    c.gtk_label_set_use_underline(@ptrCast(p_label), 1);
+    const p_label = c.gtk_label_new_with_mnemonic("_Phase:");
     c.gtk_widget_set_halign(p_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), p_label, 0, 1, 1, 1);
     const phase_spin = c.gtk_spin_button_new_with_range(0.0, 360.0, 1.0);
@@ -915,8 +896,7 @@ pub fn showWavesDialog(
     c.gtk_grid_attach(@ptrCast(grid), phase_spin, 1, 1, 1, 1);
 
     // Wavelength
-    const w_label = c.gtk_label_new("_Wavelength:");
-    c.gtk_label_set_use_underline(@ptrCast(w_label), 1);
+    const w_label = c.gtk_label_new_with_mnemonic("_Wavelength:");
     c.gtk_widget_set_halign(w_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), w_label, 0, 2, 1, 1);
     const wavelength_spin = c.gtk_spin_button_new_with_range(0.1, 100.0, 1.0);
@@ -1020,8 +1000,7 @@ pub fn showSupernovaDialog(
     c.gtk_box_append(@ptrCast(box), grid);
 
     // Center X
-    const x_label = c.gtk_label_new("Center _X (px):");
-    c.gtk_label_set_use_underline(@ptrCast(x_label), 1);
+    const x_label = c.gtk_label_new_with_mnemonic("Center _X (px):");
     c.gtk_widget_set_halign(x_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), x_label, 0, 0, 1, 1);
     const x_spin = c.gtk_spin_button_new_with_range(-2000.0, 10000.0, 1.0);
@@ -1031,8 +1010,7 @@ pub fn showSupernovaDialog(
     c.gtk_grid_attach(@ptrCast(grid), x_spin, 1, 0, 1, 1);
 
     // Center Y
-    const y_label = c.gtk_label_new("Center _Y (px):");
-    c.gtk_label_set_use_underline(@ptrCast(y_label), 1);
+    const y_label = c.gtk_label_new_with_mnemonic("Center _Y (px):");
     c.gtk_widget_set_halign(y_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), y_label, 0, 1, 1, 1);
     const y_spin = c.gtk_spin_button_new_with_range(-2000.0, 10000.0, 1.0);
@@ -1042,8 +1020,7 @@ pub fn showSupernovaDialog(
     c.gtk_grid_attach(@ptrCast(grid), y_spin, 1, 1, 1, 1);
 
     // Radius
-    const r_label = c.gtk_label_new("_Radius:");
-    c.gtk_label_set_use_underline(@ptrCast(r_label), 1);
+    const r_label = c.gtk_label_new_with_mnemonic("_Radius:");
     c.gtk_widget_set_halign(r_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), r_label, 0, 2, 1, 1);
     const radius_spin = c.gtk_spin_button_new_with_range(1.0, 1000.0, 1.0);
@@ -1052,8 +1029,7 @@ pub fn showSupernovaDialog(
     c.gtk_grid_attach(@ptrCast(grid), radius_spin, 1, 2, 1, 1);
 
     // Spokes
-    const s_label = c.gtk_label_new("_Spokes:");
-    c.gtk_label_set_use_underline(@ptrCast(s_label), 1);
+    const s_label = c.gtk_label_new_with_mnemonic("_Spokes:");
     c.gtk_widget_set_halign(s_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), s_label, 0, 3, 1, 1);
     const spokes_spin = c.gtk_spin_button_new_with_range(1.0, 1000.0, 1.0);
@@ -1062,8 +1038,7 @@ pub fn showSupernovaDialog(
     c.gtk_grid_attach(@ptrCast(grid), spokes_spin, 1, 3, 1, 1);
 
     // Color
-    const c_label = c.gtk_label_new("_Color:");
-    c.gtk_label_set_use_underline(@ptrCast(c_label), 1);
+    const c_label = c.gtk_label_new_with_mnemonic("_Color:");
     c.gtk_widget_set_halign(c_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), c_label, 0, 4, 1, 1);
 
@@ -1162,8 +1137,7 @@ pub fn showStretchDialog(
     c.gtk_box_append(@ptrCast(box), grid);
 
     // Width %
-    const w_label = c.gtk_label_new("_Horizontal (%):");
-    c.gtk_label_set_use_underline(@ptrCast(w_label), 1);
+    const w_label = c.gtk_label_new_with_mnemonic("_Horizontal (%):");
     c.gtk_widget_set_halign(w_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), w_label, 0, 0, 1, 1);
     const scale_x_spin = c.gtk_spin_button_new_with_range(1.0, 1000.0, 1.0);
@@ -1172,8 +1146,7 @@ pub fn showStretchDialog(
     c.gtk_grid_attach(@ptrCast(grid), scale_x_spin, 1, 0, 1, 1);
 
     // Height %
-    const h_label = c.gtk_label_new("_Vertical (%):");
-    c.gtk_label_set_use_underline(@ptrCast(h_label), 1);
+    const h_label = c.gtk_label_new_with_mnemonic("_Vertical (%):");
     c.gtk_widget_set_halign(h_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), h_label, 0, 1, 1, 1);
     const scale_y_spin = c.gtk_spin_button_new_with_range(1.0, 1000.0, 1.0);
