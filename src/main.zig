@@ -115,6 +115,57 @@ pub fn main() !void {
     _ = status;
 }
 
+fn create_color_button() *c.GtkWidget {
+    const btn = c.gtk_color_button_new();
+    c.gtk_widget_set_valign(btn, c.GTK_ALIGN_START);
+    c.gtk_widget_set_halign(btn, c.GTK_ALIGN_CENTER);
+
+    _ = c.g_signal_connect_data(btn, "color-set", @ptrCast(&color_changed), null, null, 0);
+
+    // Populate recent colors palette
+    if (recent_colors_manager.colors.items.len > 0) {
+        c.gtk_color_chooser_add_palette(
+            @ptrCast(btn),
+            c.GTK_ORIENTATION_HORIZONTAL,
+            5, // colors per line
+            @intCast(recent_colors_manager.colors.items.len),
+            recent_colors_manager.colors.items.ptr,
+        );
+    }
+    return btn;
+}
+
+fn rebuild_recent_colors_ui_callback(_: ?*anyopaque) callconv(std.builtin.CallingConvention.c) c.gboolean {
+    if (color_btn == null or tool_options_box == null) return 0;
+
+    const parent = c.gtk_widget_get_parent(color_btn.?);
+    if (parent == null) return 0;
+
+    c.gtk_box_remove(@ptrCast(parent), color_btn.?);
+
+    // Recreate button using helper.
+    // Note: We rebuild the widget because GtkColorChooser doesn't support clearing/resetting the palette
+    // once added. This ensures the "Recent" palette is always up-to-date with the latest selection.
+    color_btn = create_color_button();
+
+    // Restore color from engine
+    const fg = engine.fg_color;
+    const rgba = c.GdkRGBA{
+        .red = @as(f32, @floatFromInt(fg[0])) / 255.0,
+        .green = @as(f32, @floatFromInt(fg[1])) / 255.0,
+        .blue = @as(f32, @floatFromInt(fg[2])) / 255.0,
+        .alpha = @as(f32, @floatFromInt(fg[3])) / 255.0,
+    };
+    c.gtk_color_chooser_set_rgba(@ptrCast(color_btn.?), &rgba);
+
+    c.gtk_widget_insert_before(color_btn.?, parent, tool_options_box.?);
+
+    // Restore focus to the new button to maintain keyboard navigation
+    _ = c.gtk_widget_grab_focus(color_btn.?);
+
+    return 0; // G_SOURCE_REMOVE
+}
+
 fn color_changed(
     button: *c.GtkColorButton,
     user_data: ?*anyopaque,
@@ -131,6 +182,8 @@ fn color_changed(
     engine.setFgColor(r, g, b, a);
 
     recent_colors_manager.add(rgba) catch {};
+
+    _ = c.g_idle_add(@ptrCast(&rebuild_recent_colors_ui_callback), null);
 }
 
 fn brush_size_changed(
@@ -3253,22 +3306,8 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.gtk_box_append(@ptrCast(sidebar), c.gtk_separator_new(c.GTK_ORIENTATION_HORIZONTAL));
 
     // Color Selection
-    color_btn = c.gtk_color_button_new();
-    c.gtk_widget_set_valign(color_btn, c.GTK_ALIGN_START);
-    c.gtk_widget_set_halign(color_btn, c.GTK_ALIGN_CENTER);
+    color_btn = create_color_button();
     c.gtk_box_append(@ptrCast(sidebar), color_btn);
-    _ = c.g_signal_connect_data(color_btn, "color-set", @ptrCast(&color_changed), null, null, 0);
-
-    // Populate recent colors palette
-    if (recent_colors_manager.colors.items.len > 0) {
-        c.gtk_color_chooser_add_palette(
-            @ptrCast(color_btn),
-            c.GTK_ORIENTATION_HORIZONTAL,
-            5, // colors per line
-            @intCast(recent_colors_manager.colors.items.len),
-            recent_colors_manager.colors.items.ptr,
-        );
-    }
 
     // Tool Options Box
     const options_box = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 5);
