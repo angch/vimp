@@ -89,7 +89,10 @@ pub const Engine = struct {
         x: f64 = 0.0,
         y: f64 = 0.0,
         rotate: f64 = 0.0,
-        scale: f64 = 1.0,
+        scale_x: f64 = 1.0,
+        scale_y: f64 = 1.0,
+        skew_x: f64 = 0.0,
+        skew_y: f64 = 0.0,
     };
 
     pub const PaintCommand = struct {
@@ -982,7 +985,8 @@ pub const Engine = struct {
                     // To pivot around center: Move content so center is at origin, rotate/scale, move back.
 
                     const t1 = c.gegl_node_new_child(self.graph, "operation", "gegl:translate", "x", -cx, "y", -cy, @as(?*anyopaque, null));
-                    const scale = c.gegl_node_new_child(self.graph, "operation", "gegl:scale-ratio", "x", tp.scale, "y", tp.scale, @as(?*anyopaque, null));
+                    // Note: skew is not implemented in preview yet due to missing op, using scale-ratio
+                    const scale = c.gegl_node_new_child(self.graph, "operation", "gegl:scale-ratio", "x", tp.scale_x, "y", tp.scale_y, @as(?*anyopaque, null));
                     const rotate = c.gegl_node_new_child(self.graph, "operation", "gegl:rotate", "degrees", tp.rotate, @as(?*anyopaque, null));
                     const t2 = c.gegl_node_new_child(self.graph, "operation", "gegl:translate", "x", cx + tp.x, "y", cy + tp.y, @as(?*anyopaque, null));
 
@@ -2323,7 +2327,8 @@ pub const Engine = struct {
         const tp = self.preview_transform;
 
         var buf: [256]u8 = undefined;
-        const transform_str = std.fmt.bufPrintZ(&buf, "translate({d}, {d}) rotate({d}) scale({d}) translate({d}, {d})", .{ cx + tp.x, cy + tp.y, tp.rotate, tp.scale, -cx, -cy }) catch "translate(0,0)";
+        // SkewX/SkewY omitted as they are not reliably supported in current env
+        const transform_str = std.fmt.bufPrintZ(&buf, "translate({d}, {d}) rotate({d}) scale({d}, {d}) translate({d}, {d})", .{ cx + tp.x, cy + tp.y, tp.rotate, tp.scale_x, tp.scale_y, -cx, -cy }) catch "translate(0,0)";
 
         const trans_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:transform", "transform", transform_str.ptr, @as(?*anyopaque, null));
         if (trans_node == null) return;

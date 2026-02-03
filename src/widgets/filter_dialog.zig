@@ -922,3 +922,109 @@ pub fn showSupernovaDialog(
 
     c.gtk_window_present(@ptrCast(dialog));
 }
+
+const StretchContext = struct {
+    engine: *Engine,
+    scale_x_spin: *c.GtkWidget,
+    scale_y_spin: *c.GtkWidget,
+    update_cb: *const fn () void,
+};
+
+fn on_stretch_preview_change(_: *c.GtkWidget, data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const ctx: *StretchContext = @ptrCast(@alignCast(data));
+    const sx = c.gtk_spin_button_get_value(@ptrCast(ctx.scale_x_spin)) / 100.0;
+    const sy = c.gtk_spin_button_get_value(@ptrCast(ctx.scale_y_spin)) / 100.0;
+
+    // We use setTransformPreview.
+    // Note: Translate/Rotate are 0.
+    ctx.engine.setTransformPreview(.{ .scale_x = sx, .scale_y = sy });
+    ctx.update_cb();
+}
+
+pub fn showStretchDialog(
+    parent: ?*c.GtkWindow,
+    engine: *Engine,
+    update_cb: *const fn () void,
+) void {
+    const dialog = c.adw_message_dialog_new(
+        parent,
+        "Stretch",
+        "Resize content (percentage).",
+    );
+
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "Cancel");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "apply", "Apply");
+    c.adw_message_dialog_set_default_response(@ptrCast(dialog), "apply");
+    c.adw_message_dialog_set_close_response(@ptrCast(dialog), "cancel");
+
+    const box = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 10);
+    c.gtk_widget_set_margin_top(box, 10);
+    c.gtk_widget_set_margin_bottom(box, 10);
+    c.gtk_widget_set_margin_start(box, 10);
+    c.gtk_widget_set_margin_end(box, 10);
+
+    const grid = c.gtk_grid_new();
+    c.gtk_grid_set_row_spacing(@ptrCast(grid), 10);
+    c.gtk_grid_set_column_spacing(@ptrCast(grid), 10);
+    c.gtk_widget_set_halign(grid, c.GTK_ALIGN_CENTER);
+    c.gtk_box_append(@ptrCast(box), grid);
+
+    // Width %
+    const w_label = c.gtk_label_new("Horizontal (%):");
+    c.gtk_widget_set_halign(w_label, c.GTK_ALIGN_END);
+    c.gtk_grid_attach(@ptrCast(grid), w_label, 0, 0, 1, 1);
+    const scale_x_spin = c.gtk_spin_button_new_with_range(1.0, 1000.0, 1.0);
+    c.gtk_spin_button_set_value(@ptrCast(scale_x_spin), 100.0);
+    c.gtk_grid_attach(@ptrCast(grid), scale_x_spin, 1, 0, 1, 1);
+
+    // Height %
+    const h_label = c.gtk_label_new("Vertical (%):");
+    c.gtk_widget_set_halign(h_label, c.GTK_ALIGN_END);
+    c.gtk_grid_attach(@ptrCast(grid), h_label, 0, 1, 1, 1);
+    const scale_y_spin = c.gtk_spin_button_new_with_range(1.0, 1000.0, 1.0);
+    c.gtk_spin_button_set_value(@ptrCast(scale_y_spin), 100.0);
+    c.gtk_grid_attach(@ptrCast(grid), scale_y_spin, 1, 1, 1, 1);
+
+    c.adw_message_dialog_set_extra_child(@ptrCast(dialog), box);
+
+    const ctx = std.heap.c_allocator.create(StretchContext) catch return;
+    ctx.* = .{
+        .engine = engine,
+        .scale_x_spin = scale_x_spin,
+        .scale_y_spin = scale_y_spin,
+        .update_cb = update_cb,
+    };
+
+    _ = c.g_signal_connect_data(scale_x_spin, "value-changed", @ptrCast(&on_stretch_preview_change), ctx, null, 0);
+    _ = c.g_signal_connect_data(scale_y_spin, "value-changed", @ptrCast(&on_stretch_preview_change), ctx, null, 0);
+
+    // Initial preview
+    // Don't set preview initially to avoid jumping if user cancels immediately?
+    // But preview shows what 100% is (no change).
+    // It's fine.
+    // engine.setTransformPreview(.{ .scale_x = 1.0, .scale_y = 1.0 });
+    // update_cb();
+
+    const on_response = struct {
+        fn func(d: *c.AdwMessageDialog, response: [*c]const u8, data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+            const context: *StretchContext = @ptrCast(@alignCast(data));
+            defer std.heap.c_allocator.destroy(context);
+
+            const resp_span = std.mem.span(response);
+            if (std.mem.eql(u8, resp_span, "apply")) {
+                // We must apply transform.
+                // Note: Preview mode is .transform.
+                // engine.commitPreview() calls applyTransform() if mode is transform.
+                context.engine.commitPreview() catch {};
+            } else {
+                context.engine.cancelPreview();
+            }
+            context.update_cb();
+            c.gtk_window_destroy(@ptrCast(d));
+        }
+    }.func;
+
+    _ = c.g_signal_connect_data(dialog, "response", @ptrCast(&on_response), ctx, null, 0);
+
+    c.gtk_window_present(@ptrCast(dialog));
+}
