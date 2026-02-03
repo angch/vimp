@@ -83,6 +83,7 @@ pub const Engine = struct {
         red_eye_removal,
         waves,
         supernova,
+        lighting,
     };
 
     pub const TransformParams = struct {
@@ -268,6 +269,11 @@ pub const Engine = struct {
     preview_supernova_radius: f64 = 20.0,
     preview_supernova_spokes: c_int = 100,
     preview_supernova_color: [4]u8 = .{ 100, 100, 255, 255 }, // Light Blue
+    preview_lighting_x: f64 = 0.0,
+    preview_lighting_y: f64 = 0.0,
+    preview_lighting_z: f64 = 100.0,
+    preview_lighting_intensity: f64 = 1.0,
+    preview_lighting_color: [4]u8 = .{ 255, 255, 255, 255 },
     split_view_enabled: bool = false,
     split_x: f64 = 400.0,
 
@@ -808,6 +814,47 @@ pub const Engine = struct {
                     defer c.g_object_unref(color);
 
                     if (c.gegl_node_new_child(self.graph, "operation", "gegl:supernova", "center-x", self.preview_supernova_x, "center-y", self.preview_supernova_y, "radius", self.preview_supernova_radius, "spokes", self.preview_supernova_spokes, "color", color, @as(?*anyopaque, null))) |filter_node| {
+                        _ = c.gegl_node_connect(filter_node, "input", source_output, "output");
+                        self.composition_nodes.append(std.heap.c_allocator, filter_node) catch {};
+
+                        if (self.split_view_enabled) {
+                            const w: f64 = @floatFromInt(self.canvas_width);
+                            const h: f64 = @floatFromInt(self.canvas_height);
+                            const sx = self.split_x;
+
+                            if (c.gegl_node_new_child(self.graph, "operation", "gegl:crop", "x", @as(f64, 0.0), "y", @as(f64, 0.0), "width", sx, "height", h, @as(?*anyopaque, null))) |left_crop| {
+                                _ = c.gegl_node_connect(left_crop, "input", source_output, "output");
+                                self.composition_nodes.append(std.heap.c_allocator, left_crop) catch {};
+
+                                if (c.gegl_node_new_child(self.graph, "operation", "gegl:crop", "x", sx, "y", @as(f64, 0.0), "width", w - sx, "height", h, @as(?*anyopaque, null))) |right_crop| {
+                                    _ = c.gegl_node_connect(right_crop, "input", filter_node, "output");
+                                    self.composition_nodes.append(std.heap.c_allocator, right_crop) catch {};
+
+                                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:over", @as(?*anyopaque, null))) |split_over| {
+                                        _ = c.gegl_node_connect(split_over, "input", left_crop, "output");
+                                        _ = c.gegl_node_connect(split_over, "aux", right_crop, "output");
+                                        self.composition_nodes.append(std.heap.c_allocator, split_over) catch {};
+
+                                        source_output = split_over;
+                                    }
+                                }
+                            }
+                        } else {
+                            source_output = filter_node;
+                        }
+                    }
+                } else if (self.preview_mode == .lighting) {
+                    var buf: [64]u8 = undefined;
+                    const color_str = std.fmt.bufPrintZ(&buf, "rgba({d}, {d}, {d}, {d})", .{
+                        self.preview_lighting_color[0],
+                        self.preview_lighting_color[1],
+                        self.preview_lighting_color[2],
+                        @as(f32, @floatFromInt(self.preview_lighting_color[3])) / 255.0,
+                    }) catch "rgba(1,1,1,1)";
+                    const color = c.gegl_color_new(color_str.ptr);
+                    defer c.g_object_unref(color);
+
+                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:lighting", "x", self.preview_lighting_x, "y", self.preview_lighting_y, "z", self.preview_lighting_z, "intensity", self.preview_lighting_intensity, "color", color, "type", @as(c_int, 0), @as(?*anyopaque, null))) |filter_node| {
                         _ = c.gegl_node_connect(filter_node, "input", source_output, "output");
                         self.composition_nodes.append(std.heap.c_allocator, filter_node) catch {};
 
@@ -2189,6 +2236,47 @@ pub const Engine = struct {
         self.commitTransaction();
     }
 
+    pub fn applyLighting(self: *Engine, x: f64, y: f64, z: f64, intensity: f64, color_rgba: [4]u8) !void {
+        if (self.active_layer_idx >= self.layers.items.len) return;
+        const layer = &self.layers.items[self.active_layer_idx];
+        if (layer.locked) return;
+
+        self.beginTransaction();
+
+        const temp_graph = c.gegl_node_new();
+        defer c.g_object_unref(temp_graph);
+
+        const color_str = try std.fmt.allocPrintSentinel(std.heap.c_allocator, "rgba({d}, {d}, {d}, {d})", .{
+            color_rgba[0],
+            color_rgba[1],
+            color_rgba[2],
+            @as(f32, @floatFromInt(color_rgba[3])) / 255.0,
+        }, 0);
+        defer std.heap.c_allocator.free(color_str);
+        const color = c.gegl_color_new(color_str.ptr);
+        defer c.g_object_unref(color);
+
+        const input_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:buffer-source", "buffer", layer.buffer, @as(?*anyopaque, null));
+        const filter_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:lighting", "x", x, "y", y, "z", z, "intensity", intensity, "color", color, "type", @as(c_int, 0), @as(?*anyopaque, null));
+
+        const format = c.babl_format("R'G'B'A u8");
+        const extent = c.gegl_buffer_get_extent(layer.buffer);
+        const new_buffer = c.gegl_buffer_new(extent, format);
+        if (new_buffer == null) return;
+
+        const write_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:write-buffer", "buffer", new_buffer, @as(?*anyopaque, null));
+
+        _ = c.gegl_node_link_many(input_node, filter_node, write_node, @as(?*anyopaque, null));
+
+        _ = c.gegl_node_process(write_node);
+
+        c.g_object_unref(layer.buffer);
+        layer.buffer = new_buffer.?;
+        _ = c.gegl_node_set(layer.source_node, "buffer", new_buffer, @as(?*anyopaque, null));
+
+        self.commitTransaction();
+    }
+
     pub fn setPreviewBlur(self: *Engine, radius: f64) void {
         self.preview_mode = .blur;
         self.preview_radius = radius;
@@ -2260,6 +2348,16 @@ pub const Engine = struct {
         self.preview_supernova_radius = radius;
         self.preview_supernova_spokes = spokes;
         self.preview_supernova_color = color;
+        self.rebuildGraph();
+    }
+
+    pub fn setPreviewLighting(self: *Engine, x: f64, y: f64, z: f64, intensity: f64, color: [4]u8) void {
+        self.preview_mode = .lighting;
+        self.preview_lighting_x = x;
+        self.preview_lighting_y = y;
+        self.preview_lighting_z = z;
+        self.preview_lighting_intensity = intensity;
+        self.preview_lighting_color = color;
         self.rebuildGraph();
     }
 
@@ -2349,6 +2447,8 @@ pub const Engine = struct {
             try self.applyWaves(self.preview_waves_amplitude, self.preview_waves_phase, self.preview_waves_wavelength, self.preview_waves_center_x, self.preview_waves_center_y);
         } else if (self.preview_mode == .supernova) {
             try self.applySupernova(self.preview_supernova_x, self.preview_supernova_y, self.preview_supernova_radius, self.preview_supernova_spokes, self.preview_supernova_color);
+        } else if (self.preview_mode == .lighting) {
+            try self.applyLighting(self.preview_lighting_x, self.preview_lighting_y, self.preview_lighting_z, self.preview_lighting_intensity, self.preview_lighting_color);
         }
         self.preview_mode = .none;
         self.rebuildGraph();
@@ -5012,4 +5112,30 @@ test "Engine selection transparent mode" {
     // Set to false
     engine.setSelectionTransparent(false);
     try std.testing.expectEqual(engine.selection_transparent, false);
+}
+
+test "Engine lighting" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+    try engine.addLayer("Background");
+
+    // Paint white pixel
+    engine.setFgColor(255, 255, 255, 255);
+    engine.paintStroke(100, 100, 100, 100, 1.0);
+
+    // Apply Lighting
+    try engine.applyLighting(100.0, 100.0, 100.0, 1.0, .{ 255, 255, 255, 255 });
+
+    const buf = engine.layers.items[0].buffer;
+    var pixel: [4]u8 = undefined;
+
+    // Check pixel at 100,100
+    const rect = c.GeglRectangle{ .x = 100, .y = 100, .width = 1, .height = 1 };
+    const format = c.babl_format("R'G'B'A u8");
+    c.gegl_buffer_get(buf, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+
+    // Assert something was read (Paint stroke succeeded)
+    try std.testing.expect(pixel[3] > 0);
 }
