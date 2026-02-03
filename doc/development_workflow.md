@@ -19,3 +19,10 @@
   - Run `git diff path/to/changed/file > my-change.patch` from the `ref/gimp` directory (or adjusted path).
   - Save the patch file in the project root.
   - Submit the patch file.
+
+## Cross-Platform Development
+- **Cross-Compilation Constraint**: For GTK4 apps, compiler support (Zig) allows building binaries, but the *target libraries* (DLLs/Libs) must be manually provided/sysrooted.
+- **Packaging Strategy**: Prefer Flatpak for Linux distribution as it handles environment consistency best across distributions.
+
+## Dependencies & Linking
+- **Zig & LibAdwaita**: Requires explicit linking of `adwaita-1` system library (`exe.linkSystemLibrary("adwaita-1")`) and usage of `@cInclude("adwaita.h")`. This ensures access to `libadwaita-1-dev` headers.
