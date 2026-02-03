@@ -23,7 +23,7 @@
 
 ### Navigation & Controls
 - [x] Implement Command Palette (searchable action interface)
-- [ ] Add Tooltips to all Header Bar buttons
+- [x] Add Tooltips to all Header Bar buttons
 
 ### Accessibility
 - [ ] Ensure High Contrast mode support
