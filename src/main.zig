@@ -16,29 +16,8 @@ const ThumbnailWindow = @import("widgets/thumbnail_window.zig");
 const CommandPalette = @import("widgets/command_palette.zig");
 const ColorPalette = @import("widgets/color_palette.zig").ColorPalette;
 const RawLoader = @import("raw_loader.zig").RawLoader;
-
-// Global state for simplicity in this phase
-const Tool = enum {
-    brush,
-    pencil,
-    airbrush,
-    eraser,
-    bucket_fill,
-    rect_select,
-    ellipse_select,
-    rect_shape,
-    ellipse_shape,
-    rounded_rect_shape,
-    unified_transform,
-    color_picker,
-    gradient,
-    line,
-    curve,
-    polygon,
-    lasso,
-    text,
-    // pencil, // Reorder if desired, but append is safer for diffs usually
-};
+const ToolOptionsPanel = @import("widgets/tool_options_panel.zig").ToolOptionsPanel;
+const Tool = @import("tools.zig").Tool;
 
 const ToolEntry = struct {
     tool: Tool,
@@ -75,14 +54,8 @@ var drawing_area: ?*c.GtkWidget = null;
 var apply_preview_btn: ?*c.GtkWidget = null;
 var discard_preview_btn: ?*c.GtkWidget = null;
 
-var tool_options_box: ?*c.GtkWidget = null;
-var tool_filled: bool = false;
-var tool_font_size: i32 = 24;
+var tool_options_panel: ?*ToolOptionsPanel = null;
 var transform_action_bar: ?*c.GtkWidget = null;
-var transform_x_spin: ?*c.GtkWidget = null;
-var transform_y_spin: ?*c.GtkWidget = null;
-var transform_r_scale: ?*c.GtkWidget = null;
-var transform_s_scale: ?*c.GtkWidget = null;
 var main_stack: ?*c.GtkWidget = null;
 var toast_overlay: ?*c.AdwToastOverlay = null;
 var color_btn: ?*c.GtkWidget = null;
@@ -140,7 +113,7 @@ fn create_color_button() *c.GtkWidget {
 }
 
 fn rebuild_recent_colors_ui_callback(_: ?*anyopaque) callconv(std.builtin.CallingConvention.c) c.gboolean {
-    if (color_btn == null or tool_options_box == null) return 0;
+    if (color_btn == null or tool_options_panel == null) return 0;
 
     const parent = c.gtk_widget_get_parent(color_btn.?);
     if (parent == null) return 0;
@@ -234,62 +207,12 @@ fn on_edit_colors_clicked(
     c.gtk_window_present(@ptrCast(dialog));
 }
 
-fn brush_size_changed(
-    range: *c.GtkRange,
-    user_data: ?*anyopaque,
-) callconv(std.builtin.CallingConvention.c) void {
-    _ = user_data;
-    const value = c.gtk_range_get_value(range);
-    const size: c_int = @intFromFloat(value);
-    engine.setBrushSize(size);
-}
-
-fn shape_fill_toggled(
-    check: *c.GtkCheckButton,
-    user_data: ?*anyopaque,
-) callconv(std.builtin.CallingConvention.c) void {
-    _ = user_data;
-    tool_filled = c.gtk_check_button_get_active(check) != 0;
-}
-
-fn selection_transparent_toggled(
-    check: *c.GtkCheckButton,
-    user_data: ?*anyopaque,
-) callconv(std.builtin.CallingConvention.c) void {
-    _ = user_data;
-    const active = c.gtk_check_button_get_active(check) != 0;
-    engine.setSelectionTransparent(active);
-}
-
-fn font_size_changed(
-    spin: *c.GtkSpinButton,
-    user_data: ?*anyopaque,
-) callconv(std.builtin.CallingConvention.c) void {
-    _ = user_data;
-    tool_font_size = @intCast(c.gtk_spin_button_get_value_as_int(spin));
-}
-
-fn transform_param_changed(_: *c.GtkWidget, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    if (transform_x_spin == null) return;
-    const x = c.gtk_spin_button_get_value(@ptrCast(transform_x_spin.?));
-    const y = c.gtk_spin_button_get_value(@ptrCast(transform_y_spin.?));
-    const r = c.gtk_range_get_value(@ptrCast(transform_r_scale.?));
-    const s = c.gtk_range_get_value(@ptrCast(transform_s_scale.?));
-
-    engine.setTransformPreview(.{ .x = x, .y = y, .rotate = r, .scale_x = s, .scale_y = s });
-    canvas_dirty = true;
-    queue_draw();
-}
 
 fn transform_apply_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     engine.applyTransform() catch |err| {
         show_toast("Apply transform failed: {}", .{err});
     };
-    // Reset UI
-    if (transform_x_spin) |w| c.gtk_spin_button_set_value(@ptrCast(w), 0.0);
-    if (transform_y_spin) |w| c.gtk_spin_button_set_value(@ptrCast(w), 0.0);
-    if (transform_r_scale) |w| c.gtk_range_set_value(@ptrCast(w), 0.0);
-    if (transform_s_scale) |w| c.gtk_range_set_value(@ptrCast(w), 1.0);
+    if (tool_options_panel) |p| p.resetTransformUI();
 
     canvas_dirty = true;
     queue_draw();
@@ -298,11 +221,7 @@ fn transform_apply_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin
 
 fn transform_cancel_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     engine.cancelPreview();
-    // Reset UI
-    if (transform_x_spin) |w| c.gtk_spin_button_set_value(@ptrCast(w), 0.0);
-    if (transform_y_spin) |w| c.gtk_spin_button_set_value(@ptrCast(w), 0.0);
-    if (transform_r_scale) |w| c.gtk_range_set_value(@ptrCast(w), 0.0);
-    if (transform_s_scale) |w| c.gtk_range_set_value(@ptrCast(w), 1.0);
+    if (tool_options_panel) |p| p.resetTransformUI();
 
     canvas_dirty = true;
     queue_draw();
@@ -321,105 +240,6 @@ fn update_color_btn_visual() void {
     }
 }
 
-fn update_tool_options() void {
-    if (tool_options_box) |box| {
-        // Clear children
-        var child = c.gtk_widget_get_first_child(@ptrCast(box));
-        while (child != null) {
-            const next = c.gtk_widget_get_next_sibling(child);
-            c.gtk_box_remove(@ptrCast(box), child);
-            child = next;
-        }
-
-        // Reset pointers
-        transform_x_spin = null;
-        transform_y_spin = null;
-        transform_r_scale = null;
-        transform_s_scale = null;
-
-        // Add widgets based on tool
-        switch (current_tool) {
-            .brush, .pencil, .airbrush, .eraser, .line, .curve, .polygon => {
-                const label = c.gtk_label_new_with_mnemonic("_Size");
-                c.gtk_box_append(@ptrCast(box), label);
-                const slider = c.gtk_scale_new_with_range(c.GTK_ORIENTATION_HORIZONTAL, 1.0, 100.0, 1.0);
-                c.gtk_label_set_mnemonic_widget(@ptrCast(label), slider);
-                c.gtk_range_set_value(@ptrCast(slider), @floatFromInt(engine.brush_size));
-                c.gtk_widget_set_hexpand(slider, 1);
-                c.gtk_box_append(@ptrCast(box), slider);
-                _ = c.g_signal_connect_data(slider, "value-changed", @ptrCast(&brush_size_changed), null, null, 0);
-            },
-            .rect_shape, .ellipse_shape, .rounded_rect_shape => {
-                const label = c.gtk_label_new_with_mnemonic("_Thickness");
-                c.gtk_box_append(@ptrCast(box), label);
-                const slider = c.gtk_scale_new_with_range(c.GTK_ORIENTATION_HORIZONTAL, 1.0, 100.0, 1.0);
-                c.gtk_label_set_mnemonic_widget(@ptrCast(label), slider);
-                c.gtk_range_set_value(@ptrCast(slider), @floatFromInt(engine.brush_size));
-                c.gtk_widget_set_hexpand(slider, 1);
-                c.gtk_box_append(@ptrCast(box), slider);
-                _ = c.g_signal_connect_data(slider, "value-changed", @ptrCast(&brush_size_changed), null, null, 0);
-
-                const check = c.gtk_check_button_new_with_mnemonic("_Filled");
-                c.gtk_check_button_set_active(@ptrCast(check), if (tool_filled) 1 else 0);
-                c.gtk_box_append(@ptrCast(box), check);
-                _ = c.g_signal_connect_data(check, "toggled", @ptrCast(&shape_fill_toggled), null, null, 0);
-            },
-            .rect_select, .ellipse_select, .lasso => {
-                const check = c.gtk_check_button_new_with_mnemonic("_Transparent");
-                c.gtk_check_button_set_active(@ptrCast(check), if (engine.selection_transparent) 1 else 0);
-                c.gtk_box_append(@ptrCast(box), check);
-                _ = c.g_signal_connect_data(check, "toggled", @ptrCast(&selection_transparent_toggled), null, null, 0);
-            },
-            .text => {
-                const label = c.gtk_label_new_with_mnemonic("_Font Size");
-                c.gtk_box_append(@ptrCast(box), label);
-                const spin = c.gtk_spin_button_new_with_range(8.0, 500.0, 1.0);
-                c.gtk_label_set_mnemonic_widget(@ptrCast(label), spin);
-                c.gtk_spin_button_set_value(@ptrCast(spin), @floatFromInt(tool_font_size));
-                c.gtk_box_append(@ptrCast(box), spin);
-                _ = c.g_signal_connect_data(spin, "value-changed", @ptrCast(&font_size_changed), null, null, 0);
-            },
-            .unified_transform => {
-                const label_x = c.gtk_label_new_with_mnemonic("Translate _X");
-                c.gtk_box_append(@ptrCast(box), label_x);
-                const t_x = c.gtk_spin_button_new_with_range(-1000.0, 1000.0, 1.0);
-                c.gtk_label_set_mnemonic_widget(@ptrCast(label_x), t_x);
-                transform_x_spin = t_x;
-                c.gtk_box_append(@ptrCast(box), t_x);
-                _ = c.g_signal_connect_data(t_x, "value-changed", @ptrCast(&transform_param_changed), null, null, 0);
-
-                const label_y = c.gtk_label_new_with_mnemonic("Translate _Y");
-                c.gtk_box_append(@ptrCast(box), label_y);
-                const t_y = c.gtk_spin_button_new_with_range(-1000.0, 1000.0, 1.0);
-                c.gtk_label_set_mnemonic_widget(@ptrCast(label_y), t_y);
-                transform_y_spin = t_y;
-                c.gtk_box_append(@ptrCast(box), t_y);
-                _ = c.g_signal_connect_data(t_y, "value-changed", @ptrCast(&transform_param_changed), null, null, 0);
-
-                const label_r = c.gtk_label_new_with_mnemonic("_Rotate (Deg)");
-                c.gtk_box_append(@ptrCast(box), label_r);
-                const t_r = c.gtk_scale_new_with_range(c.GTK_ORIENTATION_HORIZONTAL, -180.0, 180.0, 1.0);
-                c.gtk_label_set_mnemonic_widget(@ptrCast(label_r), t_r);
-                transform_r_scale = t_r;
-                c.gtk_box_append(@ptrCast(box), t_r);
-                _ = c.g_signal_connect_data(t_r, "value-changed", @ptrCast(&transform_param_changed), null, null, 0);
-
-                const label_s = c.gtk_label_new_with_mnemonic("_Scale");
-                c.gtk_box_append(@ptrCast(box), label_s);
-                const t_s = c.gtk_scale_new_with_range(c.GTK_ORIENTATION_HORIZONTAL, 0.1, 5.0, 0.1);
-                c.gtk_label_set_mnemonic_widget(@ptrCast(label_s), t_s);
-                c.gtk_range_set_value(@ptrCast(t_s), 1.0);
-                transform_s_scale = t_s;
-                c.gtk_box_append(@ptrCast(box), t_s);
-                _ = c.g_signal_connect_data(t_s, "value-changed", @ptrCast(&transform_param_changed), null, null, 0);
-            },
-            else => {},
-        }
-
-        const first = c.gtk_widget_get_first_child(@ptrCast(box));
-        c.gtk_widget_set_visible(@ptrCast(box), if (first != null) 1 else 0);
-    }
-}
 
 fn tool_toggled(
     button: *c.GtkToggleButton,
@@ -431,7 +251,7 @@ fn tool_toggled(
         std.debug.print("Tool switched to: {}\n", .{current_tool});
 
         const is_transform = (current_tool == .unified_transform);
-        update_tool_options();
+        if (tool_options_panel) |p| p.update(current_tool);
         if (transform_action_bar) |b| c.gtk_widget_set_visible(b, if (is_transform) 1 else 0);
 
         switch (current_tool) {
@@ -1530,7 +1350,7 @@ fn drag_update(
             const w: c_int = @intFromFloat(@abs(c_curr_x - start_world_x));
             const h: c_int = @intFromFloat(@abs(c_curr_y - start_world_y));
 
-            engine.setShapePreview(min_x, min_y, w, h, engine.brush_size, tool_filled);
+            engine.setShapePreview(min_x, min_y, w, h, engine.brush_size, engine.brush_filled);
             if (current_tool == .ellipse_shape) {
                 // Update type
                 if (engine.preview_shape) |*s| s.type = .ellipse;
@@ -1653,7 +1473,7 @@ fn drag_end(
                     }
                 }
 
-                TextDialog.showTextDialog(parent_window, tool_font_size, &on_text_insert, ctx, &destroy_text_context) catch |err| {
+                TextDialog.showTextDialog(parent_window, engine.font_size, &on_text_insert, ctx, &destroy_text_context) catch |err| {
                     show_toast("Failed to show text dialog: {}", .{err});
                     std.heap.c_allocator.destroy(ctx);
                 };
@@ -1681,15 +1501,15 @@ fn drag_end(
 
         engine.beginTransaction();
         if (current_tool == .rect_shape) {
-            engine.drawRectangle(min_x, min_y, w, h, engine.brush_size, tool_filled) catch |err| {
+            engine.drawRectangle(min_x, min_y, w, h, engine.brush_size, engine.brush_filled) catch |err| {
                 show_toast("Failed to draw rect: {}", .{err});
             };
         } else if (current_tool == .rounded_rect_shape) {
-            engine.drawRoundedRectangle(min_x, min_y, w, h, 20, engine.brush_size, tool_filled) catch |err| {
+            engine.drawRoundedRectangle(min_x, min_y, w, h, 20, engine.brush_size, engine.brush_filled) catch |err| {
                 show_toast("Failed to draw rounded rect: {}", .{err});
             };
         } else {
-            engine.drawEllipse(min_x, min_y, w, h, engine.brush_size, tool_filled) catch |err| {
+            engine.drawEllipse(min_x, min_y, w, h, engine.brush_size, engine.brush_filled) catch |err| {
                 show_toast("Failed to draw ellipse: {}", .{err});
             };
         }
@@ -3495,13 +3315,12 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     _ = c.g_signal_connect_data(edit_colors_btn, "clicked", @ptrCast(&on_edit_colors_clicked), window, null, 0);
     c.gtk_box_append(@ptrCast(color_box), edit_colors_btn);
 
-    // Tool Options Box
-    const options_box = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 5);
-    tool_options_box = options_box;
-    c.gtk_box_append(@ptrCast(sidebar), options_box);
-
-    // Initialize tool options
-    update_tool_options();
+    // Tool Options Panel
+    tool_options_panel = ToolOptionsPanel.create(&engine, &queue_draw);
+    if (tool_options_panel) |p| {
+        c.gtk_box_append(@ptrCast(sidebar), p.widget());
+        p.update(current_tool);
+    }
 
     // Layers Section
     c.gtk_box_append(@ptrCast(sidebar), c.gtk_separator_new(c.GTK_ORIENTATION_HORIZONTAL));
