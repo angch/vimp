@@ -84,7 +84,7 @@
 
 ### From `ms_paint_spec.md` & `gimp-feature-spec-gnome-hig.md`
 - [x] Implement Free-Form Select Tool (Lasso)
-- [ ] Implement Selection Mode toggle (Opaque/Transparent)
+- [x] Implement Selection Mode toggle (Opaque/Transparent)
 - [x] Implement Marching Ants animation for selections
 
 ---
