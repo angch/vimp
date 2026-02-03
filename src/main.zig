@@ -46,6 +46,7 @@ var current_tool: Tool = .brush;
 
 var ants_offset: f64 = 0.0;
 var ants_timer_id: c_uint = 0;
+var autosave_timer_id: c_uint = 0;
 
 var thumbnail_ctx: ThumbnailWindow.ThumbnailContext = undefined;
 
@@ -2909,6 +2910,105 @@ fn on_group_long_press(
     c.gtk_popover_popup(popover);
 }
 
+fn autosave_callback(user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) c.gboolean {
+    _ = user_data;
+    if (engine.layers.items.len == 0) return 1; // Keep running but don't save empty
+
+    const cache_dir_c = c.g_get_user_cache_dir();
+    if (cache_dir_c == null) return 1;
+    const cache_dir = std.mem.span(cache_dir_c);
+
+    const path = std.fs.path.join(std.heap.c_allocator, &[_][]const u8{ cache_dir, "vimp", "autosave" }) catch return 1;
+    defer std.heap.c_allocator.free(path);
+
+    engine.saveProject(path) catch |err| {
+        std.debug.print("Autosave failed: {}\n", .{err});
+    };
+
+    return 1; // Continue
+}
+
+const RecoveryContext = struct {
+    path: [:0]u8,
+};
+
+fn recovery_response(
+    dialog: *c.AdwMessageDialog,
+    response: [*c]const u8,
+    user_data: ?*anyopaque,
+) callconv(std.builtin.CallingConvention.c) void {
+    const ctx: *RecoveryContext = @ptrCast(@alignCast(user_data));
+    defer std.heap.c_allocator.destroy(ctx);
+    defer std.heap.c_allocator.free(ctx.path);
+
+    const resp_span = std.mem.span(response);
+
+    if (std.mem.eql(u8, resp_span, "recover")) {
+        engine.loadProject(ctx.path) catch |err| {
+             show_toast("Failed to recover project: {}", .{err});
+        };
+        refresh_layers_ui();
+        refresh_undo_ui();
+        update_view_mode();
+        canvas_dirty = true;
+        queue_draw();
+    } else if (std.mem.eql(u8, resp_span, "discard")) {
+        std.fs.cwd().deleteTree(ctx.path) catch {};
+    }
+
+    c.gtk_window_destroy(@ptrCast(dialog));
+}
+
+fn check_autosave(window: *c.GtkWindow) void {
+     const cache_dir_c = c.g_get_user_cache_dir();
+     if (cache_dir_c == null) return;
+     const cache_dir = std.mem.span(cache_dir_c);
+
+     const path = std.fs.path.joinZ(std.heap.c_allocator, &[_][]const u8{ cache_dir, "vimp", "autosave" }) catch return;
+     // Don't free path yet, pass to ctx
+
+     // Check if exists
+     var dir = std.fs.cwd().openDir(path, .{}) catch {
+         std.heap.c_allocator.free(path);
+         return;
+     };
+     dir.close();
+
+     // Check project.json
+     const json_path = std.fs.path.joinZ(std.heap.c_allocator, &[_][]const u8{ path, "project.json" }) catch {
+         std.heap.c_allocator.free(path);
+         return;
+     };
+     defer std.heap.c_allocator.free(json_path);
+
+     if (std.fs.cwd().access(json_path, .{})) |_| {
+         // Found! Show dialog.
+         const ctx = std.heap.c_allocator.create(RecoveryContext) catch {
+             std.heap.c_allocator.free(path);
+             return;
+         };
+         ctx.* = .{ .path = path };
+
+         const dialog = c.adw_message_dialog_new(
+             window,
+             "Unsaved Work Found",
+             "A previous session was not closed properly. Do you want to recover your work?",
+         );
+
+         c.adw_message_dialog_add_response(@ptrCast(dialog), "discard", "_Discard");
+         c.adw_message_dialog_add_response(@ptrCast(dialog), "recover", "_Recover");
+
+         c.adw_message_dialog_set_default_response(@ptrCast(dialog), "recover");
+         c.adw_message_dialog_set_close_response(@ptrCast(dialog), "discard");
+
+         _ = c.g_signal_connect_data(dialog, "response", @ptrCast(&recovery_response), ctx, null, 0);
+
+         c.gtk_window_present(@ptrCast(dialog));
+     } else |_| {
+         std.heap.c_allocator.free(path);
+     }
+}
+
 fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     _ = user_data;
 
@@ -2926,6 +3026,11 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
 
     // Init polygon points
     polygon_points = .{};
+
+    // Start Autosave Timer (every 30 seconds)
+    if (autosave_timer_id == 0) {
+        autosave_timer_id = c.g_timeout_add_seconds(30, @ptrCast(&autosave_callback), null);
+    }
 
     // Use AdwApplicationWindow
     const window = c.adw_application_window_new(app);
@@ -3614,4 +3719,6 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.g_object_unref(css_provider);
 
     c.gtk_window_present(@ptrCast(window));
+
+    check_autosave(@ptrCast(window));
 }
