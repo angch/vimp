@@ -25,3 +25,6 @@ Goal: Upgrade GIMP concepts to a modern stack (Zig, GTK4, GEGL/Babl).
 - **Toolkit**: GTK4 + Libadwaita
 - **Engine**: GEGL 0.4 / Babl 0.1
 - **Build**: `zig build`
+
+## Environment Limitations
+- **GEGL Loaders**: The development environment lacks loaders for certain formats like EPS/PostScript (`image/x-eps`). While filters are implemented in the UI, `gegl:load` may fail with a warning unless proper delegates (Ghostscript) or plugins are installed.

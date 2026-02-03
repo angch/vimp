@@ -129,7 +129,15 @@ pub fn showOpenDialog(
     c.gtk_file_filter_add_pattern(filter_imgs, "*.ico");
     c.gtk_file_filter_add_pattern(filter_imgs, "*.tga");
     c.gtk_file_filter_add_pattern(filter_imgs, "*.xcf");
+    c.gtk_file_filter_add_pattern(filter_imgs, "*.ps");
+    c.gtk_file_filter_add_pattern(filter_imgs, "*.eps");
     c.gtk_file_chooser_add_filter(@ptrCast(chooser_widget), filter_imgs);
+
+    const filter_ps = c.gtk_file_filter_new();
+    c.gtk_file_filter_set_name(filter_ps, "PostScript Document");
+    c.gtk_file_filter_add_pattern(filter_ps, "*.ps");
+    c.gtk_file_filter_add_pattern(filter_ps, "*.eps");
+    c.gtk_file_chooser_add_filter(@ptrCast(chooser_widget), filter_ps);
 
     const filter_png = c.gtk_file_filter_new();
     c.gtk_file_filter_set_name(filter_png, "PNG Image");
