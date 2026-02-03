@@ -3416,6 +3416,174 @@ pub const Engine = struct {
 
         return @ptrCast(texture);
     }
+
+    pub const LayerMetadata = struct {
+        name: []const u8,
+        visible: bool,
+        locked: bool,
+        filename: []const u8,
+    };
+
+    pub const ProjectMetadata = struct {
+        width: c_int,
+        height: c_int,
+        layers: []LayerMetadata,
+    };
+
+    fn printJsonString(writer: anytype, str: []const u8) !void {
+        try writer.writeAll("\"");
+        for (str) |char| {
+            switch (char) {
+                '"' => try writer.writeAll("\\\""),
+                '\\' => try writer.writeAll("\\\\"),
+                '\n' => try writer.writeAll("\\n"),
+                '\r' => try writer.writeAll("\\r"),
+                '\t' => try writer.writeAll("\\t"),
+                else => try writer.writeByte(char),
+            }
+        }
+        try writer.writeAll("\"");
+    }
+
+    fn stringifyProjectMetadata(meta: ProjectMetadata, writer: anytype) !void {
+        try writer.print("{{\n    \"width\": {d},\n    \"height\": {d},\n    \"layers\": [\n", .{meta.width, meta.height});
+        for (meta.layers, 0..) |l, i| {
+            try writer.writeAll("        {\n            \"name\": ");
+            try printJsonString(writer, l.name);
+            try writer.print(",\n            \"visible\": {},\n", .{l.visible});
+            try writer.print("            \"locked\": {},\n            \"filename\": ", .{l.locked});
+            try printJsonString(writer, l.filename);
+            try writer.writeAll("\n        }");
+            if (i < meta.layers.len - 1) try writer.writeAll(",");
+            try writer.writeAll("\n");
+        }
+        try writer.writeAll("    ]\n}\n");
+    }
+
+    fn saveBuffer(self: *Engine, buffer: *c.GeglBuffer, path_z: [:0]const u8) !void {
+        _ = self;
+        const temp_graph = c.gegl_node_new();
+        defer c.g_object_unref(temp_graph);
+
+        const source = c.gegl_node_new_child(temp_graph, "operation", "gegl:buffer-source", "buffer", buffer, @as(?*anyopaque, null));
+        const save = c.gegl_node_new_child(temp_graph, "operation", "gegl:save", "path", path_z.ptr, @as(?*anyopaque, null));
+
+        if (source != null and save != null) {
+            _ = c.gegl_node_link(source, save);
+            _ = c.gegl_node_process(save);
+        } else {
+            return error.GeglGraphFailed;
+        }
+    }
+
+    pub fn saveProject(self: *Engine, path: []const u8) !void {
+        const allocator = std.heap.c_allocator;
+        // Create directory
+        std.fs.cwd().makePath(path) catch |err| {
+            if (err != error.PathAlreadyExists) return err;
+        };
+
+        const abs_path = try std.fs.cwd().realpathAlloc(allocator, path);
+        defer allocator.free(abs_path);
+
+        var layer_meta_list = std.ArrayList(LayerMetadata){};
+        defer {
+            for (layer_meta_list.items) |m| {
+                allocator.free(m.filename);
+                allocator.free(m.name);
+            }
+            layer_meta_list.deinit(allocator);
+        }
+
+        // Iterate layers
+        for (self.layers.items, 0..) |layer, i| {
+            const filename = try std.fmt.allocPrint(allocator, "layer_{d}.png", .{i});
+            // We need to save the buffer to this file inside the directory.
+            const full_path = try std.fs.path.joinZ(allocator, &[_][]const u8{ abs_path, filename });
+            defer allocator.free(full_path);
+
+            try self.saveBuffer(layer.buffer, full_path);
+
+            const name_dup = try allocator.dupe(u8, std.mem.span(@as([*:0]const u8, @ptrCast(&layer.name))));
+
+            try layer_meta_list.append(allocator, .{
+                .name = name_dup,
+                .visible = layer.visible,
+                .locked = layer.locked,
+                .filename = filename,
+            });
+        }
+
+        const meta = ProjectMetadata{
+            .width = self.canvas_width,
+            .height = self.canvas_height,
+            .layers = layer_meta_list.items,
+        };
+
+        var json_string = std.ArrayList(u8){};
+        defer json_string.deinit(allocator);
+
+        try stringifyProjectMetadata(meta, json_string.writer(allocator));
+
+        const json_path = try std.fs.path.join(allocator, &[_][]const u8{ abs_path, "project.json" });
+        defer allocator.free(json_path);
+
+        const json_file = try std.fs.createFileAbsolute(json_path, .{});
+        defer json_file.close();
+        try json_file.writeAll(json_string.items);
+    }
+
+    pub fn loadProject(self: *Engine, path: []const u8) !void {
+        var dir = try std.fs.cwd().openDir(path, .{});
+        defer dir.close();
+
+        const json_file = try dir.openFile("project.json", .{});
+        defer json_file.close();
+
+        const size = (try json_file.stat()).size;
+        const json_content = try std.heap.c_allocator.alloc(u8, size);
+        defer std.heap.c_allocator.free(json_content);
+
+        _ = try json_file.readAll(json_content);
+
+        const parsed = try std.json.parseFromSlice(ProjectMetadata, std.heap.c_allocator, json_content, .{ .ignore_unknown_fields = true });
+        defer parsed.deinit();
+
+        const meta = parsed.value;
+
+        self.reset();
+
+        self.setCanvasSizeInternal(meta.width, meta.height);
+
+        for (meta.layers) |l| {
+            const full_path = try std.fs.path.joinZ(std.heap.c_allocator, &[_][]const u8{ path, l.filename });
+            defer std.heap.c_allocator.free(full_path);
+
+            // Load buffer
+            const temp_graph = c.gegl_node_new();
+            defer c.g_object_unref(temp_graph);
+
+            const load_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:load", "path", full_path.ptr, @as(?*anyopaque, null));
+            if (load_node == null) continue;
+
+            const bbox = c.gegl_node_get_bounding_box(load_node);
+            const format = c.babl_format("R'G'B'A u8");
+            const new_buffer = c.gegl_buffer_new(&bbox, format);
+            if (new_buffer == null) continue;
+
+            const write_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:write-buffer", "buffer", new_buffer, @as(?*anyopaque, null));
+            if (write_node) |wn| {
+                _ = c.gegl_node_link(load_node, wn);
+                _ = c.gegl_node_process(wn);
+            } else {
+                c.g_object_unref(new_buffer);
+                continue;
+            }
+
+            const index = self.layers.items.len;
+            try self.addLayerInternal(new_buffer.?, l.name, l.visible, l.locked, index);
+        }
+    }
 };
 
 // TESTS COMMENTED OUT temporarily to allow build
@@ -5410,4 +5578,53 @@ test "Engine paint opacity" {
         // Alpha ~127
         try std.testing.expect(pixel[3] >= 126 and pixel[3] <= 129);
     }
+}
+
+test "Engine project save load" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+
+    // 1. Setup: 2 Layers
+    try engine.addLayer("Layer 1");
+    engine.setFgColor(255, 0, 0, 255);
+    engine.paintStroke(10, 10, 10, 10, 1.0);
+
+    try engine.addLayer("Layer 2");
+    engine.setFgColor(0, 0, 255, 255);
+    engine.paintStroke(20, 20, 20, 20, 1.0);
+    engine.toggleLayerVisibility(1); // Hide Layer 2
+
+    // 2. Save
+    const project_path = "test_project_save";
+    // Clean up before/after
+    std.fs.cwd().deleteTree(project_path) catch {};
+    defer std.fs.cwd().deleteTree(project_path) catch {};
+
+    try engine.saveProject(project_path);
+
+    // 3. Reset
+    engine.reset();
+    try std.testing.expectEqual(engine.layers.items.len, 0);
+
+    // 4. Load
+    try engine.loadProject(project_path);
+
+    // 5. Verify
+    try std.testing.expectEqual(engine.layers.items.len, 2);
+
+    // Layer 0 (Original "Layer 1" - bottom?)
+    // addLayer appends. "Layer 1" is index 0. "Layer 2" is index 1.
+    // loadProject should preserve order.
+
+    // Check Layer 0
+    const l0 = &engine.layers.items[0];
+    try std.testing.expectEqualStrings("Layer 1", std.mem.span(@as([*:0]const u8, @ptrCast(&l0.name))));
+    try std.testing.expect(l0.visible); // Default visible
+
+    // Check Layer 1
+    const l1 = &engine.layers.items[1];
+    try std.testing.expectEqualStrings("Layer 2", std.mem.span(@as([*:0]const u8, @ptrCast(&l1.name))));
+    try std.testing.expect(!l1.visible); // Was hidden
 }
