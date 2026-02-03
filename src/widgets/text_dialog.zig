@@ -64,17 +64,20 @@ pub fn showTextDialog(
 
     // Size Row
     const size_row = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 10);
-    c.gtk_box_append(@ptrCast(size_row), c.gtk_label_new("Size (px):"));
+    const size_label = c.gtk_label_new("_Size (px):");
+    c.gtk_label_set_use_underline(@ptrCast(size_label), 1);
+    c.gtk_box_append(@ptrCast(size_row), size_label);
 
     const size_spin = c.gtk_spin_button_new_with_range(8.0, 500.0, 1.0);
+    c.gtk_label_set_mnemonic_widget(@ptrCast(size_label), size_spin);
     c.gtk_spin_button_set_value(@ptrCast(size_spin), @as(f64, @floatFromInt(initial_size)));
     c.gtk_box_append(@ptrCast(size_row), size_spin);
     c.gtk_box_append(@ptrCast(box), size_row);
 
     c.adw_message_dialog_set_extra_child(@ptrCast(dialog), box);
 
-    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "Cancel");
-    c.adw_message_dialog_add_response(@ptrCast(dialog), "insert", "Insert");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "_Cancel");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "insert", "_Insert");
     c.adw_message_dialog_set_default_response(@ptrCast(dialog), "insert");
     c.adw_message_dialog_set_close_response(@ptrCast(dialog), "cancel");
 

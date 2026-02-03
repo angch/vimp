@@ -28,8 +28,8 @@ pub fn showMotionBlurDialog(
         "Adjust motion blur parameters.",
     );
 
-    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "Cancel");
-    c.adw_message_dialog_add_response(@ptrCast(dialog), "apply", "Apply");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "_Cancel");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "apply", "_Apply");
     c.adw_message_dialog_set_default_response(@ptrCast(dialog), "apply");
     c.adw_message_dialog_set_close_response(@ptrCast(dialog), "cancel");
 
@@ -48,18 +48,22 @@ pub fn showMotionBlurDialog(
     c.gtk_box_append(@ptrCast(box), grid);
 
     // Length
-    const l_label = c.gtk_label_new("Length (px):");
+    const l_label = c.gtk_label_new("_Length (px):");
+    c.gtk_label_set_use_underline(@ptrCast(l_label), 1);
     c.gtk_widget_set_halign(l_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), l_label, 0, 0, 1, 1);
     const length_spin = c.gtk_spin_button_new_with_range(0.0, 500.0, 1.0);
+    c.gtk_label_set_mnemonic_widget(@ptrCast(l_label), length_spin);
     c.gtk_spin_button_set_value(@ptrCast(length_spin), 10.0);
     c.gtk_grid_attach(@ptrCast(grid), length_spin, 1, 0, 1, 1);
 
     // Angle
-    const a_label = c.gtk_label_new("Angle (deg):");
+    const a_label = c.gtk_label_new("_Angle (deg):");
+    c.gtk_label_set_use_underline(@ptrCast(a_label), 1);
     c.gtk_widget_set_halign(a_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), a_label, 0, 1, 1, 1);
     const angle_spin = c.gtk_spin_button_new_with_range(0.0, 360.0, 1.0);
+    c.gtk_label_set_mnemonic_widget(@ptrCast(a_label), angle_spin);
     c.gtk_spin_button_set_value(@ptrCast(angle_spin), 0.0);
     c.gtk_grid_attach(@ptrCast(grid), angle_spin, 1, 1, 1, 1);
 
@@ -141,8 +145,8 @@ pub fn showLightingDialog(
         "Add lighting (Point Light).",
     );
 
-    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "Cancel");
-    c.adw_message_dialog_add_response(@ptrCast(dialog), "apply", "Apply");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "_Cancel");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "apply", "_Apply");
     c.adw_message_dialog_set_default_response(@ptrCast(dialog), "apply");
     c.adw_message_dialog_set_close_response(@ptrCast(dialog), "cancel");
 
@@ -159,42 +163,51 @@ pub fn showLightingDialog(
     c.gtk_box_append(@ptrCast(box), grid);
 
     // Light X
-    const x_label = c.gtk_label_new("Light X:");
+    const x_label = c.gtk_label_new("Light _X:");
+    c.gtk_label_set_use_underline(@ptrCast(x_label), 1);
     c.gtk_widget_set_halign(x_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), x_label, 0, 0, 1, 1);
     const x_spin = c.gtk_spin_button_new_with_range(-2000.0, 10000.0, 1.0);
+    c.gtk_label_set_mnemonic_widget(@ptrCast(x_label), x_spin);
     const cx: f64 = @floatFromInt(@divFloor(engine.canvas_width, 2));
     c.gtk_spin_button_set_value(@ptrCast(x_spin), cx);
     c.gtk_grid_attach(@ptrCast(grid), x_spin, 1, 0, 1, 1);
 
     // Light Y
-    const y_label = c.gtk_label_new("Light Y:");
+    const y_label = c.gtk_label_new("Light _Y:");
+    c.gtk_label_set_use_underline(@ptrCast(y_label), 1);
     c.gtk_widget_set_halign(y_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), y_label, 0, 1, 1, 1);
     const y_spin = c.gtk_spin_button_new_with_range(-2000.0, 10000.0, 1.0);
+    c.gtk_label_set_mnemonic_widget(@ptrCast(y_label), y_spin);
     const cy: f64 = @floatFromInt(@divFloor(engine.canvas_height, 2));
     c.gtk_spin_button_set_value(@ptrCast(y_spin), cy);
     c.gtk_grid_attach(@ptrCast(grid), y_spin, 1, 1, 1, 1);
 
     // Light Z
-    const z_label = c.gtk_label_new("Light Z:");
+    const z_label = c.gtk_label_new("Light _Z:");
+    c.gtk_label_set_use_underline(@ptrCast(z_label), 1);
     c.gtk_widget_set_halign(z_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), z_label, 0, 2, 1, 1);
     const z_spin = c.gtk_spin_button_new_with_range(1.0, 1000.0, 1.0);
+    c.gtk_label_set_mnemonic_widget(@ptrCast(z_label), z_spin);
     c.gtk_spin_button_set_value(@ptrCast(z_spin), 100.0);
     c.gtk_grid_attach(@ptrCast(grid), z_spin, 1, 2, 1, 1);
 
     // Intensity
-    const i_label = c.gtk_label_new("Intensity:");
+    const i_label = c.gtk_label_new("_Intensity:");
+    c.gtk_label_set_use_underline(@ptrCast(i_label), 1);
     c.gtk_widget_set_halign(i_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), i_label, 0, 3, 1, 1);
     const intensity_scale = c.gtk_scale_new_with_range(c.GTK_ORIENTATION_HORIZONTAL, 0.0, 5.0, 0.1);
+    c.gtk_label_set_mnemonic_widget(@ptrCast(i_label), intensity_scale);
     c.gtk_widget_set_size_request(intensity_scale, 150, -1);
     c.gtk_range_set_value(@ptrCast(intensity_scale), 1.0);
     c.gtk_grid_attach(@ptrCast(grid), intensity_scale, 1, 3, 1, 1);
 
     // Color
-    const c_label = c.gtk_label_new("Color:");
+    const c_label = c.gtk_label_new("_Color:");
+    c.gtk_label_set_use_underline(@ptrCast(c_label), 1);
     c.gtk_widget_set_halign(c_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), c_label, 0, 4, 1, 1);
 
@@ -272,8 +285,8 @@ pub fn showUnsharpMaskDialog(
         "Sharpen image.",
     );
 
-    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "Cancel");
-    c.adw_message_dialog_add_response(@ptrCast(dialog), "apply", "Apply");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "_Cancel");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "apply", "_Apply");
     c.adw_message_dialog_set_default_response(@ptrCast(dialog), "apply");
     c.adw_message_dialog_set_close_response(@ptrCast(dialog), "cancel");
 
@@ -290,18 +303,22 @@ pub fn showUnsharpMaskDialog(
     c.gtk_box_append(@ptrCast(box), grid);
 
     // Std Dev
-    const sd_label = c.gtk_label_new("Radius (Std Dev):");
+    const sd_label = c.gtk_label_new("_Radius (Std Dev):");
+    c.gtk_label_set_use_underline(@ptrCast(sd_label), 1);
     c.gtk_widget_set_halign(sd_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), sd_label, 0, 0, 1, 1);
     const std_dev_spin = c.gtk_spin_button_new_with_range(0.1, 100.0, 0.1);
+    c.gtk_label_set_mnemonic_widget(@ptrCast(sd_label), std_dev_spin);
     c.gtk_spin_button_set_value(@ptrCast(std_dev_spin), 1.0);
     c.gtk_grid_attach(@ptrCast(grid), std_dev_spin, 1, 0, 1, 1);
 
     // Scale
-    const s_label = c.gtk_label_new("Amount (Scale):");
+    const s_label = c.gtk_label_new("_Amount (Scale):");
+    c.gtk_label_set_use_underline(@ptrCast(s_label), 1);
     c.gtk_widget_set_halign(s_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), s_label, 0, 1, 1, 1);
     const scale_spin = c.gtk_spin_button_new_with_range(0.0, 10.0, 0.1);
+    c.gtk_label_set_mnemonic_widget(@ptrCast(s_label), scale_spin);
     c.gtk_spin_button_set_value(@ptrCast(scale_spin), 1.0);
     c.gtk_grid_attach(@ptrCast(grid), scale_spin, 1, 1, 1, 1);
 
@@ -366,8 +383,8 @@ pub fn showNoiseReductionDialog(
         "Reduce noise.",
     );
 
-    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "Cancel");
-    c.adw_message_dialog_add_response(@ptrCast(dialog), "apply", "Apply");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "_Cancel");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "apply", "_Apply");
     c.adw_message_dialog_set_default_response(@ptrCast(dialog), "apply");
     c.adw_message_dialog_set_close_response(@ptrCast(dialog), "cancel");
 
@@ -384,10 +401,12 @@ pub fn showNoiseReductionDialog(
     c.gtk_box_append(@ptrCast(box), grid);
 
     // Iterations
-    const i_label = c.gtk_label_new("Iterations:");
+    const i_label = c.gtk_label_new("_Iterations:");
+    c.gtk_label_set_use_underline(@ptrCast(i_label), 1);
     c.gtk_widget_set_halign(i_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), i_label, 0, 0, 1, 1);
     const iter_spin = c.gtk_spin_button_new_with_range(1.0, 10.0, 1.0);
+    c.gtk_label_set_mnemonic_widget(@ptrCast(i_label), iter_spin);
     c.gtk_spin_button_set_value(@ptrCast(iter_spin), 1.0);
     c.gtk_grid_attach(@ptrCast(grid), iter_spin, 1, 0, 1, 1);
 
@@ -450,8 +469,8 @@ pub fn showPixelizeDialog(
         "Adjust pixel block size.",
     );
 
-    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "Cancel");
-    c.adw_message_dialog_add_response(@ptrCast(dialog), "apply", "Apply");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "_Cancel");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "apply", "_Apply");
     c.adw_message_dialog_set_default_response(@ptrCast(dialog), "apply");
     c.adw_message_dialog_set_close_response(@ptrCast(dialog), "cancel");
 
@@ -470,10 +489,12 @@ pub fn showPixelizeDialog(
     c.gtk_box_append(@ptrCast(box), grid);
 
     // Size
-    const l_label = c.gtk_label_new("Block Size (px):");
+    const l_label = c.gtk_label_new("_Block Size (px):");
+    c.gtk_label_set_use_underline(@ptrCast(l_label), 1);
     c.gtk_widget_set_halign(l_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), l_label, 0, 0, 1, 1);
     const size_spin = c.gtk_spin_button_new_with_range(2.0, 200.0, 1.0);
+    c.gtk_label_set_mnemonic_widget(@ptrCast(l_label), size_spin);
     c.gtk_spin_button_set_value(@ptrCast(size_spin), 10.0);
     c.gtk_grid_attach(@ptrCast(grid), size_spin, 1, 0, 1, 1);
 
@@ -538,8 +559,8 @@ pub fn showOilifyDialog(
         "Adjust mask radius.",
     );
 
-    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "Cancel");
-    c.adw_message_dialog_add_response(@ptrCast(dialog), "apply", "Apply");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "_Cancel");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "apply", "_Apply");
     c.adw_message_dialog_set_default_response(@ptrCast(dialog), "apply");
     c.adw_message_dialog_set_close_response(@ptrCast(dialog), "cancel");
 
@@ -558,10 +579,12 @@ pub fn showOilifyDialog(
     c.gtk_box_append(@ptrCast(box), grid);
 
     // Radius
-    const l_label = c.gtk_label_new("Mask Radius:");
+    const l_label = c.gtk_label_new("_Mask Radius:");
+    c.gtk_label_set_use_underline(@ptrCast(l_label), 1);
     c.gtk_widget_set_halign(l_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), l_label, 0, 0, 1, 1);
     const radius_spin = c.gtk_spin_button_new_with_range(1.0, 50.0, 0.5);
+    c.gtk_label_set_mnemonic_widget(@ptrCast(l_label), radius_spin);
     c.gtk_spin_button_set_value(@ptrCast(radius_spin), 3.5);
     c.gtk_grid_attach(@ptrCast(grid), radius_spin, 1, 0, 1, 1);
 
@@ -632,8 +655,8 @@ pub fn showDropShadowDialog(
         "Add a drop shadow.",
     );
 
-    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "Cancel");
-    c.adw_message_dialog_add_response(@ptrCast(dialog), "apply", "Apply");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "_Cancel");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "apply", "_Apply");
     c.adw_message_dialog_set_default_response(@ptrCast(dialog), "apply");
     c.adw_message_dialog_set_close_response(@ptrCast(dialog), "cancel");
 
@@ -652,34 +675,42 @@ pub fn showDropShadowDialog(
     c.gtk_box_append(@ptrCast(box), grid);
 
     // X Offset
-    const x_label = c.gtk_label_new("Offset X:");
+    const x_label = c.gtk_label_new("Offset _X:");
+    c.gtk_label_set_use_underline(@ptrCast(x_label), 1);
     c.gtk_widget_set_halign(x_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), x_label, 0, 0, 1, 1);
     const x_spin = c.gtk_spin_button_new_with_range(-500.0, 500.0, 1.0);
+    c.gtk_label_set_mnemonic_widget(@ptrCast(x_label), x_spin);
     c.gtk_spin_button_set_value(@ptrCast(x_spin), 10.0);
     c.gtk_grid_attach(@ptrCast(grid), x_spin, 1, 0, 1, 1);
 
     // Y Offset
-    const y_label = c.gtk_label_new("Offset Y:");
+    const y_label = c.gtk_label_new("Offset _Y:");
+    c.gtk_label_set_use_underline(@ptrCast(y_label), 1);
     c.gtk_widget_set_halign(y_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), y_label, 0, 1, 1, 1);
     const y_spin = c.gtk_spin_button_new_with_range(-500.0, 500.0, 1.0);
+    c.gtk_label_set_mnemonic_widget(@ptrCast(y_label), y_spin);
     c.gtk_spin_button_set_value(@ptrCast(y_spin), 10.0);
     c.gtk_grid_attach(@ptrCast(grid), y_spin, 1, 1, 1, 1);
 
     // Radius
-    const r_label = c.gtk_label_new("Blur Radius:");
+    const r_label = c.gtk_label_new("_Blur Radius:");
+    c.gtk_label_set_use_underline(@ptrCast(r_label), 1);
     c.gtk_widget_set_halign(r_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), r_label, 0, 2, 1, 1);
     const radius_spin = c.gtk_spin_button_new_with_range(0.0, 200.0, 1.0);
+    c.gtk_label_set_mnemonic_widget(@ptrCast(r_label), radius_spin);
     c.gtk_spin_button_set_value(@ptrCast(radius_spin), 10.0);
     c.gtk_grid_attach(@ptrCast(grid), radius_spin, 1, 2, 1, 1);
 
     // Opacity
-    const o_label = c.gtk_label_new("Opacity:");
+    const o_label = c.gtk_label_new("_Opacity:");
+    c.gtk_label_set_use_underline(@ptrCast(o_label), 1);
     c.gtk_widget_set_halign(o_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), o_label, 0, 3, 1, 1);
     const opacity_scale = c.gtk_scale_new_with_range(c.GTK_ORIENTATION_HORIZONTAL, 0.0, 2.0, 0.1);
+    c.gtk_label_set_mnemonic_widget(@ptrCast(o_label), opacity_scale);
     c.gtk_widget_set_size_request(opacity_scale, 150, -1);
     c.gtk_range_set_value(@ptrCast(opacity_scale), 0.5);
     c.gtk_grid_attach(@ptrCast(grid), opacity_scale, 1, 3, 1, 1);
@@ -751,8 +782,8 @@ pub fn showRedEyeRemovalDialog(
         "Adjust threshold.",
     );
 
-    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "Cancel");
-    c.adw_message_dialog_add_response(@ptrCast(dialog), "apply", "Apply");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "_Cancel");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "apply", "_Apply");
     c.adw_message_dialog_set_default_response(@ptrCast(dialog), "apply");
     c.adw_message_dialog_set_close_response(@ptrCast(dialog), "cancel");
 
@@ -771,10 +802,12 @@ pub fn showRedEyeRemovalDialog(
     c.gtk_box_append(@ptrCast(box), grid);
 
     // Threshold
-    const t_label = c.gtk_label_new("Threshold:");
+    const t_label = c.gtk_label_new("_Threshold:");
+    c.gtk_label_set_use_underline(@ptrCast(t_label), 1);
     c.gtk_widget_set_halign(t_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), t_label, 0, 0, 1, 1);
     const threshold_scale = c.gtk_scale_new_with_range(c.GTK_ORIENTATION_HORIZONTAL, 0.0, 1.0, 0.01);
+    c.gtk_label_set_mnemonic_widget(@ptrCast(t_label), threshold_scale);
     c.gtk_widget_set_size_request(threshold_scale, 150, -1);
     c.gtk_range_set_value(@ptrCast(threshold_scale), 0.4);
     c.gtk_grid_attach(@ptrCast(grid), threshold_scale, 1, 0, 1, 1);
@@ -844,8 +877,8 @@ pub fn showWavesDialog(
         "Add concentric waves.",
     );
 
-    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "Cancel");
-    c.adw_message_dialog_add_response(@ptrCast(dialog), "apply", "Apply");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "_Cancel");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "apply", "_Apply");
     c.adw_message_dialog_set_default_response(@ptrCast(dialog), "apply");
     c.adw_message_dialog_set_close_response(@ptrCast(dialog), "cancel");
 
@@ -862,26 +895,32 @@ pub fn showWavesDialog(
     c.gtk_box_append(@ptrCast(box), grid);
 
     // Amplitude
-    const a_label = c.gtk_label_new("Amplitude:");
+    const a_label = c.gtk_label_new("_Amplitude:");
+    c.gtk_label_set_use_underline(@ptrCast(a_label), 1);
     c.gtk_widget_set_halign(a_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), a_label, 0, 0, 1, 1);
     const amplitude_spin = c.gtk_spin_button_new_with_range(0.0, 100.0, 1.0);
+    c.gtk_label_set_mnemonic_widget(@ptrCast(a_label), amplitude_spin);
     c.gtk_spin_button_set_value(@ptrCast(amplitude_spin), 30.0);
     c.gtk_grid_attach(@ptrCast(grid), amplitude_spin, 1, 0, 1, 1);
 
     // Phase
-    const p_label = c.gtk_label_new("Phase:");
+    const p_label = c.gtk_label_new("_Phase:");
+    c.gtk_label_set_use_underline(@ptrCast(p_label), 1);
     c.gtk_widget_set_halign(p_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), p_label, 0, 1, 1, 1);
     const phase_spin = c.gtk_spin_button_new_with_range(0.0, 360.0, 1.0);
+    c.gtk_label_set_mnemonic_widget(@ptrCast(p_label), phase_spin);
     c.gtk_spin_button_set_value(@ptrCast(phase_spin), 0.0);
     c.gtk_grid_attach(@ptrCast(grid), phase_spin, 1, 1, 1, 1);
 
     // Wavelength
-    const w_label = c.gtk_label_new("Wavelength:");
+    const w_label = c.gtk_label_new("_Wavelength:");
+    c.gtk_label_set_use_underline(@ptrCast(w_label), 1);
     c.gtk_widget_set_halign(w_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), w_label, 0, 2, 1, 1);
     const wavelength_spin = c.gtk_spin_button_new_with_range(0.1, 100.0, 1.0);
+    c.gtk_label_set_mnemonic_widget(@ptrCast(w_label), wavelength_spin);
     c.gtk_spin_button_set_value(@ptrCast(wavelength_spin), 20.0);
     c.gtk_grid_attach(@ptrCast(grid), wavelength_spin, 1, 2, 1, 1);
 
@@ -963,8 +1002,8 @@ pub fn showSupernovaDialog(
         "Add a supernova flare.",
     );
 
-    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "Cancel");
-    c.adw_message_dialog_add_response(@ptrCast(dialog), "apply", "Apply");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "_Cancel");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "apply", "_Apply");
     c.adw_message_dialog_set_default_response(@ptrCast(dialog), "apply");
     c.adw_message_dialog_set_close_response(@ptrCast(dialog), "cancel");
 
@@ -981,41 +1020,50 @@ pub fn showSupernovaDialog(
     c.gtk_box_append(@ptrCast(box), grid);
 
     // Center X
-    const x_label = c.gtk_label_new("Center X (px):");
+    const x_label = c.gtk_label_new("Center _X (px):");
+    c.gtk_label_set_use_underline(@ptrCast(x_label), 1);
     c.gtk_widget_set_halign(x_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), x_label, 0, 0, 1, 1);
     const x_spin = c.gtk_spin_button_new_with_range(-2000.0, 10000.0, 1.0);
+    c.gtk_label_set_mnemonic_widget(@ptrCast(x_label), x_spin);
     const cx: f64 = @floatFromInt(@divFloor(engine.canvas_width, 2));
     c.gtk_spin_button_set_value(@ptrCast(x_spin), cx);
     c.gtk_grid_attach(@ptrCast(grid), x_spin, 1, 0, 1, 1);
 
     // Center Y
-    const y_label = c.gtk_label_new("Center Y (px):");
+    const y_label = c.gtk_label_new("Center _Y (px):");
+    c.gtk_label_set_use_underline(@ptrCast(y_label), 1);
     c.gtk_widget_set_halign(y_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), y_label, 0, 1, 1, 1);
     const y_spin = c.gtk_spin_button_new_with_range(-2000.0, 10000.0, 1.0);
+    c.gtk_label_set_mnemonic_widget(@ptrCast(y_label), y_spin);
     const cy: f64 = @floatFromInt(@divFloor(engine.canvas_height, 2));
     c.gtk_spin_button_set_value(@ptrCast(y_spin), cy);
     c.gtk_grid_attach(@ptrCast(grid), y_spin, 1, 1, 1, 1);
 
     // Radius
-    const r_label = c.gtk_label_new("Radius:");
+    const r_label = c.gtk_label_new("_Radius:");
+    c.gtk_label_set_use_underline(@ptrCast(r_label), 1);
     c.gtk_widget_set_halign(r_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), r_label, 0, 2, 1, 1);
     const radius_spin = c.gtk_spin_button_new_with_range(1.0, 1000.0, 1.0);
+    c.gtk_label_set_mnemonic_widget(@ptrCast(r_label), radius_spin);
     c.gtk_spin_button_set_value(@ptrCast(radius_spin), 20.0);
     c.gtk_grid_attach(@ptrCast(grid), radius_spin, 1, 2, 1, 1);
 
     // Spokes
-    const s_label = c.gtk_label_new("Spokes:");
+    const s_label = c.gtk_label_new("_Spokes:");
+    c.gtk_label_set_use_underline(@ptrCast(s_label), 1);
     c.gtk_widget_set_halign(s_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), s_label, 0, 3, 1, 1);
     const spokes_spin = c.gtk_spin_button_new_with_range(1.0, 1000.0, 1.0);
+    c.gtk_label_set_mnemonic_widget(@ptrCast(s_label), spokes_spin);
     c.gtk_spin_button_set_value(@ptrCast(spokes_spin), 100.0);
     c.gtk_grid_attach(@ptrCast(grid), spokes_spin, 1, 3, 1, 1);
 
     // Color
-    const c_label = c.gtk_label_new("Color:");
+    const c_label = c.gtk_label_new("_Color:");
+    c.gtk_label_set_use_underline(@ptrCast(c_label), 1);
     c.gtk_widget_set_halign(c_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), c_label, 0, 4, 1, 1);
 
@@ -1096,8 +1144,8 @@ pub fn showStretchDialog(
         "Resize content (percentage).",
     );
 
-    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "Cancel");
-    c.adw_message_dialog_add_response(@ptrCast(dialog), "apply", "Apply");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "_Cancel");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "apply", "_Apply");
     c.adw_message_dialog_set_default_response(@ptrCast(dialog), "apply");
     c.adw_message_dialog_set_close_response(@ptrCast(dialog), "cancel");
 
@@ -1114,18 +1162,22 @@ pub fn showStretchDialog(
     c.gtk_box_append(@ptrCast(box), grid);
 
     // Width %
-    const w_label = c.gtk_label_new("Horizontal (%):");
+    const w_label = c.gtk_label_new("_Horizontal (%):");
+    c.gtk_label_set_use_underline(@ptrCast(w_label), 1);
     c.gtk_widget_set_halign(w_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), w_label, 0, 0, 1, 1);
     const scale_x_spin = c.gtk_spin_button_new_with_range(1.0, 1000.0, 1.0);
+    c.gtk_label_set_mnemonic_widget(@ptrCast(w_label), scale_x_spin);
     c.gtk_spin_button_set_value(@ptrCast(scale_x_spin), 100.0);
     c.gtk_grid_attach(@ptrCast(grid), scale_x_spin, 1, 0, 1, 1);
 
     // Height %
-    const h_label = c.gtk_label_new("Vertical (%):");
+    const h_label = c.gtk_label_new("_Vertical (%):");
+    c.gtk_label_set_use_underline(@ptrCast(h_label), 1);
     c.gtk_widget_set_halign(h_label, c.GTK_ALIGN_END);
     c.gtk_grid_attach(@ptrCast(grid), h_label, 0, 1, 1, 1);
     const scale_y_spin = c.gtk_spin_button_new_with_range(1.0, 1000.0, 1.0);
+    c.gtk_label_set_mnemonic_widget(@ptrCast(h_label), scale_y_spin);
     c.gtk_spin_button_set_value(@ptrCast(scale_y_spin), 100.0);
     c.gtk_grid_attach(@ptrCast(grid), scale_y_spin, 1, 1, 1, 1);
 

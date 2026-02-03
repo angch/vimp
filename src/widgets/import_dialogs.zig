@@ -156,14 +156,17 @@ pub fn showPdfImportDialog(
 
     // PPI Row
     const ppi_row = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 10);
-    c.gtk_box_append(@ptrCast(ppi_row), c.gtk_label_new("Resolution (PPI):"));
+    const ppi_label = c.gtk_label_new("_Resolution (PPI):");
+    c.gtk_label_set_use_underline(@ptrCast(ppi_label), 1);
+    c.gtk_box_append(@ptrCast(ppi_row), ppi_label);
     const ppi_spin = c.gtk_spin_button_new_with_range(72.0, 2400.0, 1.0);
+    c.gtk_label_set_mnemonic_widget(@ptrCast(ppi_label), ppi_spin);
     c.gtk_spin_button_set_value(@ptrCast(ppi_spin), 300.0);
     c.gtk_box_append(@ptrCast(ppi_row), ppi_spin);
     c.gtk_box_append(@ptrCast(box), ppi_row);
 
     // Split Pages Toggle
-    const split_pages_check = c.gtk_check_button_new_with_label("Open pages as separate images");
+    const split_pages_check = c.gtk_check_button_new_with_mnemonic("_Open pages as separate images");
     c.gtk_check_button_set_active(@ptrCast(split_pages_check), 0); // Default false
     c.gtk_box_append(@ptrCast(box), split_pages_check);
 
@@ -185,11 +188,11 @@ pub fn showPdfImportDialog(
     const btn_box = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 10);
     c.gtk_widget_set_halign(btn_box, c.GTK_ALIGN_CENTER);
 
-    const select_all_btn = c.gtk_button_new_with_label("Select All");
+    const select_all_btn = c.gtk_button_new_with_mnemonic("_Select All");
     _ = c.g_signal_connect_data(select_all_btn, "clicked", @ptrCast(&select_all_clicked), flowbox, null, 0);
     c.gtk_box_append(@ptrCast(btn_box), select_all_btn);
 
-    const select_none_btn = c.gtk_button_new_with_label("Clear Selection");
+    const select_none_btn = c.gtk_button_new_with_mnemonic("C_lear Selection");
     _ = c.g_signal_connect_data(select_none_btn, "clicked", @ptrCast(&select_none_clicked), flowbox, null, 0);
     c.gtk_box_append(@ptrCast(btn_box), select_none_btn);
 
@@ -241,8 +244,8 @@ pub fn showPdfImportDialog(
 
     c.adw_message_dialog_set_extra_child(@ptrCast(dialog), box);
 
-    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "Cancel");
-    c.adw_message_dialog_add_response(@ptrCast(dialog), "import", "Import");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "_Cancel");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "import", "_Import");
     c.adw_message_dialog_set_default_response(@ptrCast(dialog), "import");
     c.adw_message_dialog_set_close_response(@ptrCast(dialog), "cancel");
 
@@ -280,29 +283,35 @@ pub fn showSvgImportDialog(
 
     // Width Row
     const w_row = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 10);
-    c.gtk_box_append(@ptrCast(w_row), c.gtk_label_new("Width (px):"));
+    const w_label = c.gtk_label_new("_Width (px):");
+    c.gtk_label_set_use_underline(@ptrCast(w_label), 1);
+    c.gtk_box_append(@ptrCast(w_row), w_label);
     const w_spin = c.gtk_spin_button_new_with_range(0.0, 10000.0, 1.0);
+    c.gtk_label_set_mnemonic_widget(@ptrCast(w_label), w_spin);
     c.gtk_spin_button_set_value(@ptrCast(w_spin), 0.0);
     c.gtk_box_append(@ptrCast(w_row), w_spin);
     c.gtk_box_append(@ptrCast(box), w_row);
 
     // Height Row
     const h_row = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 10);
-    c.gtk_box_append(@ptrCast(h_row), c.gtk_label_new("Height (px):"));
+    const h_label = c.gtk_label_new("_Height (px):");
+    c.gtk_label_set_use_underline(@ptrCast(h_label), 1);
+    c.gtk_box_append(@ptrCast(h_row), h_label);
     const h_spin = c.gtk_spin_button_new_with_range(0.0, 10000.0, 1.0);
+    c.gtk_label_set_mnemonic_widget(@ptrCast(h_label), h_spin);
     c.gtk_spin_button_set_value(@ptrCast(h_spin), 0.0);
     c.gtk_box_append(@ptrCast(h_row), h_spin);
     c.gtk_box_append(@ptrCast(box), h_row);
 
     // Import Paths Check
-    const paths_check = c.gtk_check_button_new_with_label("Import paths");
+    const paths_check = c.gtk_check_button_new_with_mnemonic("Import _paths");
     c.gtk_check_button_set_active(@ptrCast(paths_check), 0);
     c.gtk_box_append(@ptrCast(box), paths_check);
 
     c.adw_message_dialog_set_extra_child(@ptrCast(dialog), box);
 
-    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "Cancel");
-    c.adw_message_dialog_add_response(@ptrCast(dialog), "import", "Import");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "_Cancel");
+    c.adw_message_dialog_add_response(@ptrCast(dialog), "import", "_Import");
     c.adw_message_dialog_set_default_response(@ptrCast(dialog), "import");
     c.adw_message_dialog_set_close_response(@ptrCast(dialog), "cancel");
 

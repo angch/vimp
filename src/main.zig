@@ -2807,9 +2807,9 @@ fn drop_func(
                     "How would you like to open this image?",
                 );
 
-                c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "Cancel");
-                c.adw_message_dialog_add_response(@ptrCast(dialog), "new", "Open as New Image");
-                c.adw_message_dialog_add_response(@ptrCast(dialog), "layer", "Add as Layer");
+                c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "_Cancel");
+                c.adw_message_dialog_add_response(@ptrCast(dialog), "new", "_Open as New Image");
+                c.adw_message_dialog_add_response(@ptrCast(dialog), "layer", "_Add as Layer");
 
                 c.adw_message_dialog_set_default_response(@ptrCast(dialog), "layer");
                 c.adw_message_dialog_set_close_response(@ptrCast(dialog), "cancel");
@@ -3137,52 +3137,55 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
 
     // Image Menu
     const image_menu = c.g_menu_new();
-    c.g_menu_append(image_menu, "Canvas Size...", "app.canvas-size");
-    c.g_menu_append(image_menu, "Invert Colors", "app.invert-colors");
-    c.g_menu_append(image_menu, "Clear Image", "app.clear-image");
-    c.g_menu_append(image_menu, "Flip Horizontal", "app.flip-horizontal");
-    c.g_menu_append(image_menu, "Flip Vertical", "app.flip-vertical");
-    c.g_menu_append(image_menu, "Rotate 90° CW", "app.rotate-90");
-    c.g_menu_append(image_menu, "Rotate 180°", "app.rotate-180");
-    c.g_menu_append(image_menu, "Rotate 270° CW", "app.rotate-270");
-    c.g_menu_append(image_menu, "Stretch...", "app.stretch");
+    c.g_menu_append(image_menu, "_Canvas Size...", "app.canvas-size");
+    c.g_menu_append(image_menu, "_Invert Colors", "app.invert-colors");
+    c.g_menu_append(image_menu, "Cl_ear Image", "app.clear-image");
+    c.g_menu_append(image_menu, "Flip _Horizontal", "app.flip-horizontal");
+    c.g_menu_append(image_menu, "Flip _Vertical", "app.flip-vertical");
+    c.g_menu_append(image_menu, "Rotate _90° CW", "app.rotate-90");
+    c.g_menu_append(image_menu, "Rotate _180°", "app.rotate-180");
+    c.g_menu_append(image_menu, "Rotate _270° CW", "app.rotate-270");
+    c.g_menu_append(image_menu, "_Stretch...", "app.stretch");
 
     const image_btn = c.gtk_menu_button_new();
-    c.gtk_menu_button_set_label(@ptrCast(image_btn), "Image");
+    c.gtk_menu_button_set_label(@ptrCast(image_btn), "_Image");
+    c.gtk_menu_button_set_use_underline(@ptrCast(image_btn), 1);
     c.gtk_menu_button_set_menu_model(@ptrCast(image_btn), @ptrCast(@alignCast(image_menu)));
     c.gtk_widget_set_tooltip_text(image_btn, "Image Operations");
     c.adw_header_bar_pack_start(@ptrCast(header_bar), image_btn);
 
     // Filters Menu
     const filters_menu = c.g_menu_new();
-    c.g_menu_append(filters_menu, "Blur (5px)", "app.blur-small");
-    c.g_menu_append(filters_menu, "Blur (10px)", "app.blur-medium");
-    c.g_menu_append(filters_menu, "Blur (20px)", "app.blur-large");
-    c.g_menu_append(filters_menu, "Pixelize...", "app.pixelize");
-    c.g_menu_append(filters_menu, "Motion Blur...", "app.motion-blur");
-    c.g_menu_append(filters_menu, "Unsharp Mask...", "app.unsharp-mask");
-    c.g_menu_append(filters_menu, "Noise Reduction...", "app.noise-reduction");
-    c.g_menu_append(filters_menu, "Oilify...", "app.oilify");
-    c.g_menu_append(filters_menu, "Drop Shadow...", "app.drop-shadow");
-    c.g_menu_append(filters_menu, "Red Eye Removal...", "app.red-eye-removal");
-    c.g_menu_append(filters_menu, "Waves...", "app.waves");
-    c.g_menu_append(filters_menu, "Supernova...", "app.supernova");
-    c.g_menu_append(filters_menu, "Lighting Effects...", "app.lighting-effects");
-    c.g_menu_append(filters_menu, "Split View", "app.split-view");
+    c.g_menu_append(filters_menu, "Blur (_5px)", "app.blur-small");
+    c.g_menu_append(filters_menu, "Blur (1_0px)", "app.blur-medium");
+    c.g_menu_append(filters_menu, "Blur (_20px)", "app.blur-large");
+    c.g_menu_append(filters_menu, "_Pixelize...", "app.pixelize");
+    c.g_menu_append(filters_menu, "_Motion Blur...", "app.motion-blur");
+    c.g_menu_append(filters_menu, "_Unsharp Mask...", "app.unsharp-mask");
+    c.g_menu_append(filters_menu, "_Noise Reduction...", "app.noise-reduction");
+    c.g_menu_append(filters_menu, "_Oilify...", "app.oilify");
+    c.g_menu_append(filters_menu, "_Drop Shadow...", "app.drop-shadow");
+    c.g_menu_append(filters_menu, "_Red Eye Removal...", "app.red-eye-removal");
+    c.g_menu_append(filters_menu, "_Waves...", "app.waves");
+    c.g_menu_append(filters_menu, "_Supernova...", "app.supernova");
+    c.g_menu_append(filters_menu, "_Lighting Effects...", "app.lighting-effects");
+    c.g_menu_append(filters_menu, "Split _View", "app.split-view");
 
     const filters_btn = c.gtk_menu_button_new();
-    c.gtk_menu_button_set_label(@ptrCast(filters_btn), "Filters");
+    c.gtk_menu_button_set_label(@ptrCast(filters_btn), "_Filters");
+    c.gtk_menu_button_set_use_underline(@ptrCast(filters_btn), 1);
     c.gtk_menu_button_set_menu_model(@ptrCast(filters_btn), @ptrCast(@alignCast(filters_menu)));
     c.gtk_widget_set_tooltip_text(filters_btn, "Image Filters");
     c.adw_header_bar_pack_start(@ptrCast(header_bar), filters_btn);
 
     // View Menu
     const view_menu = c.g_menu_new();
-    c.g_menu_append(view_menu, "View Bitmap", "app.view-bitmap");
-    c.g_menu_append(view_menu, "Overview (Thumbnail)", "app.view-thumbnail");
+    c.g_menu_append(view_menu, "View _Bitmap", "app.view-bitmap");
+    c.g_menu_append(view_menu, "_Overview (Thumbnail)", "app.view-thumbnail");
 
     const view_btn = c.gtk_menu_button_new();
-    c.gtk_menu_button_set_label(@ptrCast(view_btn), "View");
+    c.gtk_menu_button_set_label(@ptrCast(view_btn), "_View");
+    c.gtk_menu_button_set_use_underline(@ptrCast(view_btn), 1);
     c.gtk_menu_button_set_menu_model(@ptrCast(view_btn), @ptrCast(@alignCast(view_menu)));
     c.gtk_widget_set_tooltip_text(view_btn, "View Options");
     c.adw_header_bar_pack_start(@ptrCast(header_bar), view_btn);
@@ -3205,10 +3208,10 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
 
     // Hamburger Menu (End)
     const menu = c.g_menu_new();
-    c.g_menu_append(menu, "Command Palette...", "app.command-palette");
-    c.g_menu_append(menu, "Open Location...", "app.open-location");
-    c.g_menu_append(menu, "About Vimp", "app.about");
-    c.g_menu_append(menu, "Quit", "app.quit");
+    c.g_menu_append(menu, "_Command Palette...", "app.command-palette");
+    c.g_menu_append(menu, "_Open Location...", "app.open-location");
+    c.g_menu_append(menu, "_About Vimp", "app.about");
+    c.g_menu_append(menu, "_Quit", "app.quit");
 
     const menu_btn = c.gtk_menu_button_new();
     c.gtk_menu_button_set_icon_name(@ptrCast(menu_btn), "open-menu-symbolic");
@@ -3510,18 +3513,21 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     const welcome_box = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 10);
     c.gtk_widget_set_halign(welcome_box, c.GTK_ALIGN_CENTER);
 
-    const welcome_new_btn = c.gtk_button_new_with_label("New Image");
+    const welcome_new_btn = c.gtk_button_new_with_label("_New Image");
+    c.gtk_button_set_use_underline(@ptrCast(welcome_new_btn), 1);
     c.gtk_widget_add_css_class(welcome_new_btn, "pill");
     c.gtk_widget_add_css_class(welcome_new_btn, "suggested-action");
     c.gtk_actionable_set_action_name(@ptrCast(welcome_new_btn), "app.new");
     c.gtk_box_append(@ptrCast(welcome_box), welcome_new_btn);
 
-    const welcome_open_btn = c.gtk_button_new_with_label("Open Image");
+    const welcome_open_btn = c.gtk_button_new_with_label("_Open Image");
+    c.gtk_button_set_use_underline(@ptrCast(welcome_open_btn), 1);
     c.gtk_widget_add_css_class(welcome_open_btn, "pill");
     c.gtk_actionable_set_action_name(@ptrCast(welcome_open_btn), "app.open");
     c.gtk_box_append(@ptrCast(welcome_box), welcome_open_btn);
 
-    const welcome_open_loc_btn = c.gtk_button_new_with_label("Open Location");
+    const welcome_open_loc_btn = c.gtk_button_new_with_label("Open _Location");
+    c.gtk_button_set_use_underline(@ptrCast(welcome_open_loc_btn), 1);
     c.gtk_widget_add_css_class(welcome_open_loc_btn, "pill");
     c.gtk_actionable_set_action_name(@ptrCast(welcome_open_loc_btn), "app.open-location");
     c.gtk_box_append(@ptrCast(welcome_box), welcome_open_loc_btn);
@@ -3599,13 +3605,15 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.gtk_widget_set_margin_top(t_action_bar, 20);
     c.gtk_widget_add_css_class(t_action_bar, "osd-box");
 
-    const t_apply = c.gtk_button_new_with_label("Apply");
+    const t_apply = c.gtk_button_new_with_label("_Apply");
+    c.gtk_button_set_use_underline(@ptrCast(t_apply), 1);
     c.gtk_widget_add_css_class(t_apply, "suggested-action");
     c.gtk_widget_set_tooltip_text(t_apply, "Apply Transformation");
     c.gtk_box_append(@ptrCast(t_action_bar), t_apply);
     _ = c.g_signal_connect_data(t_apply, "clicked", @ptrCast(&transform_apply_clicked), null, null, 0);
 
-    const t_cancel = c.gtk_button_new_with_label("Cancel");
+    const t_cancel = c.gtk_button_new_with_label("_Cancel");
+    c.gtk_button_set_use_underline(@ptrCast(t_cancel), 1);
     c.gtk_widget_set_tooltip_text(t_cancel, "Cancel Transformation");
     c.gtk_box_append(@ptrCast(t_action_bar), t_cancel);
     _ = c.g_signal_connect_data(t_cancel, "clicked", @ptrCast(&transform_cancel_clicked), null, null, 0);
