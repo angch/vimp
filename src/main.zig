@@ -2368,6 +2368,11 @@ fn supernova_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopa
     FilterDialog.showSupernovaDialog(window, &engine, &refresh_ui_callback);
 }
 
+fn lighting_effects_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
+    FilterDialog.showLightingDialog(window, &engine, &refresh_ui_callback);
+}
+
 fn stretch_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
     FilterDialog.showStretchDialog(window, &engine, &refresh_ui_callback);
@@ -2974,6 +2979,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     add_action(app, "red-eye-removal", @ptrCast(&red_eye_removal_activated), window);
     add_action(app, "waves", @ptrCast(&waves_activated), window);
     add_action(app, "supernova", @ptrCast(&supernova_activated), window);
+    add_action(app, "lighting-effects", @ptrCast(&lighting_effects_activated), window);
     add_action(app, "stretch", @ptrCast(&stretch_activated), window);
     add_action(app, "apply-preview", @ptrCast(&apply_preview_activated), null);
     add_action(app, "discard-preview", @ptrCast(&discard_preview_activated), null);
@@ -3097,6 +3103,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.g_menu_append(filters_menu, "Red Eye Removal...", "app.red-eye-removal");
     c.g_menu_append(filters_menu, "Waves...", "app.waves");
     c.g_menu_append(filters_menu, "Supernova...", "app.supernova");
+    c.g_menu_append(filters_menu, "Lighting Effects...", "app.lighting-effects");
     c.g_menu_append(filters_menu, "Split View", "app.split-view");
 
     const filters_btn = c.gtk_menu_button_new();

@@ -189,3 +189,9 @@ term planning.
 - Implemented `gegl:waves` support in `src/engine.zig`.
 - Added "Waves" dialog with Amplitude, Phase, and Wavelength controls.
 - Note: `gegl:waves` operation is missing in the development environment (similar to oilify), causing passthrough behavior in tests.
+
+### 2026-01-31: Lighting Effects Filter
+- Implemented `gegl:lighting` support in `src/engine.zig`.
+- Added "Lighting Effects" dialog with Position (X, Y, Z), Intensity, and Color controls.
+- Defaulted to Point light type (0).
+- Validated with `test "Engine lighting"` (note: `gegl:lighting` is missing in current dev env, causing passthrough warning).

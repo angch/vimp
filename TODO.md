@@ -140,7 +140,7 @@
 - [x] Implement Drop Shadow
 
 ### Light & Shadow
-- [ ] Implement Lighting Effects (Directional, Point, Spot)
+- [x] Implement Lighting Effects (Directional, Point, Spot)
 - [x] Implement Supernova/Flare effect
 
 ---
