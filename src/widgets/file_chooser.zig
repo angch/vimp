@@ -1,5 +1,6 @@
 const std = @import("std");
 const c = @import("../c.zig").c;
+const RawLoader = @import("../raw_loader.zig").RawLoader;
 
 pub const OpenCallback = *const fn (user_data: ?*anyopaque, path: ?[:0]const u8) void;
 
@@ -136,7 +137,41 @@ pub fn showOpenDialog(
     c.gtk_file_filter_add_pattern(filter_imgs, "*.hdr");
     c.gtk_file_filter_add_pattern(filter_imgs, "*.dds");
     c.gtk_file_filter_add_pattern(filter_imgs, "*.psd");
+
+    // Add Raw Extensions
+    for (RawLoader.raw_exts) |ext| {
+        var buf: [16]u8 = undefined;
+        // ext has leading dot
+        const pattern = std.fmt.bufPrintZ(&buf, "*{s}", .{ext}) catch continue;
+        c.gtk_file_filter_add_pattern(filter_imgs, pattern);
+    }
+
+    // Add Legacy Extensions
+    c.gtk_file_filter_add_pattern(filter_imgs, "*.pcx");
+    c.gtk_file_filter_add_pattern(filter_imgs, "*.sgi");
+    c.gtk_file_filter_add_pattern(filter_imgs, "*.rgb");
+    c.gtk_file_filter_add_pattern(filter_imgs, "*.xpm");
+    c.gtk_file_filter_add_pattern(filter_imgs, "*.ras");
+
     c.gtk_file_chooser_add_filter(@ptrCast(chooser_widget), filter_imgs);
+
+    const filter_raw = c.gtk_file_filter_new();
+    c.gtk_file_filter_set_name(filter_raw, "Camera RAW Image");
+    for (RawLoader.raw_exts) |ext| {
+        var buf: [16]u8 = undefined;
+        const pattern = std.fmt.bufPrintZ(&buf, "*{s}", .{ext}) catch continue;
+        c.gtk_file_filter_add_pattern(filter_raw, pattern);
+    }
+    c.gtk_file_chooser_add_filter(@ptrCast(chooser_widget), filter_raw);
+
+    const filter_legacy = c.gtk_file_filter_new();
+    c.gtk_file_filter_set_name(filter_legacy, "Legacy Image (PCX, SGI, XPM)");
+    c.gtk_file_filter_add_pattern(filter_legacy, "*.pcx");
+    c.gtk_file_filter_add_pattern(filter_legacy, "*.sgi");
+    c.gtk_file_filter_add_pattern(filter_legacy, "*.rgb");
+    c.gtk_file_filter_add_pattern(filter_legacy, "*.xpm");
+    c.gtk_file_filter_add_pattern(filter_legacy, "*.ras");
+    c.gtk_file_chooser_add_filter(@ptrCast(chooser_widget), filter_legacy);
 
     const filter_ora = c.gtk_file_filter_new();
     c.gtk_file_filter_set_name(filter_ora, "OpenRaster Image");

@@ -8,13 +8,14 @@ pub const RawLoader = struct {
         none,
     };
 
+    pub const raw_exts = [_][]const u8{
+        ".cr2", ".nef", ".arw", ".dng", ".orf", ".rw2", ".raf", ".cr3", ".srw", ".pef", ".3fr", ".iiq", ".sr2", ".srf",
+    };
+
     pub fn isRawFile(path: []const u8) bool {
         const ext = std.fs.path.extension(path);
         if (ext.len == 0) return false;
 
-        const raw_exts = [_][]const u8{
-            ".cr2", ".nef", ".arw", ".dng", ".orf", ".rw2", ".raf", ".cr3", ".srw", ".pef", ".3fr", ".iiq", ".sr2", ".srf"
-        };
         for (raw_exts) |e| {
             if (std.ascii.eqlIgnoreCase(ext, e)) return true;
         }
