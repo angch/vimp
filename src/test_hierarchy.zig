@@ -93,4 +93,5 @@ test {
     _ = @import("test_zoom_pan.zig");
     _ = @import("test_paint_colors.zig");
     _ = @import("test_ora_loader.zig");
+    _ = @import("test_airbrush_metrics.zig");
 }
