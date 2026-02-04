@@ -1,7 +1,8 @@
 const std = @import("std");
 const c = @import("c.zig").c;
 const SvgLoader = @import("svg_loader.zig");
-const OraLoader = @import("ora_loader.zig").OraLoader;
+const OraMod = @import("ora_loader.zig");
+const OraLoader = OraMod.OraLoader;
 
 pub const Engine = struct {
     pub const Point = struct {
@@ -3650,6 +3651,95 @@ pub const Engine = struct {
             const index = self.layers.items.len;
             try self.addLayerInternal(new_buffer.?, l.name, l.visible, false, index);
         }
+    }
+
+    pub fn saveOra(self: *Engine, path: []const u8) !void {
+        const allocator = std.heap.c_allocator;
+        // 1. Create temporary directory
+        const rnd = std.time.nanoTimestamp();
+        const tmp_name = try std.fmt.allocPrint(allocator, "vimp_save_ora_{d}", .{rnd});
+        const tmp_dir_c = c.g_get_tmp_dir();
+        const tmp_base = std.mem.span(tmp_dir_c);
+        const temp_dir = try std.fs.path.join(allocator, &[_][]const u8{ tmp_base, tmp_name });
+        allocator.free(tmp_name);
+        defer {
+            std.fs.cwd().deleteTree(temp_dir) catch {};
+            allocator.free(temp_dir);
+        }
+
+        std.fs.cwd().makePath(temp_dir) catch |err| {
+            if (err != error.PathAlreadyExists) return err;
+        };
+
+        // 2. Write mimetype
+        const mimetype_path = try std.fs.path.join(allocator, &[_][]const u8{ temp_dir, "mimetype" });
+        defer allocator.free(mimetype_path);
+        try std.fs.cwd().writeFile(.{ .sub_path = mimetype_path, .data = "image/openraster" });
+
+        // 3. Create data/ dir
+        const data_dir = try std.fs.path.join(allocator, &[_][]const u8{ temp_dir, "data" });
+        defer allocator.free(data_dir);
+        try std.fs.cwd().makePath(data_dir);
+
+        // 4. Layers
+        var ora_layers = std.ArrayList(OraMod.OraLayer){};
+        defer {
+            for (ora_layers.items) |*l| {
+                allocator.free(l.name);
+                allocator.free(l.src);
+                allocator.free(l.composite_op);
+            }
+            ora_layers.deinit(allocator);
+        }
+
+        for (self.layers.items, 0..) |layer, i| {
+            // Filename
+            const fname = try std.fmt.allocPrint(allocator, "layer{d}.png", .{i});
+            defer allocator.free(fname);
+            const src_rel = try std.fs.path.join(allocator, &[_][]const u8{ "data", fname });
+            defer allocator.free(src_rel);
+
+            // Full path for saving
+            const full_path = try std.fs.path.joinZ(allocator, &[_][]const u8{ data_dir, fname });
+            defer allocator.free(full_path);
+
+            // Save Buffer
+            try self.saveBuffer(layer.buffer, full_path);
+
+            const extent = c.gegl_buffer_get_extent(layer.buffer);
+
+            const name_dup = try allocator.dupe(u8, std.mem.span(@as([*:0]const u8, @ptrCast(&layer.name))));
+            const src_dup = try allocator.dupe(u8, src_rel);
+            const op_dup = try allocator.dupe(u8, "svg:src-over");
+
+            const ora_layer = OraMod.OraLayer{
+                .name = name_dup,
+                .src = src_dup,
+                .x = extent.*.x,
+                .y = extent.*.y,
+                .visible = layer.visible,
+                .opacity = 1.0,
+                .composite_op = op_dup,
+            };
+            try ora_layers.append(allocator, ora_layer);
+        }
+
+        // 5. Project Metadata
+        const project = OraMod.OraProject{
+            .w = self.canvas_width,
+            .h = self.canvas_height,
+            .layers = ora_layers,
+            .temp_dir = temp_dir,
+            .allocator = allocator,
+        };
+
+        // 6. Write stack.xml
+        const stack_path = try std.fs.path.join(allocator, &[_][]const u8{ temp_dir, "stack.xml" });
+        defer allocator.free(stack_path);
+        try OraLoader.writeStackXml(allocator, project, stack_path);
+
+        // 7. Zip
+        try OraLoader.createOraZip(allocator, temp_dir, path);
     }
 };
 

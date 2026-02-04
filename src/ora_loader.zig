@@ -162,9 +162,6 @@ pub const OraLoader = struct {
 
     pub fn load(allocator: std.mem.Allocator, path: []const u8) !OraProject {
         // Create temp dir
-        // Using mkdtemp in C style or Zig way?
-        // Zig: std.fs.cwd().makeOpenPath
-        // We want a unique name.
         const rnd = std.time.nanoTimestamp();
         const tmp_name = try std.fmt.allocPrint(allocator, "vimp_ora_{d}", .{rnd});
         const tmp_dir_c = c.g_get_tmp_dir();
@@ -200,5 +197,93 @@ pub const OraLoader = struct {
         try parseStackXml(allocator, xml_content, &project);
 
         return project;
+    }
+
+    fn escapeXml(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
+        var list = std.ArrayList(u8){};
+        errdefer list.deinit(allocator);
+        var writer = list.writer(allocator);
+        for (input) |char| {
+            switch (char) {
+                '<' => try writer.writeAll("&lt;"),
+                '>' => try writer.writeAll("&gt;"),
+                '&' => try writer.writeAll("&amp;"),
+                '"' => try writer.writeAll("&quot;"),
+                '\'' => try writer.writeAll("&apos;"),
+                else => try writer.writeByte(char),
+            }
+        }
+        return list.toOwnedSlice(allocator);
+    }
+
+    pub fn writeStackXml(allocator: std.mem.Allocator, project: OraProject, path: []const u8) !void {
+        var list = std.ArrayList(u8){};
+        defer list.deinit(allocator);
+        var writer = list.writer(allocator);
+
+        try writer.print("<image w=\"{d}\" h=\"{d}\">\n", .{ project.w, project.h });
+        try writer.writeAll("  <stack>\n");
+
+        for (project.layers.items) |layer| {
+            const vis = if (layer.visible) "visible" else "hidden";
+            const name_esc = try escapeXml(allocator, layer.name);
+            defer allocator.free(name_esc);
+
+            try writer.print("    <layer name=\"{s}\" src=\"{s}\" x=\"{d}\" y=\"{d}\" visibility=\"{s}\" opacity=\"{d}\" composite-op=\"{s}\" />\n",
+                .{ name_esc, layer.src, layer.x, layer.y, vis, layer.opacity, layer.composite_op });
+        }
+
+        try writer.writeAll("  </stack>\n");
+        try writer.writeAll("</image>\n");
+
+        try std.fs.cwd().writeFile(.{ .sub_path = path, .data = list.items });
+    }
+
+    pub fn createOraZip(allocator: std.mem.Allocator, source_dir: []const u8, dest_path: []const u8) !void {
+        // Resolve absolute destination path
+        var full_dest_path: []u8 = undefined;
+        if (std.fs.path.isAbsolute(dest_path)) {
+            full_dest_path = try allocator.dupe(u8, dest_path);
+        } else {
+            const cwd_path = try std.fs.cwd().realpathAlloc(allocator, ".");
+            defer allocator.free(cwd_path);
+            full_dest_path = try std.fs.path.join(allocator, &[_][]const u8{ cwd_path, dest_path });
+        }
+        defer allocator.free(full_dest_path);
+
+        // Remove existing file
+        std.fs.cwd().deleteFile(full_dest_path) catch {};
+
+        // 1. Zip mimetype (store uncompressed)
+        // zip -0 -q -X dest mimetype
+        {
+            const args = [_][]const u8{ "zip", "-0", "-q", "-X", full_dest_path, "mimetype" };
+            var proc = std.process.Child.init(&args, allocator);
+            proc.cwd = source_dir;
+            proc.stdin_behavior = .Ignore;
+            proc.stdout_behavior = .Ignore;
+            proc.stderr_behavior = .Ignore;
+            const term = try proc.spawnAndWait();
+            switch (term) {
+                .Exited => |code| if (code != 0) return error.ZipFailed,
+                else => return error.ZipFailed,
+            }
+        }
+
+        // 2. Zip rest (stack.xml and data/)
+        // zip -r -q dest stack.xml data
+        {
+            const args = [_][]const u8{ "zip", "-r", "-q", full_dest_path, "stack.xml", "data" };
+            var proc = std.process.Child.init(&args, allocator);
+            proc.cwd = source_dir;
+            proc.stdin_behavior = .Ignore;
+            proc.stdout_behavior = .Ignore;
+            proc.stderr_behavior = .Ignore;
+            const term = try proc.spawnAndWait();
+            switch (term) {
+                .Exited => |code| if (code != 0) return error.ZipFailed,
+                else => return error.ZipFailed,
+            }
+        }
     }
 };

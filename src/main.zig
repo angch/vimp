@@ -2142,10 +2142,20 @@ fn save_surface_to_file(s: *c.cairo_surface_t, filename: [*c]const u8) void {
     }
 }
 
-fn save_file(filename: [*c]const u8) void {
+fn save_file(filename_c: [*c]const u8) void {
+    const filename = std.mem.span(filename_c);
+    const ext = std.fs.path.extension(filename);
+    if (std.ascii.eqlIgnoreCase(ext, ".ora")) {
+        engine.saveOra(filename) catch |err| {
+            show_toast("Error saving ORA: {}", .{err});
+        };
+        show_toast("File saved to: {s}", .{filename});
+        return;
+    }
+
     if (surface) |s| {
         if (c.cairo_surface_status(s) == c.CAIRO_STATUS_SUCCESS) {
-            save_surface_to_file(s, filename);
+            save_surface_to_file(s, filename_c);
         } else {
             show_toast("Surface invalid, cannot save.", .{});
         }
@@ -2186,6 +2196,12 @@ fn save_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) 
     c.gtk_file_filter_add_pattern(filter_png, "*.png");
     c.g_list_store_append(filters, filter_png); // Transfer ownership? ListStore holds ref.
     c.g_object_unref(filter_png);
+
+    const filter_ora = c.gtk_file_filter_new();
+    c.gtk_file_filter_set_name(filter_ora, "OpenRaster Image");
+    c.gtk_file_filter_add_pattern(filter_ora, "*.ora");
+    c.g_list_store_append(filters, filter_ora);
+    c.g_object_unref(filter_ora);
 
     // GtkFileDialog takes ownership of filters? No, it uses the model.
     // gtk_file_dialog_set_filters (GtkFileDialog *self, GListModel *filters)
