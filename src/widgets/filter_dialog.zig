@@ -205,6 +205,7 @@ pub fn showLightingDialog(
     c.gtk_grid_attach(@ptrCast(grid), c_label, 0, 4, 1, 1);
 
     const color_btn = c.gtk_color_button_new();
+    c.gtk_label_set_mnemonic_widget(@ptrCast(c_label), color_btn);
     const white = c.GdkRGBA{ .red = 1.0, .green = 1.0, .blue = 1.0, .alpha = 1.0 };
     c.gtk_color_chooser_set_rgba(@ptrCast(color_btn), &white);
     c.gtk_grid_attach(@ptrCast(grid), color_btn, 1, 4, 1, 1);
@@ -1043,6 +1044,7 @@ pub fn showSupernovaDialog(
     c.gtk_grid_attach(@ptrCast(grid), c_label, 0, 4, 1, 1);
 
     const color_btn = c.gtk_color_button_new();
+    c.gtk_label_set_mnemonic_widget(@ptrCast(c_label), color_btn);
     const blue = c.GdkRGBA{ .red = 0.4, .green = 0.4, .blue = 1.0, .alpha = 1.0 };
     c.gtk_color_chooser_set_rgba(@ptrCast(color_btn), &blue);
     c.gtk_grid_attach(@ptrCast(grid), color_btn, 1, 4, 1, 1);
