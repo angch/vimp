@@ -20,34 +20,82 @@
 
 ---
 
-## File Operations (from `gimp-file-open-spec.md`)
+## GIMP File Open Implementation (from `doc/gimp-file-open-spec.md`)
 
-### Pending
-- [x] Implement File Recovery/Salvage actions
+### 1. Access & Entry Points
+- [ ] **Welcome Screen Recent Grid:** Implement specific large thumbnails grid view (currently list view).
+- [x] **"Open" Action Button**
+- [x] **Shortcuts:** `Ctrl+O` and `Ctrl+Alt+O`.
 
-### File Format Support (from `gimp-file-open-spec.md`)
-> Check VIMP.md for currently supported formats.
+### 2. The File Chooser
+- [x] **Standard Navigation** (Native GTK)
+- [x] **Format Filtering** ("All Supported Images", specific filters)
+- [x] **Preview Pane** (Implemented via `GtkPicture`)
 
+### 3. Import Workflows
+- [x] **PDF Import Dialog** (Page selection, resolution)
+- [ ] **PDF Import:** Support opening multiple pages as separate images (currently warning/reset).
+- [x] **Raw Image Import** (Darktable/RawTherapee delegate)
+- [x] **SVG Import** (Dimensions dialog)
+
+### 4. "Open Location" (URI)
+- [x] **Header Bar Entry / Dialog**
+- [x] **Protocol Support** (http/https via curl)
+- [ ] **Clipboard Detection** (Pre-fill URL in Open Location dialog)
+
+### 5. Drag and Drop
+- [x] **Canvas Drop Zones** (New vs Layer dialog implemented)
+- [x] **Tab Bar Drop** (Implicit via New Image flow).
+
+### 6. Error Handling
+- [x] **Non-Blocking Toasts**
+- [x] **Recovery / Salvage**
+
+### 7. File Format Support
 **Native & Working:**
-- [ ] XCF with full layer/channel/path support (currently basic)
+- [ ] **XCF:** Full layer/channel/path support (currently basic flattened load).
 
 **Professional & Exchange:**
-- [x] PSD (Adobe Photoshop) layer support
-- [x] OpenRaster (.ora) format
-- [x] OpenEXR (.exr) HDR format
-- [x] Radiance HDR (.hdr) format
-- [x] Generic Export (JPG, PNG, WEBP, etc.) via `gegl:save`
+- [x] PSD, OpenRaster, OpenEXR, Radiance HDR, PDF.
+- [x] Generic Export (gegl:save).
 
 **Specialized:**
-- [x] DDS texture format
-- [x] Enhance File Chooser filters (Raw, Legacy formats)
+- [x] DDS, Raw, Legacy (PCX, etc).
 
 ---
 
-## Meta Tasks
+## MS Paint Classic Features (from `doc/ms_paint_spec.md`)
 
-- [ ] Generate detailed TODOs from `doc/gimp-file-open-spec.md`
-- [ ] Generate detailed TODOs from `doc/ms_paint_spec.md`
+### Toolbox
+- [x] **Selection Tools:** Free-Form (Lasso), Select (Rect).
+- [x] **Eraser:** With right-click color replacement.
+- [x] **Fill With Color** (Bucket).
+- [x] **Pick Color** (Eyedropper).
+- [x] **Magnifier** (Zoom tool/shortcuts).
+- [x] **Drawing:** Pencil, Brush, Airbrush.
+- [x] **Text:** Insert text (basic layer support).
+- [x] **Shapes:** Line, Curve, Rect, Polygon, Ellipse, Rounded Rect.
+
+### Selection Options
+- [x] **Transparent Selection** (Toggle implemented).
+
+### Image Menu Operations
+- [x] **Flip/Rotate:** Flip H/V, Rotate 90/180/270.
+- [x] **Stretch/Skew:** Dialog implemented.
+- [x] **Invert Colors**
+- [x] **Attributes:** Canvas Size dialog.
+- [x] **Clear Image**
+- [ ] **Draw Opaque:** Toggle for text box transparency (Text tool feature).
+
+### View Options
+- [x] **Zoom:** Custom levels.
+- [ ] **Show Grid:** Toggle menu item (Logic exists in `drawPixelGrid`, needs UI toggle).
+- [x] **Show Thumbnail**
+- [x] **View Bitmap** (Fullscreen).
+
+### Colors
+- [x] **Color Box** (Palette).
+- [x] **Edit Colors** (Dialog).
 
 ---
 
