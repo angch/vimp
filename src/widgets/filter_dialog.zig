@@ -1092,33 +1092,36 @@ pub fn showSupernovaDialog(
     c.gtk_window_present(@ptrCast(dialog));
 }
 
-const StretchContext = struct {
+const StretchSkewContext = struct {
     engine: *Engine,
     scale_x_spin: *c.GtkWidget,
     scale_y_spin: *c.GtkWidget,
+    skew_x_spin: *c.GtkWidget,
+    skew_y_spin: *c.GtkWidget,
     update_cb: *const fn () void,
 };
 
-fn on_stretch_preview_change(_: *c.GtkWidget, data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    const ctx: *StretchContext = @ptrCast(@alignCast(data));
+fn on_stretch_skew_preview_change(_: *c.GtkWidget, data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const ctx: *StretchSkewContext = @ptrCast(@alignCast(data));
     const sx = c.gtk_spin_button_get_value(@ptrCast(ctx.scale_x_spin)) / 100.0;
     const sy = c.gtk_spin_button_get_value(@ptrCast(ctx.scale_y_spin)) / 100.0;
+    const kx = c.gtk_spin_button_get_value(@ptrCast(ctx.skew_x_spin));
+    const ky = c.gtk_spin_button_get_value(@ptrCast(ctx.skew_y_spin));
 
     // We use setTransformPreview.
-    // Note: Translate/Rotate are 0.
-    ctx.engine.setTransformPreview(.{ .scale_x = sx, .scale_y = sy });
+    ctx.engine.setTransformPreview(.{ .scale_x = sx, .scale_y = sy, .skew_x = kx, .skew_y = ky });
     ctx.update_cb();
 }
 
-pub fn showStretchDialog(
+pub fn showStretchSkewDialog(
     parent: ?*c.GtkWindow,
     engine: *Engine,
     update_cb: *const fn () void,
 ) void {
     const dialog = c.adw_message_dialog_new(
         parent,
-        "Stretch",
-        "Resize content (percentage).",
+        "Stretch and Skew",
+        "Resize or skew content.",
     );
 
     c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "_Cancel");
@@ -1138,47 +1141,75 @@ pub fn showStretchDialog(
     c.gtk_widget_set_halign(grid, c.GTK_ALIGN_CENTER);
     c.gtk_box_append(@ptrCast(box), grid);
 
+    // Stretch Label
+    const stretch_lbl = c.gtk_label_new("Stretch");
+    c.gtk_widget_set_halign(stretch_lbl, c.GTK_ALIGN_START);
+    c.gtk_widget_add_css_class(stretch_lbl, "heading");
+    c.gtk_grid_attach(@ptrCast(grid), stretch_lbl, 0, 0, 2, 1);
+
     // Width %
     const w_label = c.gtk_label_new_with_mnemonic("_Horizontal (%):");
     c.gtk_widget_set_halign(w_label, c.GTK_ALIGN_END);
-    c.gtk_grid_attach(@ptrCast(grid), w_label, 0, 0, 1, 1);
+    c.gtk_grid_attach(@ptrCast(grid), w_label, 0, 1, 1, 1);
     const scale_x_spin = c.gtk_spin_button_new_with_range(1.0, 1000.0, 1.0);
     c.gtk_label_set_mnemonic_widget(@ptrCast(w_label), scale_x_spin);
     c.gtk_spin_button_set_value(@ptrCast(scale_x_spin), 100.0);
-    c.gtk_grid_attach(@ptrCast(grid), scale_x_spin, 1, 0, 1, 1);
+    c.gtk_grid_attach(@ptrCast(grid), scale_x_spin, 1, 1, 1, 1);
 
     // Height %
     const h_label = c.gtk_label_new_with_mnemonic("_Vertical (%):");
     c.gtk_widget_set_halign(h_label, c.GTK_ALIGN_END);
-    c.gtk_grid_attach(@ptrCast(grid), h_label, 0, 1, 1, 1);
+    c.gtk_grid_attach(@ptrCast(grid), h_label, 0, 2, 1, 1);
     const scale_y_spin = c.gtk_spin_button_new_with_range(1.0, 1000.0, 1.0);
     c.gtk_label_set_mnemonic_widget(@ptrCast(h_label), scale_y_spin);
     c.gtk_spin_button_set_value(@ptrCast(scale_y_spin), 100.0);
-    c.gtk_grid_attach(@ptrCast(grid), scale_y_spin, 1, 1, 1, 1);
+    c.gtk_grid_attach(@ptrCast(grid), scale_y_spin, 1, 2, 1, 1);
+
+    // Skew Label
+    const skew_lbl = c.gtk_label_new("Skew (Degrees)");
+    c.gtk_widget_set_halign(skew_lbl, c.GTK_ALIGN_START);
+    c.gtk_widget_add_css_class(skew_lbl, "heading");
+    c.gtk_widget_set_margin_top(skew_lbl, 10);
+    c.gtk_grid_attach(@ptrCast(grid), skew_lbl, 0, 3, 2, 1);
+
+    // Skew X
+    const skx_label = c.gtk_label_new_with_mnemonic("H_orizontal:");
+    c.gtk_widget_set_halign(skx_label, c.GTK_ALIGN_END);
+    c.gtk_grid_attach(@ptrCast(grid), skx_label, 0, 4, 1, 1);
+    const skew_x_spin = c.gtk_spin_button_new_with_range(-89.0, 89.0, 1.0);
+    c.gtk_label_set_mnemonic_widget(@ptrCast(skx_label), skew_x_spin);
+    c.gtk_spin_button_set_value(@ptrCast(skew_x_spin), 0.0);
+    c.gtk_grid_attach(@ptrCast(grid), skew_x_spin, 1, 4, 1, 1);
+
+    // Skew Y
+    const sky_label = c.gtk_label_new_with_mnemonic("V_ertical:");
+    c.gtk_widget_set_halign(sky_label, c.GTK_ALIGN_END);
+    c.gtk_grid_attach(@ptrCast(grid), sky_label, 0, 5, 1, 1);
+    const skew_y_spin = c.gtk_spin_button_new_with_range(-89.0, 89.0, 1.0);
+    c.gtk_label_set_mnemonic_widget(@ptrCast(sky_label), skew_y_spin);
+    c.gtk_spin_button_set_value(@ptrCast(skew_y_spin), 0.0);
+    c.gtk_grid_attach(@ptrCast(grid), skew_y_spin, 1, 5, 1, 1);
 
     c.adw_message_dialog_set_extra_child(@ptrCast(dialog), box);
 
-    const ctx = std.heap.c_allocator.create(StretchContext) catch return;
+    const ctx = std.heap.c_allocator.create(StretchSkewContext) catch return;
     ctx.* = .{
         .engine = engine,
         .scale_x_spin = scale_x_spin,
         .scale_y_spin = scale_y_spin,
+        .skew_x_spin = skew_x_spin,
+        .skew_y_spin = skew_y_spin,
         .update_cb = update_cb,
     };
 
-    _ = c.g_signal_connect_data(scale_x_spin, "value-changed", @ptrCast(&on_stretch_preview_change), ctx, null, 0);
-    _ = c.g_signal_connect_data(scale_y_spin, "value-changed", @ptrCast(&on_stretch_preview_change), ctx, null, 0);
-
-    // Initial preview
-    // Don't set preview initially to avoid jumping if user cancels immediately?
-    // But preview shows what 100% is (no change).
-    // It's fine.
-    // engine.setTransformPreview(.{ .scale_x = 1.0, .scale_y = 1.0 });
-    // update_cb();
+    _ = c.g_signal_connect_data(scale_x_spin, "value-changed", @ptrCast(&on_stretch_skew_preview_change), ctx, null, 0);
+    _ = c.g_signal_connect_data(scale_y_spin, "value-changed", @ptrCast(&on_stretch_skew_preview_change), ctx, null, 0);
+    _ = c.g_signal_connect_data(skew_x_spin, "value-changed", @ptrCast(&on_stretch_skew_preview_change), ctx, null, 0);
+    _ = c.g_signal_connect_data(skew_y_spin, "value-changed", @ptrCast(&on_stretch_skew_preview_change), ctx, null, 0);
 
     const on_response = struct {
         fn func(d: *c.AdwMessageDialog, response: [*c]const u8, data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-            const context: *StretchContext = @ptrCast(@alignCast(data));
+            const context: *StretchSkewContext = @ptrCast(@alignCast(data));
             defer std.heap.c_allocator.destroy(context);
 
             const resp_span = std.mem.span(response);

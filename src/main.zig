@@ -2488,7 +2488,7 @@ fn lighting_effects_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?
 
 fn stretch_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
-    FilterDialog.showStretchDialog(window, &engine, &refresh_ui_callback);
+    FilterDialog.showStretchSkewDialog(window, &engine, &refresh_ui_callback);
 }
 
 fn apply_preview_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
@@ -3365,7 +3365,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.g_menu_append(image_menu, "Rotate _90° CW", "app.rotate-90");
     c.g_menu_append(image_menu, "Rotate _180°", "app.rotate-180");
     c.g_menu_append(image_menu, "Rotate _270° CW", "app.rotate-270");
-    c.g_menu_append(image_menu, "_Stretch...", "app.stretch");
+    c.g_menu_append(image_menu, "_Stretch and Skew...", "app.stretch");
 
     const image_btn = c.gtk_menu_button_new();
     c.gtk_menu_button_set_label(@ptrCast(image_btn), "_Image");
