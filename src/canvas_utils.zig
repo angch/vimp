@@ -8,7 +8,7 @@ fn calculateGridRange(view_pos: f64, view_len: f64, scale: f64) struct { start: 
 }
 
 pub fn drawPixelGrid(cr: *c.cairo_t, width: f64, height: f64, view_scale: f64, view_x: f64, view_y: f64) void {
-    if (view_scale < 8.0) return;
+    if (view_scale < 4.0) return;
 
     // Use a lighter gray
     c.cairo_set_source_rgba(cr, 0.5, 0.5, 0.5, 0.3);
@@ -129,4 +129,64 @@ test "calculateZoom" {
     try std.testing.expectApproxEqAbs(res2.scale, 1.0, 0.001);
     // new_view_x = (100 + 50) * 0.5 - 50 = 150 * 0.5 - 50 = 75 - 50 = 25
     try std.testing.expectApproxEqAbs(res2.view_x, 25.0, 0.001);
+}
+
+test "drawPixelGrid" {
+    // Create surface 100x100
+    const surface = c.cairo_image_surface_create(c.CAIRO_FORMAT_ARGB32, 100, 100) orelse return error.CairoFailed;
+    defer c.cairo_surface_destroy(surface);
+    const cr = c.cairo_create(surface) orelse return error.CairoFailed;
+    defer c.cairo_destroy(cr);
+
+    // 1. Test Low Zoom (Should draw nothing due to threshold)
+    // Clear to transparent
+    c.cairo_set_operator(cr, c.CAIRO_OPERATOR_CLEAR);
+    c.cairo_paint(cr);
+    c.cairo_set_operator(cr, c.CAIRO_OPERATOR_OVER);
+
+    drawPixelGrid(cr, 100, 100, 1.0, 0, 0);
+
+    // Verify empty (center pixel)
+    const data = c.cairo_image_surface_get_data(surface);
+    const stride = c.cairo_image_surface_get_stride(surface);
+    // Check pixel at 50,50.
+    const center_idx: usize = @intCast(50 * stride + 50 * 4);
+    try std.testing.expectEqual(@as(u8, 0), data[center_idx + 3]); // Alpha
+
+    // 2. Test Medium Zoom (4.0 - Should draw grid)
+    c.cairo_set_operator(cr, c.CAIRO_OPERATOR_CLEAR);
+    c.cairo_paint(cr);
+    c.cairo_set_operator(cr, c.CAIRO_OPERATOR_OVER);
+
+    drawPixelGrid(cr, 100, 100, 4.0, 0, 0);
+    c.cairo_surface_flush(surface);
+
+    // Grid at 0, 4, 8...
+    // Pixel 4 should be grid line.
+    const medium_grid_idx: usize = @intCast(50 * stride + 4 * 4);
+    try std.testing.expect(data[medium_grid_idx + 3] > 0);
+
+    // 3. Test High Zoom (Should draw grid)
+    // Clear
+    c.cairo_set_operator(cr, c.CAIRO_OPERATOR_CLEAR);
+    c.cairo_paint(cr);
+    c.cairo_set_operator(cr, c.CAIRO_OPERATOR_OVER);
+
+    // Zoom 10.0. Pixel grid lines should appear.
+    // Grid lines are at 0, 10, 20...
+    // Line at 10.0 starts at 10.0, width 1.0 -> covers pixel 10.
+    drawPixelGrid(cr, 100, 100, 10.0, 0, 0);
+
+    c.cairo_surface_flush(surface);
+
+    // Check pixel at 10, 55 (Vertical Grid line, avoiding horizontal crossing at 50)
+    // Horizontal lines at 0, 10, 20... 50, 60.
+    // Pixel 55 is safe from horizontal line.
+    const grid_idx: usize = @intCast(55 * stride + 10 * 4);
+    // We expect some alpha.
+    try std.testing.expect(data[grid_idx + 3] > 0);
+
+    // Check pixel at 5, 55 (middle of cell)
+    const empty_idx: usize = @intCast(55 * stride + 5 * 4);
+    try std.testing.expectEqual(@as(u8, 0), data[empty_idx + 3]);
 }
