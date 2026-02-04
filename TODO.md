@@ -32,13 +32,13 @@
 - [ ] XCF with full layer/channel/path support (currently basic)
 
 **Professional & Exchange:**
-- [ ] PSD (Adobe Photoshop) layer support
+- [x] PSD (Adobe Photoshop) layer support
 - [x] OpenRaster (.ora) format
-- [ ] OpenEXR (.exr) HDR format
-- [ ] Radiance HDR (.hdr) format
+- [x] OpenEXR (.exr) HDR format
+- [x] Radiance HDR (.hdr) format
 
 **Specialized:**
-- [ ] DDS texture format
+- [x] DDS texture format
 
 ---
 
