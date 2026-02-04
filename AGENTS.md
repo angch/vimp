@@ -32,3 +32,4 @@ Goal: Upgrade GIMP concepts to a modern stack (Zig, GTK4, GEGL/Babl).
 ## Critical Gotchas & Learnings
 - **High Contrast Support:** Avoid hardcoded colors (e.g. `rgba(0,0,0,0.2)`) for borders or backgrounds. Use `alpha(currentColor, 0.2)` or standard style classes (`.osd`, `.sidebar`, `.background`) to respect system themes and High Contrast mode.
 * When using `gdk_texture_download` to extract bytes for GEGL, use `c.babl_format("cairo-ARGB32")` as the source format, as GDK/Cairo often use BGRA memory layout on little-endian systems, while `R'G'B'A u8` expects RGBA.
+* `gegl:save` can be used for generic image export (JPG, PNG, WEBP, etc.) by inferring the format from the file extension. It is preferred over `cairo_surface_write_to_png` as it handles color depth and format delegation properly.

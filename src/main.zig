@@ -2211,15 +2211,12 @@ fn save_file(filename_c: [*c]const u8) void {
         return;
     }
 
-    if (surface) |s| {
-        if (c.cairo_surface_status(s) == c.CAIRO_STATUS_SUCCESS) {
-            save_surface_to_file(s, filename_c);
-        } else {
-            show_toast("Surface invalid, cannot save.", .{});
-        }
-    } else {
-        show_toast("No surface to save.", .{});
-    }
+    // Try generic export for other formats (JPG, PNG, WEBP, etc.)
+    engine.exportImage(filename) catch |err| {
+        show_toast("Error saving file: {}", .{err});
+        return;
+    };
+    show_toast("File saved to: {s}", .{filename});
 }
 
 fn save_finish(source_object: ?*c.GObject, res: ?*c.GAsyncResult, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
@@ -2247,22 +2244,52 @@ fn save_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) 
     c.gtk_file_dialog_set_title(dialog, "Save Canvas");
     c.gtk_file_dialog_set_initial_name(dialog, "untitled.png");
 
-    // Optional: Set filters for PNG
     const filters = c.g_list_store_new(c.gtk_file_filter_get_type());
+
+    // PNG
     const filter_png = c.gtk_file_filter_new();
     c.gtk_file_filter_set_name(filter_png, "PNG Image");
     c.gtk_file_filter_add_pattern(filter_png, "*.png");
-    c.g_list_store_append(filters, filter_png); // Transfer ownership? ListStore holds ref.
+    c.g_list_store_append(filters, filter_png);
     c.g_object_unref(filter_png);
 
+    // JPEG
+    const filter_jpg = c.gtk_file_filter_new();
+    c.gtk_file_filter_set_name(filter_jpg, "JPEG Image");
+    c.gtk_file_filter_add_pattern(filter_jpg, "*.jpg");
+    c.gtk_file_filter_add_pattern(filter_jpg, "*.jpeg");
+    c.g_list_store_append(filters, filter_jpg);
+    c.g_object_unref(filter_jpg);
+
+    // WEBP
+    const filter_webp = c.gtk_file_filter_new();
+    c.gtk_file_filter_set_name(filter_webp, "WebP Image");
+    c.gtk_file_filter_add_pattern(filter_webp, "*.webp");
+    c.g_list_store_append(filters, filter_webp);
+    c.g_object_unref(filter_webp);
+
+    // TIFF
+    const filter_tiff = c.gtk_file_filter_new();
+    c.gtk_file_filter_set_name(filter_tiff, "TIFF Image");
+    c.gtk_file_filter_add_pattern(filter_tiff, "*.tif");
+    c.gtk_file_filter_add_pattern(filter_tiff, "*.tiff");
+    c.g_list_store_append(filters, filter_tiff);
+    c.g_object_unref(filter_tiff);
+
+    // BMP
+    const filter_bmp = c.gtk_file_filter_new();
+    c.gtk_file_filter_set_name(filter_bmp, "BMP Image");
+    c.gtk_file_filter_add_pattern(filter_bmp, "*.bmp");
+    c.g_list_store_append(filters, filter_bmp);
+    c.g_object_unref(filter_bmp);
+
+    // ORA
     const filter_ora = c.gtk_file_filter_new();
     c.gtk_file_filter_set_name(filter_ora, "OpenRaster Image");
     c.gtk_file_filter_add_pattern(filter_ora, "*.ora");
     c.g_list_store_append(filters, filter_ora);
     c.g_object_unref(filter_ora);
 
-    // GtkFileDialog takes ownership of filters? No, it uses the model.
-    // gtk_file_dialog_set_filters (GtkFileDialog *self, GListModel *filters)
     c.gtk_file_dialog_set_filters(dialog, @ptrCast(filters));
     c.g_object_unref(filters);
 

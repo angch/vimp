@@ -1530,6 +1530,24 @@ pub const Engine = struct {
         self.redo_stack.clearRetainingCapacity();
     }
 
+    /// Exports the current composition to a file using GEGL's generic save operation.
+    /// The file format is inferred from the extension (e.g. .jpg, .png, .webp).
+    pub fn exportImage(self: *Engine, path: []const u8) !void {
+        if (self.output_node == null) return error.NoOutputNode;
+        if (self.graph == null) return error.GeglGraphFailed;
+
+        const path_z = try std.heap.c_allocator.dupeZ(u8, path);
+        defer std.heap.c_allocator.free(path_z);
+
+        const save_node = c.gegl_node_new_child(self.graph, "operation", "gegl:save", "path", path_z.ptr, @as(?*anyopaque, null));
+
+        if (save_node == null) return error.GeglGraphFailed;
+
+        _ = c.gegl_node_connect(save_node, "input", self.output_node, "output");
+        _ = c.gegl_node_process(save_node);
+        _ = c.gegl_node_remove_child(self.graph, save_node);
+    }
+
     pub fn saveThumbnail(self: *Engine, path: []const u8, width: c_int, height: c_int) !void {
         if (self.output_node == null) return;
         if (self.graph == null) return;
@@ -5812,4 +5830,28 @@ test "Engine project save load" {
     const l1 = &engine.layers.items[1];
     try std.testing.expectEqualStrings("Layer 2", std.mem.span(@as([*:0]const u8, @ptrCast(&l1.name))));
     try std.testing.expect(!l1.visible); // Was hidden
+}
+
+test "Engine generic export" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+    try engine.addLayer("Background");
+
+    // Paint something
+    engine.setFgColor(255, 0, 0, 255);
+    engine.paintStroke(100, 100, 100, 100, 1.0);
+
+    const filename = "test_export_baseline.png";
+    defer std.fs.cwd().deleteFile(filename) catch {};
+
+    // Use exportImage
+    try engine.exportImage(filename);
+
+    // Verify file exists
+    const file = try std.fs.cwd().openFile(filename, .{});
+    const stat = try file.stat();
+    try std.testing.expect(stat.size > 0);
+    file.close();
 }

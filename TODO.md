@@ -36,6 +36,7 @@
 - [x] OpenRaster (.ora) format
 - [x] OpenEXR (.exr) HDR format
 - [x] Radiance HDR (.hdr) format
+- [x] Generic Export (JPG, PNG, WEBP, etc.) via `gegl:save`
 
 **Specialized:**
 - [x] DDS texture format
