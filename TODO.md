@@ -41,7 +41,7 @@
 ### 4. "Open Location" (URI)
 - [x] **Header Bar Entry / Dialog**
 - [x] **Protocol Support** (http/https via curl)
-- [ ] **Clipboard Detection** (Pre-fill URL in Open Location dialog)
+- [x] **Clipboard Detection** (Pre-fill URL in Open Location dialog)
 
 ### 5. Drag and Drop
 - [x] **Canvas Drop Zones** (New vs Layer dialog implemented)
