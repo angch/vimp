@@ -54,6 +54,9 @@
 <details>
 <summary>Click to expand completed wishlist items</summary>
 
+### Tools
+- [x] Airbrush: Implement spray-can effect (random scattering)
+
 ### Document Features
 
 </details>

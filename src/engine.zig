@@ -1776,24 +1776,52 @@ pub const Engine = struct {
             const x: c_int = @intFromFloat(x0 + dx * t);
             const y: c_int = @intFromFloat(y0 + dy * t);
 
-            var by: c_int = -half;
-            while (by <= half) : (by += 1) {
-                var bx: c_int = -half;
-                while (bx <= half) : (bx += 1) {
-                    // Check shape
-                    if (self.brush_type == .circle) {
-                        const dist_sq = @as(f64, @floatFromInt(bx * bx + by * by));
-                        if (dist_sq > radius_sq) continue;
-                    }
+            if (self.mode == .airbrush) {
+                const random = std.crypto.random;
+                const r = @as(f64, @floatFromInt(brush_size)) / 2.0;
+                // Density: Paint roughly 10% of area per step multiplied by pressure
+                // Area = pi * r^2
+                const area = std.math.pi * r * r;
+                const count_f = area * 0.1 * pressure;
+                const count: usize = @max(1, @as(usize, @intFromFloat(count_f)));
 
-                    const px = x + bx;
-                    const py = y + by;
+                for (0..count) |_| {
+                    const theta = random.float(f64) * 2.0 * std.math.pi;
+                    const rad = r * @sqrt(random.float(f64));
+
+                    const rx = rad * @cos(theta);
+                    const ry = rad * @sin(theta);
+
+                    const px: c_int = @intFromFloat(@as(f64, @floatFromInt(x)) + rx);
+                    const py: c_int = @intFromFloat(@as(f64, @floatFromInt(y)) + ry);
 
                     if (!self.isPointInSelection(px, py)) continue;
 
                     if (px >= 0 and py >= 0 and px < self.canvas_width and py < self.canvas_height) {
                         const rect = c.GeglRectangle{ .x = px, .y = py, .width = 1, .height = 1 };
                         c.gegl_buffer_set(buf, &rect, 0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE);
+                    }
+                }
+            } else {
+                var by: c_int = -half;
+                while (by <= half) : (by += 1) {
+                    var bx: c_int = -half;
+                    while (bx <= half) : (bx += 1) {
+                        // Check shape
+                        if (self.brush_type == .circle) {
+                            const dist_sq = @as(f64, @floatFromInt(bx * bx + by * by));
+                            if (dist_sq > radius_sq) continue;
+                        }
+
+                        const px = x + bx;
+                        const py = y + by;
+
+                        if (!self.isPointInSelection(px, py)) continue;
+
+                        if (px >= 0 and py >= 0 and px < self.canvas_width and py < self.canvas_height) {
+                            const rect = c.GeglRectangle{ .x = px, .y = py, .width = 1, .height = 1 };
+                            c.gegl_buffer_set(buf, &rect, 0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE);
+                        }
                     }
                 }
             }
