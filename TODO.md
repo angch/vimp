@@ -58,6 +58,7 @@
 
 ### Tools
 - [x] Airbrush: Implement spray-can effect (random scattering)
+- [x] Transparent Selection: Implement preview and commit logic (manual pixel manipulation fallback)
 
 ### Document Features
 

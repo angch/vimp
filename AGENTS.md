@@ -28,6 +28,7 @@ Goal: Upgrade GIMP concepts to a modern stack (Zig, GTK4, GEGL/Babl).
 
 ## Environment Limitations
 - **GEGL Loaders**: The development environment lacks loaders for certain formats like EPS/PostScript (`image/x-eps`). While filters are implemented in the UI, `gegl:load` may fail with a warning unless proper delegates (Ghostscript) or plugins are installed.
+- **Missing Operations**: `gegl:color-to-alpha` appears to be missing or fails to load in the current environment (warns "using a passthrough op instead"). Manual pixel manipulation is required for transparency effects.
 
 ## Critical Gotchas & Learnings
 - **High Contrast Support:** Avoid hardcoded colors (e.g. `rgba(0,0,0,0.2)`) for borders or backgrounds. Use `alpha(currentColor, 0.2)` or standard style classes (`.osd`, `.sidebar`, `.background`) to respect system themes and High Contrast mode.
