@@ -15,7 +15,7 @@
 
 ### Accessibility
 - [ ] Ensure High Contrast mode support
-- [ ] Verify keyboard navigation for all functionality
+- [x] Verify keyboard navigation for all functionality
 - [x] Fix missing mnemonics in Filter Dialogs
 
 ---

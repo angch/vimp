@@ -44,20 +44,24 @@ pub const ColorPalette = struct {
         color: PaletteColor,
     };
 
-    fn on_click(gesture: *c.GtkGestureClick, n_press: c_int, x: f64, y: f64, user_data: ?*anyopaque) callconv(.c) void {
+    fn on_right_click(gesture: *c.GtkGestureClick, n_press: c_int, x: f64, y: f64, user_data: ?*anyopaque) callconv(.c) void {
         _ = n_press;
         _ = x;
         _ = y;
         const ctx: *Context = @ptrCast(@alignCast(user_data));
         const button = c.gtk_gesture_single_get_current_button(@ptrCast(gesture));
 
-        if (button == 1) { // Left Click -> FG
-            ctx.engine.setFgColor(ctx.color.r, ctx.color.g, ctx.color.b, 255);
-            if (ctx.update_cb) |cb| cb();
-        } else if (button == 3) { // Right Click -> BG
+        if (button == 3) { // Right Click -> BG
             ctx.engine.setBgColor(ctx.color.r, ctx.color.g, ctx.color.b, 255);
             // No UI update callback for BG yet
         }
+    }
+
+    fn on_clicked(_: *c.GtkButton, user_data: ?*anyopaque) callconv(.c) void {
+        const ctx: *Context = @ptrCast(@alignCast(user_data));
+        // Left Click / Keyboard -> FG
+        ctx.engine.setFgColor(ctx.color.r, ctx.color.g, ctx.color.b, 255);
+        if (ctx.update_cb) |cb| cb();
     }
 
     fn destroy_context(data: ?*anyopaque, _: ?*c.GClosure) callconv(.c) void {
@@ -97,13 +101,18 @@ pub const ColorPalette = struct {
             if (std.heap.c_allocator.create(Context)) |context| {
                 context.* = .{ .engine = engine, .update_cb = update_cb, .color = col };
 
-                // Gesture
+                // Gesture - Right Click (Secondary)
                 const gesture = c.gtk_gesture_click_new();
-                c.gtk_gesture_single_set_button(@ptrCast(gesture), 0); // All buttons
-                _ = c.g_signal_connect_data(@ptrCast(gesture), "pressed", @ptrCast(&on_click), context, @ptrCast(&destroy_context), 0);
+                c.gtk_gesture_single_set_button(@ptrCast(gesture), 3); // Button 3 only
+                _ = c.g_signal_connect_data(@ptrCast(gesture), "pressed", @ptrCast(&on_right_click), context, null, 0);
                 c.gtk_widget_add_controller(btn, @ptrCast(gesture));
+
+                // Clicked - Left Click / Keyboard (Primary)
+                // Attach destroy callback here to manage lifecycle
+                _ = c.g_signal_connect_data(btn, "clicked", @ptrCast(&on_clicked), context, @ptrCast(&destroy_context), 0);
+
             } else |_| {
-                // Allocation failed, skip gesture
+                // Allocation failed
             }
 
             const row: c_int = if (i < 14) 0 else 1;

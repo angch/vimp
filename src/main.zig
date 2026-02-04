@@ -947,6 +947,49 @@ fn motion_func(
     }
 }
 
+fn key_pressed_func(
+    controller: *c.GtkEventControllerKey,
+    keyval: c_uint,
+    keycode: c_uint,
+    state: c.GdkModifierType,
+    user_data: ?*anyopaque,
+) callconv(std.builtin.CallingConvention.c) c.gboolean {
+    _ = controller;
+    _ = keycode;
+    _ = state;
+    _ = user_data;
+
+    const step = 20.0;
+    // GDK_KEY_Left = 0xff51, Up = 0xff52, Right = 0xff53, Down = 0xff54
+    switch (keyval) {
+        0xff51 => { // Left
+            view_x -= step;
+            canvas_dirty = true;
+            queue_draw();
+            return 1;
+        },
+        0xff52 => { // Up
+            view_y -= step;
+            canvas_dirty = true;
+            queue_draw();
+            return 1;
+        },
+        0xff53 => { // Right
+            view_x += step;
+            canvas_dirty = true;
+            queue_draw();
+            return 1;
+        },
+        0xff54 => { // Down
+            view_y += step;
+            canvas_dirty = true;
+            queue_draw();
+            return 1;
+        },
+        else => return 0,
+    }
+}
+
 fn zoom_begin(
     controller: *c.GtkGestureZoom,
     sequence: ?*c.GdkEventSequence,
@@ -1064,6 +1107,7 @@ fn drag_begin(
         // alignCast might panic if ud is not aligned to *GtkWidget (8 bytes usually)
         // ud comes from @ptrCast(@alignCast(drawing_area)) which should be aligned.
         const widget: *c.GtkWidget = @ptrCast(@alignCast(ud));
+        _ = c.gtk_widget_grab_focus(widget);
 
         // Check button safely
         var button: c_uint = 0;
@@ -3036,6 +3080,56 @@ fn check_autosave(window: *c.GtkWindow) void {
      }
 }
 
+fn zoom_in_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    if (drawing_area) |area| {
+        const w: f64 = @floatFromInt(c.gtk_widget_get_width(area));
+        const h: f64 = @floatFromInt(c.gtk_widget_get_height(area));
+        const center_x = w / 2.0;
+        const center_y = h / 2.0;
+
+        const res = CanvasUtils.calculateZoom(view_scale, view_x, view_y, center_x, center_y, 1.1);
+
+        if (res.scale < 0.1 or res.scale > 50.0) return;
+
+        view_scale = res.scale;
+        view_x = res.view_x;
+        view_y = res.view_y;
+        canvas_dirty = true;
+
+        var buf: [32]u8 = undefined;
+        const pct: i32 = @intFromFloat(view_scale * 100.0);
+        const txt = std.fmt.bufPrint(&buf, "Zoom: {d}%", .{pct}) catch "Zoom";
+        osd_show(txt);
+
+        queue_draw();
+    }
+}
+
+fn zoom_out_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    if (drawing_area) |area| {
+        const w: f64 = @floatFromInt(c.gtk_widget_get_width(area));
+        const h: f64 = @floatFromInt(c.gtk_widget_get_height(area));
+        const center_x = w / 2.0;
+        const center_y = h / 2.0;
+
+        const res = CanvasUtils.calculateZoom(view_scale, view_x, view_y, center_x, center_y, 0.9);
+
+        if (res.scale < 0.1 or res.scale > 50.0) return;
+
+        view_scale = res.scale;
+        view_x = res.view_x;
+        view_y = res.view_y;
+        canvas_dirty = true;
+
+        var buf: [32]u8 = undefined;
+        const pct: i32 = @intFromFloat(view_scale * 100.0);
+        const txt = std.fmt.bufPrint(&buf, "Zoom: {d}%", .{pct}) catch "Zoom";
+        osd_show(txt);
+
+        queue_draw();
+    }
+}
+
 fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     _ = user_data;
 
@@ -3109,6 +3203,8 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     add_action(app, "view-bitmap", @ptrCast(&view_bitmap_activated), window);
     add_action(app, "view-thumbnail", @ptrCast(&view_thumbnail_activated), window);
     add_action(app, "command-palette", @ptrCast(&command_palette_activated), window);
+    add_action(app, "zoom-in", @ptrCast(&zoom_in_activated), null);
+    add_action(app, "zoom-out", @ptrCast(&zoom_out_activated), null);
 
     // Split View Action (Stateful)
     const split_action = c.g_simple_action_new_stateful("split-view", null, c.g_variant_new_boolean(0));
@@ -3134,6 +3230,9 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     set_accel(app, "app.clear-image", "<Ctrl><Shift>n");
     set_accel(app, "app.rotate-90", "<Ctrl>r");
     set_accel(app, "app.command-palette", "<Ctrl>k");
+    const zoom_in_accels = [_]?[*:0]const u8{ "<Ctrl>plus", "<Ctrl>equal", null };
+    c.gtk_application_set_accels_for_action(app, "app.zoom-in", @ptrCast(&zoom_in_accels));
+    set_accel(app, "app.zoom-out", "<Ctrl>minus");
 
     const toolbar_view = c.adw_toolbar_view_new();
     c.adw_application_window_set_content(@ptrCast(window), toolbar_view);
@@ -3639,6 +3738,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     drawing_area = area;
     c.gtk_widget_set_hexpand(area, 1);
     c.gtk_widget_set_vexpand(area, 1);
+    c.gtk_widget_set_focusable(area, 1);
     c.gtk_drawing_area_set_draw_func(@ptrCast(area), draw_func, null, null);
     c.gtk_overlay_set_child(@ptrCast(overlay), area);
 
@@ -3725,6 +3825,11 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.gtk_widget_add_controller(area, @ptrCast(zoom));
     _ = c.g_signal_connect_data(zoom, "begin", @ptrCast(&zoom_begin), null, null, 0);
     _ = c.g_signal_connect_data(zoom, "update", @ptrCast(&zoom_update), null, null, 0);
+
+    // Key Controller (Panning)
+    const key_controller = c.gtk_event_controller_key_new();
+    c.gtk_widget_add_controller(area, @ptrCast(key_controller));
+    _ = c.g_signal_connect_data(key_controller, "key-pressed", @ptrCast(&key_pressed_func), null, null, 0);
 
     // Refresh Layers UI initially
     refresh_layers_ui();
