@@ -1,6 +1,7 @@
 const std = @import("std");
 const c = @import("c.zig").c;
 const SvgLoader = @import("svg_loader.zig");
+const OraLoader = @import("ora_loader.zig").OraLoader;
 
 pub const Engine = struct {
     pub const Point = struct {
@@ -3582,6 +3583,72 @@ pub const Engine = struct {
 
             const index = self.layers.items.len;
             try self.addLayerInternal(new_buffer.?, l.name, l.visible, l.locked, index);
+        }
+    }
+
+    pub fn loadOra(self: *Engine, path: []const u8, as_new: bool) !void {
+        const allocator = std.heap.c_allocator;
+        var project = try OraLoader.load(allocator, path);
+        defer project.deinit();
+
+        if (as_new) {
+            self.reset();
+            self.setCanvasSizeInternal(project.w, project.h);
+        }
+
+        // Iterate layers (OraLoader parses them in order of stack.xml)
+        // stack.xml layers are usually bottom-to-top or reverse.
+        // Specification: The first child of <stack> is the bottom-most layer.
+        // Engine.addLayer appends to list. Paint order iterates 0..N.
+        // rebuildGraph iterates 0..N and puts them over each other.
+        // So layer 0 is bottom.
+        // If OraLoader returns them in order of XML, then it's correct (Bottom First).
+
+        for (project.layers.items) |l| {
+            // Load image from temp dir
+            const img_path = try std.fs.path.joinZ(allocator, &[_][]const u8{ project.temp_dir, l.src });
+            defer allocator.free(img_path);
+
+            const temp_graph = c.gegl_node_new();
+            defer c.g_object_unref(temp_graph);
+
+            const load_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:load", "path", img_path.ptr, @as(?*anyopaque, null));
+            if (load_node == null) continue;
+
+            // Get source extent
+            const bbox = c.gegl_node_get_bounding_box(load_node);
+            if (bbox.width <= 0 or bbox.height <= 0) continue;
+
+            // We need to place it at l.x, l.y
+            // Create a new buffer with the extent at l.x, l.y and size of source
+            const layer_rect = c.GeglRectangle{ .x = l.x, .y = l.y, .width = bbox.width, .height = bbox.height };
+            const format = c.babl_format("R'G'B'A u8");
+            const new_buffer = c.gegl_buffer_new(&layer_rect, format);
+            if (new_buffer == null) continue;
+
+            // Blit loaded content into new buffer
+            // Since new_buffer has x,y extent, we can just write to it?
+            // If we use write-buffer, does it respect buffer extent?
+            // Yes, gegl:write-buffer writes to the buffer's extent if not specified?
+            // Actually, we can use gegl:translate to move the loaded content to l.x, l.y then write.
+            // Or just blit.
+            // gegl_buffer_set with offset?
+            // Let's use graph: load -> translate -> write-buffer.
+
+            const translate = c.gegl_node_new_child(temp_graph, "operation", "gegl:translate", "x", @as(f64, @floatFromInt(l.x)), "y", @as(f64, @floatFromInt(l.y)), @as(?*anyopaque, null));
+            const write = c.gegl_node_new_child(temp_graph, "operation", "gegl:write-buffer", "buffer", new_buffer, @as(?*anyopaque, null));
+
+            if (l.opacity < 1.0) {
+                const opacity_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:opacity", "value", l.opacity, @as(?*anyopaque, null));
+                _ = c.gegl_node_link_many(load_node, translate, opacity_node, write, @as(?*anyopaque, null));
+            } else {
+                _ = c.gegl_node_link_many(load_node, translate, write, @as(?*anyopaque, null));
+            }
+
+            _ = c.gegl_node_process(write);
+
+            const index = self.layers.items.len;
+            try self.addLayerInternal(new_buffer.?, l.name, l.visible, false, index);
         }
     }
 };
