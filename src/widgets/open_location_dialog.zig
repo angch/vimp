@@ -13,6 +13,14 @@ fn is_valid_protocol(text: []const u8) bool {
     return false;
 }
 
+fn getValidUrl(text: []const u8) ?[]const u8 {
+    const trimmed = std.mem.trim(u8, text, &std.ascii.whitespace);
+    if (is_valid_protocol(trimmed)) {
+        return trimmed;
+    }
+    return null;
+}
+
 fn on_clipboard_text(source: ?*c.GObject, result: ?*c.GAsyncResult, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     const ctx: *ClipboardCtx = @ptrCast(@alignCast(user_data));
     defer std.heap.c_allocator.destroy(ctx);
@@ -23,11 +31,18 @@ fn on_clipboard_text(source: ?*c.GObject, result: ?*c.GAsyncResult, user_data: ?
 
     if (text_ptr) |t| {
         const text = std.mem.span(t);
-        // Check protocol
-        if (is_valid_protocol(text)) {
+        // Check protocol and trim
+        if (getValidUrl(text)) |trimmed| {
             // Even if widget is destroyed (but alive via ref), set_text is safe-ish.
-            // Ideally we check gtk_widget_in_destruction(entry) but this is usually fine.
-            c.gtk_editable_set_text(@ptrCast(ctx.entry), t);
+            // We need a null-terminated string for gtk_editable_set_text
+            // Note: trimmed is a slice of text (which points to t), but t is null-terminated.
+            // If we trimmed only leading whitespace, we could use trimmed.ptr.
+            // But if we trimmed trailing, trimmed.ptr is not null-terminated at the end of trimmed.
+            // So we must allocate.
+            if (std.fmt.allocPrintSentinel(std.heap.c_allocator, "{s}", .{trimmed}, 0)) |z_text| {
+                defer std.heap.c_allocator.free(z_text);
+                c.gtk_editable_set_text(@ptrCast(ctx.entry), z_text.ptr);
+            } else |_| {}
         }
         c.g_free(t);
     } else {
@@ -128,4 +143,20 @@ test "is_valid_protocol" {
     try std.testing.expect(is_valid_protocol("Smb://Server/Share"));
     try std.testing.expect(!is_valid_protocol("file:///local"));
     try std.testing.expect(!is_valid_protocol("random text"));
+}
+
+test "getValidUrl" {
+    // Valid
+    try std.testing.expectEqualStrings("https://example.com", getValidUrl("https://example.com").?);
+    try std.testing.expectEqualStrings("http://example.com", getValidUrl("http://example.com").?);
+
+    // Trim
+    try std.testing.expectEqualStrings("https://example.com", getValidUrl("  https://example.com  ").?);
+    try std.testing.expectEqualStrings("ftp://server", getValidUrl("\tftp://server\n").?);
+
+    // Invalid
+    try std.testing.expect(getValidUrl("example.com") == null); // Missing protocol
+    try std.testing.expect(getValidUrl("file:///tmp") == null);
+    try std.testing.expect(getValidUrl("") == null);
+    try std.testing.expect(getValidUrl("   ") == null);
 }
