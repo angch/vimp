@@ -132,6 +132,10 @@ pub fn showOpenDialog(
     c.gtk_file_filter_add_pattern(filter_imgs, "*.ora");
     c.gtk_file_filter_add_pattern(filter_imgs, "*.ps");
     c.gtk_file_filter_add_pattern(filter_imgs, "*.eps");
+    c.gtk_file_filter_add_pattern(filter_imgs, "*.exr");
+    c.gtk_file_filter_add_pattern(filter_imgs, "*.hdr");
+    c.gtk_file_filter_add_pattern(filter_imgs, "*.dds");
+    c.gtk_file_filter_add_pattern(filter_imgs, "*.psd");
     c.gtk_file_chooser_add_filter(@ptrCast(chooser_widget), filter_imgs);
 
     const filter_ora = c.gtk_file_filter_new();
@@ -165,6 +169,26 @@ pub fn showOpenDialog(
     c.gtk_file_filter_set_name(filter_xcf, "GIMP XCF Image");
     c.gtk_file_filter_add_pattern(filter_xcf, "*.xcf");
     c.gtk_file_chooser_add_filter(@ptrCast(chooser_widget), filter_xcf);
+
+    const filter_psd = c.gtk_file_filter_new();
+    c.gtk_file_filter_set_name(filter_psd, "Photoshop Image");
+    c.gtk_file_filter_add_pattern(filter_psd, "*.psd");
+    c.gtk_file_chooser_add_filter(@ptrCast(chooser_widget), filter_psd);
+
+    const filter_exr = c.gtk_file_filter_new();
+    c.gtk_file_filter_set_name(filter_exr, "OpenEXR Image");
+    c.gtk_file_filter_add_pattern(filter_exr, "*.exr");
+    c.gtk_file_chooser_add_filter(@ptrCast(chooser_widget), filter_exr);
+
+    const filter_hdr = c.gtk_file_filter_new();
+    c.gtk_file_filter_set_name(filter_hdr, "Radiance HDR Image");
+    c.gtk_file_filter_add_pattern(filter_hdr, "*.hdr");
+    c.gtk_file_chooser_add_filter(@ptrCast(chooser_widget), filter_hdr);
+
+    const filter_dds = c.gtk_file_filter_new();
+    c.gtk_file_filter_set_name(filter_dds, "DDS Texture");
+    c.gtk_file_filter_add_pattern(filter_dds, "*.dds");
+    c.gtk_file_chooser_add_filter(@ptrCast(chooser_widget), filter_dds);
 
     const filter_all = c.gtk_file_filter_new();
     c.gtk_file_filter_set_name(filter_all, "All Files");
