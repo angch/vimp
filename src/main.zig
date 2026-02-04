@@ -52,7 +52,7 @@ var autosave_timer_id: c_uint = 0;
 var thumbnail_ctx: ThumbnailWindow.ThumbnailContext = undefined;
 
 var layers_list_box: ?*c.GtkWidget = null;
-var recent_list_box: ?*c.GtkWidget = null;
+var recent_flow_box: ?*c.GtkWidget = null;
 var undo_list_box: ?*c.GtkWidget = null;
 var drawing_area: ?*c.GtkWidget = null;
 var apply_preview_btn: ?*c.GtkWidget = null;
@@ -2890,8 +2890,9 @@ fn drop_func(
     return 0;
 }
 
-fn on_recent_row_activated(_: *c.GtkListBox, row: *c.GtkListBoxRow, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    const data = c.g_object_get_data(@ptrCast(row), "file-path");
+fn on_recent_child_activated(_: *c.GtkFlowBox, child: *c.GtkFlowBoxChild, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const widget = c.gtk_flow_box_child_get_child(child);
+    const data = c.g_object_get_data(@ptrCast(widget), "file-path");
     if (data) |p| {
         const path: [*c]const u8 = @ptrCast(p);
         const span = std.mem.span(path);
@@ -2901,12 +2902,12 @@ fn on_recent_row_activated(_: *c.GtkListBox, row: *c.GtkListBoxRow, _: ?*anyopaq
 }
 
 fn refresh_recent_ui() void {
-    if (recent_list_box) |box| {
+    if (recent_flow_box) |box| {
         // Clear
         var child = c.gtk_widget_get_first_child(@ptrCast(box));
         while (child != null) {
             const next = c.gtk_widget_get_next_sibling(child);
-            c.gtk_list_box_remove(@ptrCast(box), child);
+            c.gtk_flow_box_remove(@ptrCast(box), child);
             child = next;
         }
 
@@ -2914,21 +2915,15 @@ fn refresh_recent_ui() void {
         if (recent_manager.paths.items.len == 0) {
             const label = c.gtk_label_new("(No recent files)");
             c.gtk_widget_add_css_class(label, "dim-label");
-            c.gtk_widget_set_margin_top(label, 10);
-            c.gtk_widget_set_margin_bottom(label, 10);
-            // Insert as a non-activatable row or just a child?
-            // ListBox expects rows.
-            const row = c.gtk_list_box_row_new();
-            c.gtk_list_box_row_set_child(@ptrCast(row), label);
-            c.gtk_list_box_row_set_activatable(@ptrCast(row), 0);
-            c.gtk_list_box_append(@ptrCast(box), row);
+            c.gtk_widget_set_margin_top(label, 20);
+            c.gtk_widget_set_margin_bottom(label, 20);
+            c.gtk_flow_box_append(@ptrCast(box), label);
         } else {
             for (recent_manager.paths.items) |path| {
-                const row = c.gtk_list_box_row_new();
-
-                const row_box = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 12);
-                c.gtk_widget_set_margin_top(row_box, 8);
-                c.gtk_widget_set_margin_bottom(row_box, 8);
+                const row_box = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 6);
+                c.gtk_widget_set_halign(row_box, c.GTK_ALIGN_CENTER);
+                c.gtk_widget_set_margin_top(row_box, 12);
+                c.gtk_widget_set_margin_bottom(row_box, 12);
                 c.gtk_widget_set_margin_start(row_box, 12);
                 c.gtk_widget_set_margin_end(row_box, 12);
 
@@ -2941,7 +2936,7 @@ fn refresh_recent_ui() void {
                         const tp_z = std.fmt.allocPrintSentinel(std.heap.c_allocator, "{s}", .{tp}, 0) catch null;
                         if (tp_z) |z| {
                             icon_widget = c.gtk_image_new_from_file(z);
-                            c.gtk_image_set_pixel_size(@ptrCast(icon_widget), 64);
+                            c.gtk_image_set_pixel_size(@ptrCast(icon_widget), 96);
                             std.heap.c_allocator.free(z);
                             has_thumb = true;
                         }
@@ -2951,7 +2946,7 @@ fn refresh_recent_ui() void {
 
                 if (!has_thumb) {
                     icon_widget = c.gtk_image_new_from_icon_name("image-x-generic-symbolic");
-                    c.gtk_image_set_pixel_size(@ptrCast(icon_widget), 32);
+                    c.gtk_image_set_pixel_size(@ptrCast(icon_widget), 96);
                 }
                 c.gtk_box_append(@ptrCast(row_box), icon_widget);
 
@@ -2960,21 +2955,24 @@ fn refresh_recent_ui() void {
                 const label_text = std.fmt.bufPrintZ(&buf, "{s}", .{basename}) catch "File";
 
                 const label = c.gtk_label_new(label_text.ptr);
-                c.gtk_widget_set_hexpand(label, 1);
-                c.gtk_widget_set_halign(label, c.GTK_ALIGN_START);
+                c.gtk_label_set_wrap(@ptrCast(label), 1);
+                c.gtk_label_set_max_width_chars(@ptrCast(label), 12);
+                c.gtk_label_set_ellipsize(@ptrCast(label), c.PANGO_ELLIPSIZE_END);
+                c.gtk_label_set_lines(@ptrCast(label), 2);
+                c.gtk_label_set_justify(@ptrCast(label), c.GTK_JUSTIFY_CENTER);
+
                 c.gtk_box_append(@ptrCast(row_box), label);
 
                 // Show full path as tooltip
                 var path_buf: [1024]u8 = undefined;
                 const path_z = std.fmt.bufPrintZ(&path_buf, "{s}", .{path}) catch "File";
-                c.gtk_widget_set_tooltip_text(row, path_z.ptr);
+                c.gtk_widget_set_tooltip_text(row_box, path_z.ptr);
 
-                c.gtk_list_box_row_set_child(@ptrCast(row), row_box);
-                c.gtk_list_box_append(@ptrCast(box), row);
+                c.gtk_flow_box_append(@ptrCast(box), row_box);
 
                 // Attach data
                 const path_dup = std.fmt.allocPrintSentinel(std.heap.c_allocator, "{s}", .{path}, 0) catch continue;
-                c.g_object_set_data_full(@ptrCast(row), "file-path", @ptrCast(path_dup), @ptrCast(&c.g_free));
+                c.g_object_set_data_full(@ptrCast(row_box), "file-path", @ptrCast(path_dup), @ptrCast(&c.g_free));
             }
         }
     }
@@ -3801,15 +3799,19 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.gtk_widget_set_vexpand(recent_scrolled, 1);
     c.gtk_widget_set_size_request(recent_scrolled, 400, 250);
 
-    const recent_list = c.gtk_list_box_new();
-    c.gtk_list_box_set_selection_mode(@ptrCast(recent_list), c.GTK_SELECTION_NONE);
-    c.gtk_widget_add_css_class(recent_list, "boxed-list");
+    const recent_list = c.gtk_flow_box_new();
+    c.gtk_flow_box_set_selection_mode(@ptrCast(recent_list), c.GTK_SELECTION_NONE);
+    c.gtk_flow_box_set_max_children_per_line(@ptrCast(recent_list), 6);
+    c.gtk_flow_box_set_min_children_per_line(@ptrCast(recent_list), 3);
+    c.gtk_flow_box_set_row_spacing(@ptrCast(recent_list), 20);
+    c.gtk_flow_box_set_column_spacing(@ptrCast(recent_list), 20);
+    c.gtk_widget_set_valign(recent_list, c.GTK_ALIGN_START);
 
     c.gtk_scrolled_window_set_child(@ptrCast(recent_scrolled), recent_list);
     c.gtk_box_append(@ptrCast(welcome_box), recent_scrolled);
 
-    recent_list_box = recent_list;
-    _ = c.g_signal_connect_data(recent_list, "row-activated", @ptrCast(&on_recent_row_activated), null, null, 0);
+    recent_flow_box = recent_list;
+    _ = c.g_signal_connect_data(recent_list, "child-activated", @ptrCast(&on_recent_child_activated), null, null, 0);
 
     refresh_recent_ui();
 

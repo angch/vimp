@@ -23,7 +23,7 @@
 ## GIMP File Open Implementation (from `doc/gimp-file-open-spec.md`)
 
 ### 1. Access & Entry Points
-- [ ] **Welcome Screen Recent Grid:** Implement specific large thumbnails grid view (currently list view).
+- [x] **Welcome Screen Recent Grid:** Implement specific large thumbnails grid view (currently list view).
 - [x] **"Open" Action Button**
 - [x] **Shortcuts:** `Ctrl+O` and `Ctrl+Alt+O`.
 
