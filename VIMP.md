@@ -41,8 +41,8 @@ This document provides a list of features currently implemented in Vimp.
 ## File Operations
 - **New Image**: Creates a new canvas with a "Background" layer (`Ctrl+N`).
 - **Open Image**: Loads an image file into a new layer (`Ctrl+O`).
-  - **Supported Formats**: PNG, JPG/JPEG, WebP, GIF, TIFF, BMP, AVIF, ICO, TGA, XCF.
-- **Save**: Saves the current canvas view to a PNG file (`Ctrl+S`).
+  - **Supported Formats**: PNG, JPG/JPEG, WebP, GIF, TIFF, BMP, AVIF, ICO, TGA, XCF, OpenRaster (.ora).
+- **Save**: Saves the current canvas view to a PNG or OpenRaster (.ora) file (`Ctrl+S`).
 
 ## History
 - **Undo/Redo**: Command-pattern based system supporting:
