@@ -32,7 +32,7 @@
 
 **Professional & Exchange:**
 - [ ] PSD (Adobe Photoshop) layer support
-- [ ] OpenRaster (.ora) format
+- [x] OpenRaster (.ora) format
 - [ ] OpenEXR (.exr) HDR format
 - [ ] Radiance HDR (.hdr) format
 
