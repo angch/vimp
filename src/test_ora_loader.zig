@@ -109,3 +109,52 @@ test "Engine load ORA" {
     c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 9, .y = 19, .width = 1, .height = 1 }, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
     try std.testing.expectEqual(pixel[3], 0);
 }
+
+test "Engine save ORA" {
+    const allocator = std.heap.c_allocator;
+    const rnd = std.time.nanoTimestamp();
+    const save_path = try std.fmt.allocPrint(allocator, "test_save_{d}.ora", .{rnd});
+    defer allocator.free(save_path);
+    defer std.fs.cwd().deleteFile(save_path) catch {};
+
+    {
+        var engine = Engine{};
+        engine.init();
+        defer engine.deinit();
+        engine.setupGraph();
+
+        // 1. Create content
+        engine.setCanvasSize(200, 200);
+        try engine.addLayer("Test Layer");
+        engine.setFgColor(0, 0, 255, 255); // Blue
+        engine.paintStroke(100, 100, 100, 100, 1.0); // Paint dot at 100,100
+
+        // 2. Save ORA
+        try engine.saveOra(save_path);
+    }
+
+    // 3. Load ORA into new engine
+    var engine2 = Engine{};
+    engine2.init();
+    defer engine2.deinit();
+
+    try engine2.loadOra(save_path, true);
+
+    // 4. Verify
+    try std.testing.expectEqual(engine2.canvas_width, 200);
+    try std.testing.expectEqual(engine2.canvas_height, 200);
+    try std.testing.expectEqual(engine2.layers.items.len, 1);
+
+    const layer = &engine2.layers.items[0];
+    const name = std.mem.span(@as([*:0]const u8, @ptrCast(&layer.name)));
+    try std.testing.expectEqualStrings("Test Layer", name);
+
+    // Check pixel at 100,100
+    const buf = layer.buffer;
+    var pixel: [4]u8 = undefined;
+    const format = c.babl_format("R'G'B'A u8");
+    c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 100, .y = 100, .width = 1, .height = 1 }, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+
+    try std.testing.expectEqual(pixel[2], 255); // Blue
+    try std.testing.expectEqual(pixel[0], 0);
+}
