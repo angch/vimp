@@ -92,4 +92,5 @@ test {
     _ = @import("test_rounded_rect.zig");
     _ = @import("test_zoom_pan.zig");
     _ = @import("test_paint_colors.zig");
+    _ = @import("test_ora_loader.zig");
 }

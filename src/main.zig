@@ -2027,6 +2027,17 @@ fn openFileFromPath(path: [:0]const u8, as_layers: bool, add_to_recent: bool) vo
     const ext = std.fs.path.extension(path);
     const is_pdf = std.ascii.eqlIgnoreCase(ext, ".pdf");
     const is_svg = std.ascii.eqlIgnoreCase(ext, ".svg");
+    const is_ora = std.ascii.eqlIgnoreCase(ext, ".ora");
+
+    if (is_ora) {
+        var success = true;
+        engine.loadOra(path, !as_layers) catch |e| {
+            show_toast("Failed to load ORA: {}", .{e});
+            success = false;
+        };
+        finish_file_open(path, as_layers, success, add_to_recent);
+        return;
+    }
 
     if (RawLoader.isRawFile(path)) {
         convertRawAndOpen(path, as_layers, add_to_recent);
