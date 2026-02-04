@@ -248,6 +248,7 @@ pub const Engine = struct {
     selection: ?c.GeglRectangle = null,
     selection_mode: SelectionMode = .rectangle,
     selection_transparent: bool = false,
+    text_opaque: bool = false,
     preview_shape: ?ShapePreview = null,
     preview_bbox: ?c.GeglRectangle = null,
 
@@ -2836,6 +2837,10 @@ pub const Engine = struct {
         self.selection_transparent = transparent;
     }
 
+    pub fn setTextOpaque(self: *Engine, is_opaque: bool) void {
+        self.text_opaque = is_opaque;
+    }
+
     pub fn setSelection(self: *Engine, x: c_int, y: c_int, w: c_int, h: c_int) void {
         self.selection = c.GeglRectangle{ .x = x, .y = y, .width = w, .height = h };
 
@@ -2953,6 +2958,18 @@ pub const Engine = struct {
         const desc = c.pango_font_description_from_string(desc_z.ptr);
         defer c.pango_font_description_free(desc);
         c.pango_layout_set_font_description(layout, desc);
+
+        if (self.text_opaque) {
+            var ink_rect: c.PangoRectangle = undefined;
+            var logical_rect: c.PangoRectangle = undefined;
+            c.pango_layout_get_pixel_extents(layout, &ink_rect, &logical_rect);
+
+            const bg = self.bg_color;
+            c.cairo_set_source_rgba(cr, @as(f64, @floatFromInt(bg[0])) / 255.0, @as(f64, @floatFromInt(bg[1])) / 255.0, @as(f64, @floatFromInt(bg[2])) / 255.0, @as(f64, @floatFromInt(bg[3])) / 255.0);
+
+            c.cairo_rectangle(cr, @floatFromInt(x + logical_rect.x), @floatFromInt(y + logical_rect.y), @floatFromInt(logical_rect.width), @floatFromInt(logical_rect.height));
+            c.cairo_fill(cr);
+        }
 
         // Set color
         const fg = self.fg_color;
@@ -5380,6 +5397,37 @@ test "Engine draw text" {
     }
 
     try std.testing.expect(found);
+}
+
+test "Engine draw text opaque" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+    try engine.addLayer("Background");
+
+    engine.setFgColor(255, 255, 255, 255); // White Text
+    engine.setBgColor(255, 0, 0, 255); // Red Background
+    engine.setTextOpaque(true);
+
+    // Draw text at 50,50
+    try engine.drawText("I", 50, 50, 24);
+
+    // Should have 2 layers now
+    try std.testing.expectEqual(engine.layers.items.len, 2);
+
+    const buf = engine.layers.items[1].buffer;
+    const format = c.babl_format("R'G'B'A u8");
+    var pixel: [4]u8 = undefined;
+
+    // Check pixel at 50,50 (Top Left of text box)
+    // Should be Red (Background)
+    c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 50, .y = 50, .width = 1, .height = 1 }, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+
+    try std.testing.expectEqual(pixel[0], 255); // R
+    try std.testing.expectEqual(pixel[1], 0);   // G
+    try std.testing.expectEqual(pixel[2], 0);   // B
+    try std.testing.expectEqual(pixel[3], 255); // A
 }
 
 test "Engine motion blur" {

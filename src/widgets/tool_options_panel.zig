@@ -121,6 +121,11 @@ pub const ToolOptionsPanel = struct {
                 c.gtk_spin_button_set_value(@ptrCast(spin), @floatFromInt(self.engine.font_size));
                 c.gtk_box_append(@ptrCast(box), spin);
                 _ = c.g_signal_connect_data(spin, "value-changed", @ptrCast(&font_size_changed), self, null, 0);
+
+                const check = c.gtk_check_button_new_with_mnemonic("Draw _Opaque");
+                c.gtk_check_button_set_active(@ptrCast(check), if (self.engine.text_opaque) 1 else 0);
+                c.gtk_box_append(@ptrCast(box), check);
+                _ = c.g_signal_connect_data(check, "toggled", @ptrCast(&text_opaque_toggled), self, null, 0);
             },
             .unified_transform => {
                 const label_x = c.gtk_label_new_with_mnemonic("Translate _X");
@@ -194,6 +199,12 @@ pub const ToolOptionsPanel = struct {
     fn font_size_changed(spin: *c.GtkSpinButton, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
         const self: *ToolOptionsPanel = @ptrCast(@alignCast(user_data));
         self.engine.font_size = @intCast(c.gtk_spin_button_get_value_as_int(spin));
+    }
+
+    fn text_opaque_toggled(check: *c.GtkCheckButton, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+        const self: *ToolOptionsPanel = @ptrCast(@alignCast(user_data));
+        const active = c.gtk_check_button_get_active(check) != 0;
+        self.engine.setTextOpaque(active);
     }
 
     fn transform_param_changed(_: *c.GtkWidget, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
