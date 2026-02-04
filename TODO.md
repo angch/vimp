@@ -89,7 +89,7 @@
 
 ### View Options
 - [x] **Zoom:** Custom levels.
-- [ ] **Show Grid:** Toggle menu item (Logic exists in `drawPixelGrid`, needs UI toggle).
+- [x] **Show Grid:** Toggle menu item (Logic exists in `drawPixelGrid`, needs UI toggle).
 - [x] **Show Thumbnail**
 - [x] **View Bitmap** (Fullscreen).
 

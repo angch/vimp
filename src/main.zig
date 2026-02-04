@@ -437,6 +437,7 @@ var is_moving_selection: bool = false;
 var view_scale: f64 = 1.0;
 var view_x: f64 = 0.0;
 var view_y: f64 = 0.0;
+var show_pixel_grid: bool = true;
 
 // Zoom Gesture State
 var zoom_base_scale: f64 = 1.0;
@@ -579,7 +580,9 @@ fn draw_func(
                 c.cairo_paint(cr_ctx);
 
                 // Draw Pixel Grid
-                CanvasUtils.drawPixelGrid(cr_ctx, @floatFromInt(width), @floatFromInt(height), view_scale, view_x, view_y);
+                if (show_pixel_grid) {
+                    CanvasUtils.drawPixelGrid(cr_ctx, @floatFromInt(width), @floatFromInt(height), view_scale, view_x, view_y);
+                }
             } else {
                 // Empty State
                 c.cairo_set_source_rgb(cr_ctx, 0.15, 0.15, 0.15); // Dark Gray
@@ -2617,6 +2620,14 @@ fn command_palette_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*
     }
 }
 
+fn show_grid_change_state(action: *c.GSimpleAction, value: *c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const enabled = c.g_variant_get_boolean(value) != 0;
+    show_pixel_grid = enabled;
+    c.g_simple_action_set_state(action, value);
+    canvas_dirty = true;
+    queue_draw();
+}
+
 fn split_view_change_state(action: *c.GSimpleAction, value: *c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     const enabled = c.g_variant_get_boolean(value) != 0;
     engine.setSplitView(enabled);
@@ -3281,6 +3292,11 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     _ = c.g_signal_connect_data(split_action, "change-state", @ptrCast(&split_view_change_state), null, null, 0);
     c.g_action_map_add_action(@ptrCast(app), @ptrCast(split_action));
 
+    // Show Grid Action (Stateful)
+    const grid_action = c.g_simple_action_new_stateful("show-grid", null, c.g_variant_new_boolean(1));
+    _ = c.g_signal_connect_data(grid_action, "change-state", @ptrCast(&show_grid_change_state), null, null, 0);
+    c.g_action_map_add_action(@ptrCast(app), @ptrCast(grid_action));
+
     // Keyboard Shortcuts
     const set_accel = struct {
         fn func(application: *c.GtkApplication, action: [:0]const u8, accel: [:0]const u8) void {
@@ -3402,6 +3418,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     const view_menu = c.g_menu_new();
     c.g_menu_append(view_menu, "View _Bitmap", "app.view-bitmap");
     c.g_menu_append(view_menu, "_Overview (Thumbnail)", "app.view-thumbnail");
+    c.g_menu_append(view_menu, "Show _Grid", "app.show-grid");
 
     const view_btn = c.gtk_menu_button_new();
     c.gtk_menu_button_set_label(@ptrCast(view_btn), "_View");
