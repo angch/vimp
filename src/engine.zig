@@ -1249,7 +1249,7 @@ pub const Engine = struct {
         self.output_node = current_input;
     }
 
-    fn addLayerInternal(self: *Engine, buffer: *c.GeglBuffer, name: []const u8, visible: bool, locked: bool, index: usize) !void {
+    pub fn addLayerInternal(self: *Engine, buffer: *c.GeglBuffer, name: []const u8, visible: bool, locked: bool, index: usize) !void {
         const source_node = c.gegl_node_new_child(self.graph, "operation", "gegl:buffer-source", "buffer", buffer, @as(?*anyopaque, null)) orelse return error.GeglNodeFailed;
 
         var layer = Layer{
@@ -3476,7 +3476,7 @@ pub const Engine = struct {
     }
 
     fn stringifyProjectMetadata(meta: ProjectMetadata, writer: anytype) !void {
-        try writer.print("{{\n    \"width\": {d},\n    \"height\": {d},\n    \"layers\": [\n", .{meta.width, meta.height});
+        try writer.print("{{\n    \"width\": {d},\n    \"height\": {d},\n    \"layers\": [\n", .{ meta.width, meta.height });
         for (meta.layers, 0..) |l, i| {
             try writer.writeAll("        {\n            \"name\": ");
             try printJsonString(writer, l.name);

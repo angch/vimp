@@ -19,6 +19,7 @@ const RawLoader = @import("raw_loader.zig").RawLoader;
 const ToolOptionsPanel = @import("widgets/tool_options_panel.zig").ToolOptionsPanel;
 const Tool = @import("tools.zig").Tool;
 const Assets = @import("assets.zig");
+const Salvage = @import("salvage.zig").Salvage;
 
 const ToolEntry = struct {
     tool: Tool,
@@ -210,7 +211,6 @@ fn on_edit_colors_clicked(
     c.gtk_window_present(@ptrCast(dialog));
 }
 
-
 fn transform_apply_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     engine.applyTransform() catch |err| {
         show_toast("Apply transform failed: {}", .{err});
@@ -242,7 +242,6 @@ fn update_color_btn_visual() void {
         c.gtk_color_chooser_set_rgba(@ptrCast(btn), &rgba);
     }
 }
-
 
 fn tool_toggled(
     button: *c.GtkToggleButton,
@@ -349,6 +348,20 @@ fn show_toast(comptime fmt: []const u8, args: anytype) void {
         defer std.heap.c_allocator.free(msg_z);
 
         const toast = c.adw_toast_new(msg_z.ptr);
+        c.adw_toast_overlay_add_toast(overlay, toast);
+    }
+}
+
+fn show_toast_with_action(action: [:0]const u8, target: [:0]const u8, button_label: [:0]const u8, comptime fmt: []const u8, args: anytype) void {
+    if (toast_overlay) |overlay| {
+        const msg_z = std.fmt.allocPrintSentinel(std.heap.c_allocator, fmt, args, 0) catch return;
+        defer std.heap.c_allocator.free(msg_z);
+
+        const toast = c.adw_toast_new(msg_z.ptr);
+        c.adw_toast_set_action_name(toast, action.ptr);
+        const variant = c.g_variant_new_string(target.ptr);
+        c.adw_toast_set_action_target_value(toast, variant);
+        c.adw_toast_set_button_label(toast, button_label.ptr);
         c.adw_toast_overlay_add_toast(overlay, toast);
     }
 }
@@ -2129,7 +2142,8 @@ fn openFileFromPath(path: [:0]const u8, as_layers: bool, add_to_recent: bool) vo
     var load_success = true;
     // Call engine load
     engine.loadFromFile(path) catch |e| {
-        show_toast("Failed to load file: {}", .{e});
+        // Offer salvage
+        show_toast_with_action("app.salvage", path, "Try to Salvage", "Failed to load file: {}", .{e});
         load_success = false;
     };
     finish_file_open(path, as_layers, load_success, add_to_recent);
@@ -2315,6 +2329,29 @@ fn quit_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) 
     // Alternatively: c.g_application_quit(@ptrCast(app));
     // But closing the window is more "Adwaita" friendly if it manages the lifecycle.
     c.g_application_quit(@ptrCast(app));
+}
+
+fn salvage_activated(_: *c.GSimpleAction, parameter: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    if (parameter) |p| {
+        var len: usize = 0;
+        const path_ptr = c.g_variant_get_string(p, &len);
+        // path_ptr is not necessarily 0-terminated by GVariant logic?
+        // Docs: "Returns a pointer to the constant string data... the string will always be nul-terminated."
+        const path = path_ptr[0..len :0];
+
+        Salvage.recoverFile(&engine, path) catch |err| {
+            show_toast("Salvage failed: {}", .{err});
+            return;
+        };
+
+        refresh_layers_ui();
+        refresh_undo_ui();
+        update_view_mode();
+        canvas_dirty = true;
+        queue_draw();
+
+        show_toast("File salvaged successfully.", .{});
+    }
 }
 
 fn undo_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
@@ -3016,7 +3053,7 @@ fn recovery_response(
 
     if (std.mem.eql(u8, resp_span, "recover")) {
         engine.loadProject(ctx.path) catch |err| {
-             show_toast("Failed to recover project: {}", .{err});
+            show_toast("Failed to recover project: {}", .{err});
         };
         refresh_layers_ui();
         refresh_undo_ui();
@@ -3031,53 +3068,53 @@ fn recovery_response(
 }
 
 fn check_autosave(window: *c.GtkWindow) void {
-     const cache_dir_c = c.g_get_user_cache_dir();
-     if (cache_dir_c == null) return;
-     const cache_dir = std.mem.span(cache_dir_c);
+    const cache_dir_c = c.g_get_user_cache_dir();
+    if (cache_dir_c == null) return;
+    const cache_dir = std.mem.span(cache_dir_c);
 
-     const path = std.fs.path.joinZ(std.heap.c_allocator, &[_][]const u8{ cache_dir, "vimp", "autosave" }) catch return;
-     // Don't free path yet, pass to ctx
+    const path = std.fs.path.joinZ(std.heap.c_allocator, &[_][]const u8{ cache_dir, "vimp", "autosave" }) catch return;
+    // Don't free path yet, pass to ctx
 
-     // Check if exists
-     var dir = std.fs.cwd().openDir(path, .{}) catch {
-         std.heap.c_allocator.free(path);
-         return;
-     };
-     dir.close();
+    // Check if exists
+    var dir = std.fs.cwd().openDir(path, .{}) catch {
+        std.heap.c_allocator.free(path);
+        return;
+    };
+    dir.close();
 
-     // Check project.json
-     const json_path = std.fs.path.joinZ(std.heap.c_allocator, &[_][]const u8{ path, "project.json" }) catch {
-         std.heap.c_allocator.free(path);
-         return;
-     };
-     defer std.heap.c_allocator.free(json_path);
+    // Check project.json
+    const json_path = std.fs.path.joinZ(std.heap.c_allocator, &[_][]const u8{ path, "project.json" }) catch {
+        std.heap.c_allocator.free(path);
+        return;
+    };
+    defer std.heap.c_allocator.free(json_path);
 
-     if (std.fs.cwd().access(json_path, .{})) |_| {
-         // Found! Show dialog.
-         const ctx = std.heap.c_allocator.create(RecoveryContext) catch {
-             std.heap.c_allocator.free(path);
-             return;
-         };
-         ctx.* = .{ .path = path };
+    if (std.fs.cwd().access(json_path, .{})) |_| {
+        // Found! Show dialog.
+        const ctx = std.heap.c_allocator.create(RecoveryContext) catch {
+            std.heap.c_allocator.free(path);
+            return;
+        };
+        ctx.* = .{ .path = path };
 
-         const dialog = c.adw_message_dialog_new(
-             window,
-             "Unsaved Work Found",
-             "A previous session was not closed properly. Do you want to recover your work?",
-         );
+        const dialog = c.adw_message_dialog_new(
+            window,
+            "Unsaved Work Found",
+            "A previous session was not closed properly. Do you want to recover your work?",
+        );
 
-         c.adw_message_dialog_add_response(@ptrCast(dialog), "discard", "_Discard");
-         c.adw_message_dialog_add_response(@ptrCast(dialog), "recover", "_Recover");
+        c.adw_message_dialog_add_response(@ptrCast(dialog), "discard", "_Discard");
+        c.adw_message_dialog_add_response(@ptrCast(dialog), "recover", "_Recover");
 
-         c.adw_message_dialog_set_default_response(@ptrCast(dialog), "recover");
-         c.adw_message_dialog_set_close_response(@ptrCast(dialog), "discard");
+        c.adw_message_dialog_set_default_response(@ptrCast(dialog), "recover");
+        c.adw_message_dialog_set_close_response(@ptrCast(dialog), "discard");
 
-         _ = c.g_signal_connect_data(dialog, "response", @ptrCast(&recovery_response), ctx, null, 0);
+        _ = c.g_signal_connect_data(dialog, "response", @ptrCast(&recovery_response), ctx, null, 0);
 
-         c.gtk_window_present(@ptrCast(dialog));
-     } else |_| {
-         std.heap.c_allocator.free(path);
-     }
+        c.gtk_window_present(@ptrCast(dialog));
+    } else |_| {
+        std.heap.c_allocator.free(path);
+    }
 }
 
 fn zoom_in_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
@@ -3174,6 +3211,12 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     add_action(app, "save", @ptrCast(&save_activated), window);
     add_action(app, "about", @ptrCast(&about_activated), null);
     add_action(app, "quit", @ptrCast(&quit_activated), app);
+
+    // Salvage Action (Parameter: String)
+    const salvage_action = c.g_simple_action_new("salvage", c.g_variant_type_new("s"));
+    _ = c.g_signal_connect_data(salvage_action, "activate", @ptrCast(&salvage_activated), null, null, 0);
+    c.g_action_map_add_action(@ptrCast(app), @ptrCast(salvage_action));
+
     add_action(app, "undo", @ptrCast(&undo_activated), null);
     add_action(app, "redo", @ptrCast(&redo_activated), null);
     add_action(app, "blur-small", @ptrCast(&blur_small_activated), null);
