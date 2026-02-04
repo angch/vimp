@@ -18,3 +18,7 @@ Handles the GEGL graph, buffers, and image operations.
 - `libs/`: Vendored libraries (GEGL/Babl) - *Do not modify manually unless necessary*.
 - `tasks/` & `prd.json`: Ralph Agent workflow files.
 - `ref/gimp`: Clone of the GIMP repository for reference and tests. **Ignored by git**.
+
+## Architecture Analysis
+- Place architecture decision records (ADRs) and technology evaluations in `doc/architecture-analysis/`.
+- Use a consistent format: Goal, Criteria, Analysis, Selection.

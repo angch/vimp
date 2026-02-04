@@ -10,3 +10,7 @@
   - Use `c.g_object_unref(obj)` when you own a reference and are done with it.
   - Be careful with signal callbacks; generally `user_data` can pass pointers to Zig structs.
 - **Signals**: Use `c.g_signal_connect_data` to connect signals to Zig functions. The callback must have `callconv(std.builtin.CallingConvention.c)` or `callconv(.c)`.
+
+## Asset Management
+- **Icons**: Source assets (SVG/PNG) are located in `src/assets/`.
+- **Embedding**: We prefer embedding assets using `@embedFile` (see `src/assets.zig`) over loading from disk. This ensures the application is a single portable binary and avoids runtime file path issues.
