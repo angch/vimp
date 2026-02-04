@@ -3760,7 +3760,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.gtk_revealer_set_transition_type(@ptrCast(osd_revealer), c.GTK_REVEALER_TRANSITION_TYPE_CROSSFADE);
 
     const osd_box = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 0);
-    c.gtk_widget_add_css_class(osd_box, "osd-box");
+    c.gtk_widget_add_css_class(osd_box, "osd");
     c.gtk_revealer_set_child(@ptrCast(osd_revealer), osd_box);
 
     const osd_label = c.gtk_label_new("");
@@ -3775,7 +3775,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.gtk_widget_set_valign(t_action_bar, c.GTK_ALIGN_START);
     c.gtk_widget_set_halign(t_action_bar, c.GTK_ALIGN_CENTER);
     c.gtk_widget_set_margin_top(t_action_bar, 20);
-    c.gtk_widget_add_css_class(t_action_bar, "osd-box");
+    c.gtk_widget_add_css_class(t_action_bar, "osd");
 
     const t_apply = c.gtk_button_new_with_mnemonic("_Apply");
     c.gtk_widget_add_css_class(t_apply, "suggested-action");
@@ -3839,9 +3839,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     // CSS Styling
     const css_provider = c.gtk_css_provider_new();
     const css =
-        \\.sidebar { background-color: shade(@theme_bg_color, 0.95); border-right: 1px solid alpha(currentColor, 0.15); padding: 10px; }
-        \\.content { background-color: @theme_bg_color; }
-        \\.osd-box { background-color: rgba(0, 0, 0, 0.7); color: white; border-radius: 12px; padding: 8px 16px; font-weight: bold; }
+        \\.sidebar { padding: 10px; }
     ;
     // Note: Adwaita handles colors better, using shared variables
     c.gtk_css_provider_load_from_data(css_provider, css, -1);

@@ -87,7 +87,7 @@ pub const ColorPalette = struct {
             var css_buf: [128]u8 = undefined;
             // Use border to distinguish similar colors from background
             const css = std.fmt.bufPrintZ(&css_buf,
-                "button {{ background: rgb({d},{d},{d}); min-width: 20px; min-height: 20px; padding: 0; margin: 0; border: 1px solid rgba(0,0,0,0.2); }}",
+                "button {{ background: rgb({d},{d},{d}); min-width: 20px; min-height: 20px; padding: 0; margin: 0; border: 1px solid alpha(currentColor, 0.2); }}",
                 .{col.r, col.g, col.b}
             ) catch "button { background: black; }";
 
