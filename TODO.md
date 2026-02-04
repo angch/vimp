@@ -40,6 +40,7 @@
 
 **Specialized:**
 - [x] DDS texture format
+- [x] Enhance File Chooser filters (Raw, Legacy formats)
 
 ---
 
