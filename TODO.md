@@ -85,7 +85,7 @@
 - [x] **Invert Colors**
 - [x] **Attributes:** Canvas Size dialog.
 - [x] **Clear Image**
-- [ ] **Draw Opaque:** Toggle for text box transparency (Text tool feature).
+- [x] **Draw Opaque:** Toggle for text box transparency (Text tool feature).
 
 ### View Options
 - [x] **Zoom:** Custom levels.
