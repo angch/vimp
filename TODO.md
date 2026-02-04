@@ -23,7 +23,7 @@
 ## File Operations (from `gimp-file-open-spec.md`)
 
 ### Pending
-- [ ] Implement File Recovery/Salvage actions
+- [x] Implement File Recovery/Salvage actions
 
 ### File Format Support (from `gimp-file-open-spec.md`)
 > Check VIMP.md for currently supported formats.
