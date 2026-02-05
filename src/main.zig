@@ -19,6 +19,7 @@ const RawLoader = @import("raw_loader.zig").RawLoader;
 const ToolOptionsPanel = @import("widgets/tool_options_panel.zig").ToolOptionsPanel;
 const Sidebar = @import("ui/sidebar.zig").Sidebar;
 const SidebarCallbacks = @import("ui/sidebar.zig").SidebarCallbacks;
+const Header = @import("ui/header.zig").Header;
 const Tool = @import("tools.zig").Tool;
 const ToolInterface = @import("tools/interface.zig").ToolInterface;
 const BrushTool = @import("tools/brush.zig").BrushTool;
@@ -61,14 +62,13 @@ var thumbnail_ctx: ThumbnailWindow.ThumbnailContext = undefined;
 
 var recent_flow_box: ?*c.GtkWidget = null;
 var drawing_area: ?*c.GtkWidget = null;
-var apply_preview_btn: ?*c.GtkWidget = null;
-var discard_preview_btn: ?*c.GtkWidget = null;
 
 var transform_action_bar: ?*c.GtkWidget = null;
 var main_stack: ?*c.GtkWidget = null;
 var toast_overlay: ?*c.AdwToastOverlay = null;
 
 var sidebar_ui: *Sidebar = undefined;
+var header_ui: *Header = undefined;
 var active_tool_interface: ?ToolInterface = null;
 
 pub fn main() !void {
@@ -1582,12 +1582,8 @@ fn redo_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv
 }
 
 fn refresh_header_ui() void {
-    if (apply_preview_btn) |btn| {
-        c.gtk_widget_set_visible(btn, if (engine.preview_mode != .none) 1 else 0);
-    }
-    if (discard_preview_btn) |btn| {
-        c.gtk_widget_set_visible(btn, if (engine.preview_mode != .none) 1 else 0);
-    }
+    c.gtk_widget_set_visible(header_ui.apply_btn, if (engine.preview_mode != .none) 1 else 0);
+    c.gtk_widget_set_visible(header_ui.discard_btn, if (engine.preview_mode != .none) 1 else 0);
 }
 
 fn blur_small_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
@@ -1813,15 +1809,6 @@ fn split_view_change_state(action: *c.GSimpleAction, value: *c.GVariant, _: ?*an
     c.g_simple_action_set_state(action, value);
     canvas_dirty = true;
     queue_draw();
-}
-
-fn sidebar_toggled(
-    _: *c.GtkButton,
-    user_data: ?*anyopaque,
-) callconv(std.builtin.CallingConvention.c) void {
-    const split_view: *c.AdwOverlaySplitView = @ptrCast(@alignCast(user_data));
-    const is_shown = c.adw_overlay_split_view_get_show_sidebar(split_view);
-    c.adw_overlay_split_view_set_show_sidebar(split_view, if (is_shown != 0) 0 else 1);
 }
 
 fn queue_draw() void {
@@ -2700,131 +2687,11 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     const split_view = c.adw_overlay_split_view_new();
     c.adw_toast_overlay_set_child(@ptrCast(t_overlay), split_view);
 
-    const header_bar = c.adw_header_bar_new();
-    c.adw_toolbar_view_add_top_bar(@ptrCast(toolbar_view), header_bar);
-
-    // Sidebar Toggle Button
-    const sidebar_btn = c.gtk_button_new_from_icon_name("sidebar-show-symbolic");
-    c.gtk_widget_set_tooltip_text(sidebar_btn, "Toggle Sidebar");
-    c.adw_header_bar_pack_start(@ptrCast(header_bar), sidebar_btn);
-    _ = c.g_signal_connect_data(sidebar_btn, "clicked", @ptrCast(&sidebar_toggled), split_view, null, 0);
-    // Only show button when collapsed
-    _ = c.g_object_bind_property(@ptrCast(split_view), "collapsed", @ptrCast(sidebar_btn), "visible", c.G_BINDING_SYNC_CREATE);
-
-    // Primary Actions (Start)
-    // Updated tooltips to include keyboard shortcuts for better UX (Ctrl+N, Ctrl+O, etc.)
-    const new_btn = c.gtk_button_new_from_icon_name("document-new-symbolic");
-    c.gtk_actionable_set_action_name(@ptrCast(new_btn), "app.new");
-    c.gtk_widget_set_tooltip_text(new_btn, "New Image (Ctrl+N)");
-    c.adw_header_bar_pack_start(@ptrCast(header_bar), new_btn);
-
-    const open_btn = c.gtk_button_new_from_icon_name("document-open-symbolic");
-    c.gtk_actionable_set_action_name(@ptrCast(open_btn), "app.open");
-    c.gtk_widget_set_tooltip_text(open_btn, "Open Image (Ctrl+O)");
-    c.adw_header_bar_pack_start(@ptrCast(header_bar), open_btn);
-
-    const save_btn = c.gtk_button_new_from_icon_name("document-save-symbolic");
-    c.gtk_actionable_set_action_name(@ptrCast(save_btn), "app.save");
-    c.gtk_widget_set_tooltip_text(save_btn, "Save Image (Ctrl+S)");
-    c.adw_header_bar_pack_start(@ptrCast(header_bar), save_btn);
-
-    // Undo/Redo
-    const undo_btn = c.gtk_button_new_from_icon_name("edit-undo-symbolic");
-    c.gtk_actionable_set_action_name(@ptrCast(undo_btn), "app.undo");
-    c.gtk_widget_set_tooltip_text(undo_btn, "Undo (Ctrl+Z)");
-    c.adw_header_bar_pack_start(@ptrCast(header_bar), undo_btn);
-
-    const redo_btn = c.gtk_button_new_from_icon_name("edit-redo-symbolic");
-    c.gtk_actionable_set_action_name(@ptrCast(redo_btn), "app.redo");
-    c.gtk_widget_set_tooltip_text(redo_btn, "Redo (Ctrl+Y)");
-    c.adw_header_bar_pack_start(@ptrCast(header_bar), redo_btn);
-
-    // Image Menu
-    const image_menu = c.g_menu_new();
-    c.g_menu_append(image_menu, "_Canvas Size...", "app.canvas-size");
-    c.g_menu_append(image_menu, "_Invert Colors", "app.invert-colors");
-    c.g_menu_append(image_menu, "Cl_ear Image", "app.clear-image");
-    c.g_menu_append(image_menu, "Flip _Horizontal", "app.flip-horizontal");
-    c.g_menu_append(image_menu, "Flip _Vertical", "app.flip-vertical");
-    c.g_menu_append(image_menu, "Rotate _90° CW", "app.rotate-90");
-    c.g_menu_append(image_menu, "Rotate _180°", "app.rotate-180");
-    c.g_menu_append(image_menu, "Rotate _270° CW", "app.rotate-270");
-    c.g_menu_append(image_menu, "_Stretch and Skew...", "app.stretch");
-
-    const image_btn = c.gtk_menu_button_new();
-    c.gtk_menu_button_set_label(@ptrCast(image_btn), "_Image");
-    c.gtk_menu_button_set_use_underline(@ptrCast(image_btn), 1);
-    c.gtk_menu_button_set_menu_model(@ptrCast(image_btn), @ptrCast(@alignCast(image_menu)));
-    c.gtk_widget_set_tooltip_text(image_btn, "Image Operations");
-    c.adw_header_bar_pack_start(@ptrCast(header_bar), image_btn);
-
-    // Filters Menu
-    const filters_menu = c.g_menu_new();
-    c.g_menu_append(filters_menu, "Blur (_5px)", "app.blur-small");
-    c.g_menu_append(filters_menu, "Blur (1_0px)", "app.blur-medium");
-    c.g_menu_append(filters_menu, "Blur (_20px)", "app.blur-large");
-    c.g_menu_append(filters_menu, "_Pixelize...", "app.pixelize");
-    c.g_menu_append(filters_menu, "_Motion Blur...", "app.motion-blur");
-    c.g_menu_append(filters_menu, "_Unsharp Mask...", "app.unsharp-mask");
-    c.g_menu_append(filters_menu, "_Noise Reduction...", "app.noise-reduction");
-    c.g_menu_append(filters_menu, "_Oilify...", "app.oilify");
-    c.g_menu_append(filters_menu, "_Drop Shadow...", "app.drop-shadow");
-    c.g_menu_append(filters_menu, "_Red Eye Removal...", "app.red-eye-removal");
-    c.g_menu_append(filters_menu, "_Waves...", "app.waves");
-    c.g_menu_append(filters_menu, "_Supernova...", "app.supernova");
-    c.g_menu_append(filters_menu, "_Lighting Effects...", "app.lighting-effects");
-    c.g_menu_append(filters_menu, "Split _View", "app.split-view");
-
-    const filters_btn = c.gtk_menu_button_new();
-    c.gtk_menu_button_set_label(@ptrCast(filters_btn), "_Filters");
-    c.gtk_menu_button_set_use_underline(@ptrCast(filters_btn), 1);
-    c.gtk_menu_button_set_menu_model(@ptrCast(filters_btn), @ptrCast(@alignCast(filters_menu)));
-    c.gtk_widget_set_tooltip_text(filters_btn, "Image Filters");
-    c.adw_header_bar_pack_start(@ptrCast(header_bar), filters_btn);
-
-    // View Menu
-    const view_menu = c.g_menu_new();
-    c.g_menu_append(view_menu, "View _Bitmap", "app.view-bitmap");
-    c.g_menu_append(view_menu, "_Overview (Thumbnail)", "app.view-thumbnail");
-    c.g_menu_append(view_menu, "Show _Grid", "app.show-grid");
-
-    const view_btn = c.gtk_menu_button_new();
-    c.gtk_menu_button_set_label(@ptrCast(view_btn), "_View");
-    c.gtk_menu_button_set_use_underline(@ptrCast(view_btn), 1);
-    c.gtk_menu_button_set_menu_model(@ptrCast(view_btn), @ptrCast(@alignCast(view_menu)));
-    c.gtk_widget_set_tooltip_text(view_btn, "View Options");
-    c.adw_header_bar_pack_start(@ptrCast(header_bar), view_btn);
-
-    // Apply Preview Button (Hidden by default, shown when preview_mode != none)
-    const apply_btn = c.gtk_button_new_from_icon_name("object-select-symbolic");
-    c.gtk_actionable_set_action_name(@ptrCast(apply_btn), "app.apply-preview");
-    c.gtk_widget_set_tooltip_text(apply_btn, "Apply Filter");
-    c.gtk_widget_set_visible(apply_btn, 0); // Hidden initially
-    apply_preview_btn = apply_btn;
-    c.adw_header_bar_pack_start(@ptrCast(header_bar), apply_btn);
-
-    // Discard Preview Button
-    const discard_btn = c.gtk_button_new_from_icon_name("process-stop-symbolic");
-    c.gtk_actionable_set_action_name(@ptrCast(discard_btn), "app.discard-preview");
-    c.gtk_widget_set_tooltip_text(discard_btn, "Discard Filter");
-    c.gtk_widget_set_visible(discard_btn, 0); // Hidden initially
-    discard_preview_btn = discard_btn;
-    c.adw_header_bar_pack_start(@ptrCast(header_bar), discard_btn);
-
-    // Hamburger Menu (End)
-    const menu = c.g_menu_new();
-    c.g_menu_append(menu, "_Command Palette...", "app.command-palette");
-    c.g_menu_append(menu, "_Open Location...", "app.open-location");
-    c.g_menu_append(menu, "_Inspector", "app.inspector");
-    c.g_menu_append(menu, "_About Vimp", "app.about");
-    c.g_menu_append(menu, "_Quit", "app.quit");
-
-    const menu_btn = c.gtk_menu_button_new();
-    c.gtk_menu_button_set_icon_name(@ptrCast(menu_btn), "open-menu-symbolic");
-    c.gtk_menu_button_set_menu_model(@ptrCast(menu_btn), @ptrCast(@alignCast(menu)));
-    c.gtk_widget_set_tooltip_text(menu_btn, "Menu");
-
-    c.adw_header_bar_pack_end(@ptrCast(header_bar), menu_btn);
+    header_ui = Header.create(std.heap.c_allocator, @ptrCast(split_view)) catch |err| {
+        std.debug.print("Failed to create header: {}\n", .{err});
+        return;
+    };
+    c.adw_toolbar_view_add_top_bar(@ptrCast(toolbar_view), header_ui.widget);
 
     const callbacks = SidebarCallbacks{
         .tool_toggled = @ptrCast(&tool_toggled),
