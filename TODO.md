@@ -17,7 +17,7 @@
     - [x] Define `Tool` interface in `src/tools/interface.zig` (handling `drag_begin`, `update`, `end`, etc.).
     - [x] Move Paint Tools (Brush, Pencil, Airbrush, Eraser, Bucket Fill) to `src/tools/`.
     - [x] Move Selection Tools (Rect, Ellipse) to `src/tools/`.
-    - [ ] Move remaining tools (Lasso, Shapes, Lines, Text, Gradient, Picker) to `src/tools/`.
+    - [x] Move remaining tools (Lasso, Shapes, Lines, Text, Gradient, Picker) to `src/tools/`.
     - [x] Update `src/main.zig` to delegate events to the active `Tool` instance.
 - [ ] **Refactor UI - Split Main:** Decompose `src/main.zig` UI construction.
     - [ ] Extract Sidebar construction to `src/ui/sidebar.zig`.
