@@ -17,6 +17,8 @@ const CommandPalette = @import("widgets/command_palette.zig");
 const ColorPalette = @import("widgets/color_palette.zig").ColorPalette;
 const RawLoader = @import("raw_loader.zig").RawLoader;
 const ToolOptionsPanel = @import("widgets/tool_options_panel.zig").ToolOptionsPanel;
+const Sidebar = @import("ui/sidebar.zig").Sidebar;
+const SidebarCallbacks = @import("ui/sidebar.zig").SidebarCallbacks;
 const Tool = @import("tools.zig").Tool;
 const ToolInterface = @import("tools/interface.zig").ToolInterface;
 const BrushTool = @import("tools/brush.zig").BrushTool;
@@ -40,19 +42,6 @@ const UnifiedTransformTool = @import("tools/unified_transform.zig").UnifiedTrans
 const Assets = @import("assets.zig");
 const Salvage = @import("salvage.zig").Salvage;
 
-const ToolEntry = struct {
-    tool: Tool,
-    icon_data: ?[]const u8 = null,
-    icon_name: ?[:0]const u8 = null,
-    tooltip: [:0]const u8,
-};
-
-// Tool Group Active States
-var active_selection_tool: Tool = .rect_select;
-var active_shape_tool: Tool = .rect_shape;
-var active_paint_tool: Tool = .brush;
-var active_line_tool: Tool = .line;
-
 var engine: Engine = .{};
 var recent_manager: RecentManager = undefined;
 var recent_colors_manager: RecentColorsManager = undefined;
@@ -70,19 +59,16 @@ var autosave_timer_id: c_uint = 0;
 
 var thumbnail_ctx: ThumbnailWindow.ThumbnailContext = undefined;
 
-var layers_list_box: ?*c.GtkWidget = null;
 var recent_flow_box: ?*c.GtkWidget = null;
-var undo_list_box: ?*c.GtkWidget = null;
 var drawing_area: ?*c.GtkWidget = null;
 var apply_preview_btn: ?*c.GtkWidget = null;
 var discard_preview_btn: ?*c.GtkWidget = null;
 
-var tool_options_panel: ?*ToolOptionsPanel = null;
 var transform_action_bar: ?*c.GtkWidget = null;
 var main_stack: ?*c.GtkWidget = null;
 var toast_overlay: ?*c.AdwToastOverlay = null;
-var color_btn: ?*c.GtkWidget = null;
 
+var sidebar_ui: *Sidebar = undefined;
 var active_tool_interface: ?ToolInterface = null;
 
 pub fn main() !void {
@@ -114,333 +100,8 @@ pub fn main() !void {
     _ = status;
 }
 
-fn populate_recent_colors(chooser: *c.GtkColorChooser) void {
-    if (recent_colors_manager.colors.items.len > 0) {
-        c.gtk_color_chooser_add_palette(
-            chooser,
-            c.GTK_ORIENTATION_HORIZONTAL,
-            5, // colors per line
-            @intCast(recent_colors_manager.colors.items.len),
-            recent_colors_manager.colors.items.ptr,
-        );
-    }
-}
 
-fn create_color_button() *c.GtkWidget {
-    const btn = c.gtk_color_button_new();
-    c.gtk_widget_set_valign(btn, c.GTK_ALIGN_START);
-    c.gtk_widget_set_halign(btn, c.GTK_ALIGN_CENTER);
 
-    _ = c.g_signal_connect_data(btn, "color-set", @ptrCast(&color_changed), null, null, 0);
-
-    populate_recent_colors(@ptrCast(btn));
-    return btn;
-}
-
-fn rebuild_recent_colors_ui_callback(_: ?*anyopaque) callconv(std.builtin.CallingConvention.c) c.gboolean {
-    if (color_btn == null or tool_options_panel == null) return 0;
-
-    const parent = c.gtk_widget_get_parent(color_btn.?);
-    if (parent == null) return 0;
-
-    c.gtk_box_remove(@ptrCast(parent), color_btn.?);
-
-    // Recreate button using helper.
-    // Note: We rebuild the widget because GtkColorChooser doesn't support clearing/resetting the palette
-    // once added. This ensures the "Recent" palette is always up-to-date with the latest selection.
-    color_btn = create_color_button();
-
-    // Restore color from engine
-    const fg = engine.fg_color;
-    const rgba = c.GdkRGBA{
-        .red = @as(f32, @floatFromInt(fg[0])) / 255.0,
-        .green = @as(f32, @floatFromInt(fg[1])) / 255.0,
-        .blue = @as(f32, @floatFromInt(fg[2])) / 255.0,
-        .alpha = @as(f32, @floatFromInt(fg[3])) / 255.0,
-    };
-    c.gtk_color_chooser_set_rgba(@ptrCast(color_btn.?), &rgba);
-
-    c.gtk_box_prepend(@ptrCast(parent), color_btn.?);
-
-    // Restore focus to the new button to maintain keyboard navigation
-    _ = c.gtk_widget_grab_focus(color_btn.?);
-
-    return 0; // G_SOURCE_REMOVE
-}
-
-fn color_changed(
-    button: *c.GtkColorButton,
-    user_data: ?*anyopaque,
-) callconv(std.builtin.CallingConvention.c) void {
-    _ = user_data;
-    var rgba: c.GdkRGBA = undefined;
-    c.gtk_color_chooser_get_rgba(@ptrCast(button), &rgba);
-
-    const r: u8 = @intFromFloat(rgba.red * 255.0);
-    const g: u8 = @intFromFloat(rgba.green * 255.0);
-    const b: u8 = @intFromFloat(rgba.blue * 255.0);
-    const a: u8 = @intFromFloat(rgba.alpha * 255.0);
-
-    engine.setFgColor(r, g, b, a);
-
-    recent_colors_manager.add(rgba) catch {};
-
-    _ = c.g_idle_add(@ptrCast(&rebuild_recent_colors_ui_callback), null);
-}
-
-fn on_edit_colors_response(
-    dialog: *c.GtkDialog,
-    response_id: c_int,
-    user_data: ?*anyopaque,
-) callconv(std.builtin.CallingConvention.c) void {
-    _ = user_data;
-    if (response_id == c.GTK_RESPONSE_OK) {
-        var rgba: c.GdkRGBA = undefined;
-        c.gtk_color_chooser_get_rgba(@ptrCast(dialog), &rgba);
-
-        const r: u8 = @intFromFloat(rgba.red * 255.0);
-        const g: u8 = @intFromFloat(rgba.green * 255.0);
-        const b: u8 = @intFromFloat(rgba.blue * 255.0);
-        const a: u8 = @intFromFloat(rgba.alpha * 255.0);
-
-        engine.setFgColor(r, g, b, a);
-        recent_colors_manager.add(rgba) catch {};
-        _ = c.g_idle_add(@ptrCast(&rebuild_recent_colors_ui_callback), null);
-    }
-    c.gtk_window_destroy(@ptrCast(dialog));
-}
-
-fn on_edit_colors_clicked(
-    _: *c.GtkButton,
-    user_data: ?*anyopaque,
-) callconv(std.builtin.CallingConvention.c) void {
-    const parent: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
-    const dialog = c.gtk_color_chooser_dialog_new("Edit Colors", parent);
-    populate_recent_colors(@ptrCast(dialog));
-    c.gtk_color_chooser_set_use_alpha(@ptrCast(dialog), 1);
-
-    const fg = engine.fg_color;
-    const rgba = c.GdkRGBA{
-        .red = @as(f32, @floatFromInt(fg[0])) / 255.0,
-        .green = @as(f32, @floatFromInt(fg[1])) / 255.0,
-        .blue = @as(f32, @floatFromInt(fg[2])) / 255.0,
-        .alpha = @as(f32, @floatFromInt(fg[3])) / 255.0,
-    };
-    c.gtk_color_chooser_set_rgba(@ptrCast(dialog), &rgba);
-
-    _ = c.g_signal_connect_data(dialog, "response", @ptrCast(&on_edit_colors_response), null, null, 0);
-    c.gtk_window_present(@ptrCast(dialog));
-}
-
-fn transform_apply_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    engine.applyTransform() catch |err| {
-        show_toast("Apply transform failed: {}", .{err});
-    };
-    if (tool_options_panel) |p| p.resetTransformUI();
-
-    canvas_dirty = true;
-    queue_draw();
-    refresh_undo_ui();
-}
-
-fn transform_cancel_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    engine.cancelPreview();
-    if (tool_options_panel) |p| p.resetTransformUI();
-
-    canvas_dirty = true;
-    queue_draw();
-}
-
-fn on_text_tool_complete() void {
-    refresh_layers_ui();
-    refresh_undo_ui();
-    update_view_mode();
-    canvas_dirty = true;
-    queue_draw();
-}
-
-fn on_color_picked(color: [4]u8) void {
-    if (color_btn) |btn| {
-        const rgba = c.GdkRGBA{
-            .red = @as(f32, @floatFromInt(color[0])) / 255.0,
-            .green = @as(f32, @floatFromInt(color[1])) / 255.0,
-            .blue = @as(f32, @floatFromInt(color[2])) / 255.0,
-            .alpha = @as(f32, @floatFromInt(color[3])) / 255.0,
-        };
-        c.gtk_color_chooser_set_rgba(@ptrCast(btn), &rgba);
-    }
-}
-
-fn update_color_btn_visual() void {
-    if (color_btn) |btn| {
-        const fg = engine.fg_color;
-        const rgba = c.GdkRGBA{
-            .red = @as(f32, @floatFromInt(fg[0])) / 255.0,
-            .green = @as(f32, @floatFromInt(fg[1])) / 255.0,
-            .blue = @as(f32, @floatFromInt(fg[2])) / 255.0,
-            .alpha = @as(f32, @floatFromInt(fg[3])) / 255.0,
-        };
-        c.gtk_color_chooser_set_rgba(@ptrCast(btn), &rgba);
-    }
-}
-
-fn tool_toggled(
-    button: *c.GtkToggleButton,
-    user_data: ?*anyopaque,
-) callconv(std.builtin.CallingConvention.c) void {
-    if (c.gtk_toggle_button_get_active(button) == 1) {
-        if (active_tool_interface) |iface| {
-            iface.deactivate(&engine);
-            iface.destroy(std.heap.c_allocator);
-        }
-        active_tool_interface = null;
-
-        const tool_ptr = @as(*Tool, @ptrCast(@alignCast(user_data)));
-        current_tool = tool_ptr.*;
-        std.debug.print("Tool switched to: {}\n", .{current_tool});
-
-        const is_transform = (current_tool == .unified_transform);
-        if (tool_options_panel) |p| p.update(current_tool);
-        if (transform_action_bar) |b| c.gtk_widget_set_visible(b, if (is_transform) 1 else 0);
-
-        switch (current_tool) {
-            .brush => {
-                const tool = BrushTool.create(std.heap.c_allocator) catch {
-                    std.debug.print("Failed to create BrushTool\n", .{});
-                    return;
-                };
-                active_tool_interface = tool.interface();
-                active_tool_interface.?.activate(&engine);
-                osd_show("Brush");
-            },
-            .pencil => {
-                const tool = PencilTool.create(std.heap.c_allocator) catch {
-                    std.debug.print("Failed to create PencilTool\n", .{});
-                    return;
-                };
-                active_tool_interface = tool.interface();
-                active_tool_interface.?.activate(&engine);
-                osd_show("Pencil");
-            },
-            .airbrush => {
-                const tool = AirbrushTool.create(std.heap.c_allocator) catch {
-                    std.debug.print("Failed to create AirbrushTool\n", .{});
-                    return;
-                };
-                active_tool_interface = tool.interface();
-                active_tool_interface.?.activate(&engine);
-                osd_show("Airbrush");
-            },
-            .eraser => {
-                const tool = EraserTool.create(std.heap.c_allocator) catch {
-                    std.debug.print("Failed to create EraserTool\n", .{});
-                    return;
-                };
-                active_tool_interface = tool.interface();
-                active_tool_interface.?.activate(&engine);
-                osd_show("Eraser");
-            },
-            .bucket_fill => {
-                const tool = BucketFillTool.create(std.heap.c_allocator) catch {
-                    std.debug.print("Failed to create BucketFillTool\n", .{});
-                    return;
-                };
-                active_tool_interface = tool.interface();
-                active_tool_interface.?.activate(&engine);
-                osd_show("Bucket Fill");
-            },
-            .rect_select => {
-                const tool = RectSelectTool.create(std.heap.c_allocator) catch {
-                    std.debug.print("Failed to create RectSelectTool\n", .{});
-                    return;
-                };
-                active_tool_interface = tool.interface();
-                active_tool_interface.?.activate(&engine);
-                osd_show("Rectangle Select");
-            },
-            .ellipse_select => {
-                const tool = EllipseSelectTool.create(std.heap.c_allocator) catch {
-                    std.debug.print("Failed to create EllipseSelectTool\n", .{});
-                    return;
-                };
-                active_tool_interface = tool.interface();
-                active_tool_interface.?.activate(&engine);
-                osd_show("Ellipse Select");
-            },
-            .rect_shape => {
-                const tool = RectShapeTool.create(std.heap.c_allocator) catch return;
-                active_tool_interface = tool.interface();
-                active_tool_interface.?.activate(&engine);
-                osd_show("Rectangle Tool");
-            },
-            .ellipse_shape => {
-                const tool = EllipseShapeTool.create(std.heap.c_allocator) catch return;
-                active_tool_interface = tool.interface();
-                active_tool_interface.?.activate(&engine);
-                osd_show("Ellipse Tool");
-            },
-            .rounded_rect_shape => {
-                const tool = RoundedRectShapeTool.create(std.heap.c_allocator) catch return;
-                active_tool_interface = tool.interface();
-                active_tool_interface.?.activate(&engine);
-                osd_show("Rounded Rectangle Tool");
-            },
-            .unified_transform => {
-                const tool = UnifiedTransformTool.create(std.heap.c_allocator) catch return;
-                active_tool_interface = tool.interface();
-                active_tool_interface.?.activate(&engine);
-                osd_show("Unified Transform");
-            },
-            .color_picker => {
-                const tool = ColorPickerTool.create(std.heap.c_allocator, &on_color_picked) catch return;
-                active_tool_interface = tool.interface();
-                active_tool_interface.?.activate(&engine);
-                osd_show("Color Picker");
-            },
-            .gradient => {
-                const tool = GradientTool.create(std.heap.c_allocator) catch return;
-                active_tool_interface = tool.interface();
-                active_tool_interface.?.activate(&engine);
-                osd_show("Gradient Tool");
-            },
-            .line => {
-                const tool = LineTool.create(std.heap.c_allocator) catch return;
-                active_tool_interface = tool.interface();
-                active_tool_interface.?.activate(&engine);
-                osd_show("Line Tool");
-            },
-            .curve => {
-                const tool = CurveTool.create(std.heap.c_allocator) catch return;
-                active_tool_interface = tool.interface();
-                active_tool_interface.?.activate(&engine);
-                osd_show("Curve Tool");
-            },
-            .polygon => {
-                const tool = PolygonTool.create(std.heap.c_allocator) catch return;
-                active_tool_interface = tool.interface();
-                active_tool_interface.?.activate(&engine);
-                osd_show("Polygon Tool");
-            },
-            .lasso => {
-                const tool = LassoTool.create(std.heap.c_allocator) catch {
-                    std.debug.print("Failed to create LassoTool\n", .{});
-                    return;
-                };
-                active_tool_interface = tool.interface();
-                active_tool_interface.?.activate(&engine);
-                osd_show("Lasso Select");
-            },
-            .text => {
-                const root = c.gtk_widget_get_root(@ptrCast(button));
-                const win: ?*c.GtkWindow = if (root) |r| @ptrCast(@alignCast(r)) else null;
-                const tool = TextTool.create(std.heap.c_allocator, win, &on_text_tool_complete) catch return;
-                active_tool_interface = tool.interface();
-                active_tool_interface.?.activate(&engine);
-                osd_show("Text Tool");
-            },
-        }
-    }
-}
 
 fn show_toast(comptime fmt: []const u8, args: anytype) void {
     if (toast_overlay) |overlay| {
@@ -477,7 +138,7 @@ fn update_view_mode() void {
 }
 
 fn refresh_undo_ui() void {
-    if (undo_list_box) |box| {
+    if (sidebar_ui.undo_list_box) |box| {
         // Clear children
         var child = c.gtk_widget_get_first_child(@ptrCast(box));
         while (child != null) {
@@ -497,25 +158,6 @@ fn refresh_undo_ui() void {
     }
 }
 
-// Keep these alive
-var brush_tool = Tool.brush;
-var pencil_tool = Tool.pencil;
-var airbrush_tool = Tool.airbrush;
-var eraser_tool = Tool.eraser;
-var bucket_fill_tool = Tool.bucket_fill;
-var rect_select_tool = Tool.rect_select;
-var ellipse_select_tool = Tool.ellipse_select;
-var rect_shape_tool = Tool.rect_shape;
-var ellipse_shape_tool = Tool.ellipse_shape;
-var rounded_rect_shape_tool = Tool.rounded_rect_shape;
-var unified_transform_tool = Tool.unified_transform;
-var color_picker_tool = Tool.color_picker;
-var gradient_tool = Tool.gradient;
-var line_tool = Tool.line;
-var curve_tool = Tool.curve;
-var polygon_tool = Tool.polygon;
-var lasso_tool = Tool.lasso;
-var text_tool = Tool.text;
 
 
 // Drag State
@@ -2190,7 +1832,7 @@ fn queue_draw() void {
 }
 
 fn refresh_layers_ui() void {
-    if (layers_list_box) |box| {
+    if (sidebar_ui.layers_list_box) |box| {
         // Clear children
         var child = c.gtk_widget_get_first_child(@ptrCast(box));
         while (child != null) {
@@ -2231,13 +1873,6 @@ fn refresh_layers_ui() void {
             c.gtk_box_append(@ptrCast(row), label);
 
             c.gtk_list_box_insert(@ptrCast(box), row, -1);
-
-            // Select if active (Wait, creating row doesn't give GtkListBoxRow easily here unless we query or wrap)
-            // GtkListBox wraps generic widget in a GtkListBoxRow automatically.
-            // We can get it after insertion? Or explicitly create GtkListBoxRow.
-            // Let's rely on auto-wrapping and iterate children to select? Or just ignore selection visual for now if tricky?
-            // Actually, correct way: create GtkListBoxRow, set child, insert Row.
-            // But we can verify active layer by list selection later.
         }
     }
 }
@@ -2515,81 +2150,6 @@ fn refresh_recent_ui() void {
     }
 }
 
-const ToolGroupItemContext = struct {
-    main_btn: *c.GtkWidget,
-    active_tool_ref: *Tool,
-    tool: Tool,
-    icon_data: ?[]const u8,
-    icon_name: ?[:0]const u8,
-    tooltip: [:0]const u8,
-    popover: *c.GtkPopover,
-};
-
-fn destroy_tool_group_item_context(data: ?*anyopaque, _: ?*c.GClosure) callconv(std.builtin.CallingConvention.c) void {
-    if (data) |d| {
-        const ctx: *ToolGroupItemContext = @ptrCast(@alignCast(d));
-        std.heap.c_allocator.destroy(ctx);
-    }
-}
-
-fn on_group_item_clicked(_: *c.GtkButton, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    const ctx: *ToolGroupItemContext = @ptrCast(@alignCast(user_data));
-
-    // 1. Update active tool ref
-    ctx.active_tool_ref.* = ctx.tool;
-
-    // 2. Update Main Button Icon/Tooltip
-    var img: *c.GtkWidget = undefined;
-    if (ctx.icon_data) |data| {
-        img = Assets.getIconWidget(data, 24);
-    } else if (ctx.icon_name) |name| {
-        img = c.gtk_image_new_from_icon_name(name);
-        c.gtk_widget_set_size_request(img, 24, 24);
-    } else {
-        img = c.gtk_image_new_from_icon_name("image-missing-symbolic");
-        c.gtk_widget_set_size_request(img, 24, 24);
-    }
-
-    c.gtk_button_set_child(@ptrCast(ctx.main_btn), img);
-    c.gtk_widget_set_tooltip_text(ctx.main_btn, ctx.tooltip);
-
-    // 3. Activate Main Button
-    const is_active = c.gtk_toggle_button_get_active(@ptrCast(ctx.main_btn)) != 0;
-    if (!is_active) {
-        c.gtk_toggle_button_set_active(@ptrCast(ctx.main_btn), 1);
-    } else {
-        // Force update
-        tool_toggled(@ptrCast(ctx.main_btn), ctx.active_tool_ref);
-    }
-
-    // 4. Hide Popover
-    c.gtk_popover_popdown(ctx.popover);
-}
-
-fn on_group_right_click(
-    gesture: *c.GtkGestureClick,
-    _: c_int,
-    _: f64,
-    _: f64,
-    user_data: ?*anyopaque,
-) callconv(std.builtin.CallingConvention.c) void {
-    const popover: *c.GtkPopover = @ptrCast(@alignCast(user_data));
-    const widget = c.gtk_event_controller_get_widget(@ptrCast(gesture));
-    c.gtk_widget_set_parent(@ptrCast(popover), widget);
-    c.gtk_popover_popup(popover);
-}
-
-fn on_group_long_press(
-    gesture: *c.GtkGestureLongPress,
-    _: f64,
-    _: f64,
-    user_data: ?*anyopaque,
-) callconv(std.builtin.CallingConvention.c) void {
-    const popover: *c.GtkPopover = @ptrCast(@alignCast(user_data));
-    const widget = c.gtk_event_controller_get_widget(@ptrCast(gesture));
-    c.gtk_widget_set_parent(@ptrCast(popover), widget);
-    c.gtk_popover_popup(popover);
-}
 
 fn autosave_callback(user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) c.gboolean {
     _ = user_data;
@@ -2737,6 +2297,280 @@ fn zoom_out_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) call
         osd_show(txt);
 
         queue_draw();
+    }
+}
+
+fn rebuild_recent_colors_wrapper(_: ?*anyopaque) callconv(std.builtin.CallingConvention.c) c.gboolean {
+    if (sidebar_ui.color_btn) |_| {
+        sidebar_ui.rebuildRecentColors();
+    }
+    return 0; // G_SOURCE_REMOVE
+}
+
+fn color_changed(
+    button: *c.GtkColorButton,
+    user_data: ?*anyopaque,
+) callconv(std.builtin.CallingConvention.c) void {
+    _ = user_data;
+    var rgba: c.GdkRGBA = undefined;
+    c.gtk_color_chooser_get_rgba(@ptrCast(button), &rgba);
+
+    const r: u8 = @intFromFloat(rgba.red * 255.0);
+    const g: u8 = @intFromFloat(rgba.green * 255.0);
+    const b: u8 = @intFromFloat(rgba.blue * 255.0);
+    const a: u8 = @intFromFloat(rgba.alpha * 255.0);
+
+    engine.setFgColor(r, g, b, a);
+
+    recent_colors_manager.add(rgba) catch {};
+
+    _ = c.g_idle_add(@ptrCast(&rebuild_recent_colors_wrapper), null);
+}
+
+fn on_edit_colors_response(
+    dialog: *c.GtkDialog,
+    response_id: c_int,
+    user_data: ?*anyopaque,
+) callconv(std.builtin.CallingConvention.c) void {
+    _ = user_data;
+    if (response_id == c.GTK_RESPONSE_OK) {
+        var rgba: c.GdkRGBA = undefined;
+        c.gtk_color_chooser_get_rgba(@ptrCast(dialog), &rgba);
+
+        const r: u8 = @intFromFloat(rgba.red * 255.0);
+        const g: u8 = @intFromFloat(rgba.green * 255.0);
+        const b: u8 = @intFromFloat(rgba.blue * 255.0);
+        const a: u8 = @intFromFloat(rgba.alpha * 255.0);
+
+        engine.setFgColor(r, g, b, a);
+        recent_colors_manager.add(rgba) catch {};
+        _ = c.g_idle_add(@ptrCast(&rebuild_recent_colors_wrapper), null);
+    }
+    c.gtk_window_destroy(@ptrCast(dialog));
+}
+
+fn on_edit_colors_clicked(
+    _: *c.GtkButton,
+    user_data: ?*anyopaque,
+) callconv(std.builtin.CallingConvention.c) void {
+    const parent: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
+    const dialog = c.gtk_color_chooser_dialog_new("Edit Colors", parent);
+    if (recent_colors_manager.colors.items.len > 0) {
+        c.gtk_color_chooser_add_palette(
+            @ptrCast(dialog),
+            c.GTK_ORIENTATION_HORIZONTAL,
+            5,
+            @intCast(recent_colors_manager.colors.items.len),
+            recent_colors_manager.colors.items.ptr,
+        );
+    }
+    c.gtk_color_chooser_set_use_alpha(@ptrCast(dialog), 1);
+
+    const fg = engine.fg_color;
+    const rgba = c.GdkRGBA{
+        .red = @as(f32, @floatFromInt(fg[0])) / 255.0,
+        .green = @as(f32, @floatFromInt(fg[1])) / 255.0,
+        .blue = @as(f32, @floatFromInt(fg[2])) / 255.0,
+        .alpha = @as(f32, @floatFromInt(fg[3])) / 255.0,
+    };
+    c.gtk_color_chooser_set_rgba(@ptrCast(dialog), &rgba);
+
+    _ = c.g_signal_connect_data(dialog, "response", @ptrCast(&on_edit_colors_response), null, null, 0);
+    c.gtk_window_present(@ptrCast(dialog));
+}
+
+fn transform_apply_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    engine.applyTransform() catch |err| {
+        show_toast("Apply transform failed: {}", .{err});
+    };
+    if (sidebar_ui.tool_options_panel) |p| p.resetTransformUI();
+
+    canvas_dirty = true;
+    queue_draw();
+    refresh_undo_ui();
+}
+
+fn transform_cancel_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    engine.cancelPreview();
+    if (sidebar_ui.tool_options_panel) |p| p.resetTransformUI();
+
+    canvas_dirty = true;
+    queue_draw();
+}
+
+fn on_text_tool_complete() void {
+    refresh_layers_ui();
+    refresh_undo_ui();
+    update_view_mode();
+    canvas_dirty = true;
+    queue_draw();
+}
+
+fn on_color_picked(color: [4]u8) void {
+    _ = color;
+    sidebar_ui.updateColorButton();
+}
+
+fn on_palette_color_changed() void {
+    sidebar_ui.updateColorButton();
+    queue_draw();
+}
+
+fn tool_toggled(
+    button: *c.GtkToggleButton,
+    user_data: ?*anyopaque,
+) callconv(std.builtin.CallingConvention.c) void {
+    if (c.gtk_toggle_button_get_active(button) == 1) {
+        if (active_tool_interface) |iface| {
+            iface.deactivate(&engine);
+            iface.destroy(std.heap.c_allocator);
+        }
+        active_tool_interface = null;
+
+        const tool_ptr = @as(*Tool, @ptrCast(@alignCast(user_data)));
+        current_tool = tool_ptr.*;
+        std.debug.print("Tool switched to: {}\n", .{current_tool});
+
+        const is_transform = (current_tool == .unified_transform);
+        if (sidebar_ui.tool_options_panel) |p| p.update(current_tool);
+        if (transform_action_bar) |b| c.gtk_widget_set_visible(b, if (is_transform) 1 else 0);
+
+        switch (current_tool) {
+            .brush => {
+                const tool = BrushTool.create(std.heap.c_allocator) catch {
+                    std.debug.print("Failed to create BrushTool\n", .{});
+                    return;
+                };
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
+                osd_show("Brush");
+            },
+            .pencil => {
+                const tool = PencilTool.create(std.heap.c_allocator) catch {
+                    std.debug.print("Failed to create PencilTool\n", .{});
+                    return;
+                };
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
+                osd_show("Pencil");
+            },
+            .airbrush => {
+                const tool = AirbrushTool.create(std.heap.c_allocator) catch {
+                    std.debug.print("Failed to create AirbrushTool\n", .{});
+                    return;
+                };
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
+                osd_show("Airbrush");
+            },
+            .eraser => {
+                const tool = EraserTool.create(std.heap.c_allocator) catch {
+                    std.debug.print("Failed to create EraserTool\n", .{});
+                    return;
+                };
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
+                osd_show("Eraser");
+            },
+            .bucket_fill => {
+                const tool = BucketFillTool.create(std.heap.c_allocator) catch {
+                    std.debug.print("Failed to create BucketFillTool\n", .{});
+                    return;
+                };
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
+                osd_show("Bucket Fill");
+            },
+            .rect_select => {
+                const tool = RectSelectTool.create(std.heap.c_allocator) catch {
+                    std.debug.print("Failed to create RectSelectTool\n", .{});
+                    return;
+                };
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
+                osd_show("Rectangle Select");
+            },
+            .ellipse_select => {
+                const tool = EllipseSelectTool.create(std.heap.c_allocator) catch {
+                    std.debug.print("Failed to create EllipseSelectTool\n", .{});
+                    return;
+                };
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
+                osd_show("Ellipse Select");
+            },
+            .rect_shape => {
+                const tool = RectShapeTool.create(std.heap.c_allocator) catch return;
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
+                osd_show("Rectangle Tool");
+            },
+            .ellipse_shape => {
+                const tool = EllipseShapeTool.create(std.heap.c_allocator) catch return;
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
+                osd_show("Ellipse Tool");
+            },
+            .rounded_rect_shape => {
+                const tool = RoundedRectShapeTool.create(std.heap.c_allocator) catch return;
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
+                osd_show("Rounded Rectangle Tool");
+            },
+            .unified_transform => {
+                const tool = UnifiedTransformTool.create(std.heap.c_allocator) catch return;
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
+                osd_show("Unified Transform");
+            },
+            .color_picker => {
+                const tool = ColorPickerTool.create(std.heap.c_allocator, &on_color_picked) catch return;
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
+                osd_show("Color Picker");
+            },
+            .gradient => {
+                const tool = GradientTool.create(std.heap.c_allocator) catch return;
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
+                osd_show("Gradient Tool");
+            },
+            .line => {
+                const tool = LineTool.create(std.heap.c_allocator) catch return;
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
+                osd_show("Line Tool");
+            },
+            .curve => {
+                const tool = CurveTool.create(std.heap.c_allocator) catch return;
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
+                osd_show("Curve Tool");
+            },
+            .polygon => {
+                const tool = PolygonTool.create(std.heap.c_allocator) catch return;
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
+                osd_show("Polygon Tool");
+            },
+            .lasso => {
+                const tool = LassoTool.create(std.heap.c_allocator) catch {
+                    std.debug.print("Failed to create LassoTool\n", .{});
+                    return;
+                };
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
+                osd_show("Lasso Select");
+            },
+            .text => {
+                const root = c.gtk_widget_get_root(@ptrCast(button));
+                const win: ?*c.GtkWindow = if (root) |r| @ptrCast(@alignCast(r)) else null;
+                const tool = TextTool.create(std.heap.c_allocator, win, &on_text_tool_complete) catch return;
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
+                osd_show("Text Tool");
+            },
+        }
     }
 }
 
@@ -2992,298 +2826,27 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
 
     c.adw_header_bar_pack_end(@ptrCast(header_bar), menu_btn);
 
-    // Sidebar (Left / Sidebar Pane)
-    const sidebar = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 10);
-    c.gtk_widget_set_size_request(sidebar, 200, -1);
-    c.gtk_widget_add_css_class(sidebar, "sidebar");
+    const callbacks = SidebarCallbacks{
+        .tool_toggled = @ptrCast(&tool_toggled),
+        .color_changed = @ptrCast(&color_changed),
+        .edit_colors_clicked = @ptrCast(&on_edit_colors_clicked),
+        .layer_selected = @ptrCast(&layer_selected),
+        .layer_add = @ptrCast(&layer_add_clicked),
+        .layer_remove = @ptrCast(&layer_remove_clicked),
+        .layer_up = @ptrCast(&layer_up_clicked),
+        .layer_down = @ptrCast(&layer_down_clicked),
+        .queue_draw_fn = &queue_draw,
+        .palette_color_changed = &on_palette_color_changed,
+        .rebuild_recent_colors = @ptrCast(&rebuild_recent_colors_wrapper),
+    };
+
+    sidebar_ui = Sidebar.create(std.heap.c_allocator, &engine, &recent_colors_manager, callbacks, @ptrCast(window)) catch |err| {
+        std.debug.print("Failed to create sidebar: {}\n", .{err});
+        return;
+    };
 
     // Set as sidebar in split view
-    c.adw_overlay_split_view_set_sidebar(@ptrCast(split_view), sidebar);
-
-    // Tools Header
-    const tools_label = c.gtk_label_new("Tools");
-    c.gtk_box_append(@ptrCast(sidebar), tools_label);
-
-    // Tools Container (Vertical to hold rows)
-    const tools_container = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 5);
-    c.gtk_widget_set_halign(tools_container, c.GTK_ALIGN_CENTER);
-    c.gtk_box_append(@ptrCast(sidebar), tools_container);
-
-    var tools_row_box: ?*c.GtkWidget = null;
-    var tools_in_row: usize = 0;
-
-    const appendTool = struct {
-        fn func(container: *c.GtkWidget, btn: *c.GtkWidget, row_ref: *?*c.GtkWidget, count_ref: *usize) void {
-            if (row_ref.* == null or count_ref.* >= 6) {
-                const row = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 5);
-                c.gtk_widget_set_halign(row, c.GTK_ALIGN_CENTER);
-                c.gtk_box_append(@ptrCast(container), row);
-                row_ref.* = row;
-                count_ref.* = 0;
-            }
-            c.gtk_box_append(@ptrCast(row_ref.*.?), btn);
-            count_ref.* += 1;
-        }
-    }.func;
-
-    const createToolButton = struct {
-        fn func(tool_val: *Tool, icon_data: ?[]const u8, icon_name: ?[:0]const u8, tooltip: [:0]const u8, group: ?*c.GtkToggleButton) *c.GtkWidget {
-            const btn = if (group) |_| c.gtk_toggle_button_new() else c.gtk_toggle_button_new();
-            if (group) |g| c.gtk_toggle_button_set_group(@ptrCast(btn), g);
-
-            var img: *c.GtkWidget = undefined;
-            if (icon_data) |data| {
-                img = Assets.getIconWidget(data, 24);
-            } else if (icon_name) |name| {
-                img = c.gtk_image_new_from_icon_name(name);
-                c.gtk_widget_set_size_request(img, 24, 24);
-            } else {
-                img = c.gtk_image_new_from_icon_name("image-missing-symbolic");
-                c.gtk_widget_set_size_request(img, 24, 24);
-            }
-
-            c.gtk_button_set_child(@ptrCast(btn), img);
-            c.gtk_widget_set_tooltip_text(btn, tooltip);
-
-            _ = c.g_signal_connect_data(btn, "toggled", @ptrCast(&tool_toggled), tool_val, null, 0);
-            return btn;
-        }
-    }.func;
-
-    const createToolGroup = struct {
-        fn func(
-            active_tool_ref: *Tool,
-            entries: []const ToolEntry,
-            group: ?*c.GtkToggleButton,
-        ) *c.GtkWidget {
-            const btn = if (group) |_| c.gtk_toggle_button_new() else c.gtk_toggle_button_new();
-            if (group) |g| c.gtk_toggle_button_set_group(@ptrCast(btn), g);
-
-            // Set initial state
-            var current_entry: ?ToolEntry = null;
-            for (entries) |e| {
-                if (e.tool == active_tool_ref.*) {
-                    current_entry = e;
-                    break;
-                }
-            }
-            if (current_entry == null) current_entry = entries[0];
-
-            var img: *c.GtkWidget = undefined;
-            if (current_entry.?.icon_data) |data| {
-                img = Assets.getIconWidget(data, 24);
-            } else if (current_entry.?.icon_name) |name| {
-                img = c.gtk_image_new_from_icon_name(name);
-                c.gtk_widget_set_size_request(img, 24, 24);
-            } else {
-                img = c.gtk_image_new_from_icon_name("image-missing-symbolic");
-                c.gtk_widget_set_size_request(img, 24, 24);
-            }
-
-            c.gtk_button_set_child(@ptrCast(btn), img);
-            c.gtk_widget_set_tooltip_text(btn, current_entry.?.tooltip);
-
-            _ = c.g_signal_connect_data(btn, "toggled", @ptrCast(&tool_toggled), active_tool_ref, null, 0);
-
-            // Popover
-            const popover = c.gtk_popover_new();
-            const grid = c.gtk_grid_new();
-            c.gtk_grid_set_row_spacing(@ptrCast(grid), 5);
-            c.gtk_grid_set_column_spacing(@ptrCast(grid), 5);
-            c.gtk_widget_set_margin_top(grid, 5);
-            c.gtk_widget_set_margin_bottom(grid, 5);
-            c.gtk_widget_set_margin_start(grid, 5);
-            c.gtk_widget_set_margin_end(grid, 5);
-            c.gtk_popover_set_child(@ptrCast(popover), grid);
-
-            for (entries, 0..) |entry, i| {
-                const item_btn = c.gtk_button_new();
-                var item_img: *c.GtkWidget = undefined;
-                if (entry.icon_data) |data| {
-                    item_img = Assets.getIconWidget(data, 24);
-                } else if (entry.icon_name) |name| {
-                    item_img = c.gtk_image_new_from_icon_name(name);
-                    c.gtk_widget_set_size_request(item_img, 24, 24);
-                } else {
-                    item_img = c.gtk_image_new_from_icon_name("image-missing-symbolic");
-                    c.gtk_widget_set_size_request(item_img, 24, 24);
-                }
-
-                c.gtk_button_set_child(@ptrCast(item_btn), item_img);
-                c.gtk_widget_set_tooltip_text(item_btn, entry.tooltip);
-
-                const col = @as(c_int, @intCast(i % 3));
-                const row = @as(c_int, @intCast(i / 3));
-                c.gtk_grid_attach(@ptrCast(grid), item_btn, col, row, 1, 1);
-
-                const ctx = std.heap.c_allocator.create(ToolGroupItemContext) catch continue;
-                ctx.* = .{
-                    .main_btn = btn,
-                    .active_tool_ref = active_tool_ref,
-                    .tool = entry.tool,
-                    .icon_data = entry.icon_data,
-                    .icon_name = entry.icon_name,
-                    .tooltip = entry.tooltip,
-                    .popover = @ptrCast(popover),
-                };
-
-                _ = c.g_signal_connect_data(item_btn, "clicked", @ptrCast(&on_group_item_clicked), ctx, @ptrCast(&destroy_tool_group_item_context), 0);
-            }
-
-            const click = c.gtk_gesture_click_new();
-            c.gtk_gesture_single_set_button(@ptrCast(click), 3);
-            _ = c.g_signal_connect_data(click, "pressed", @ptrCast(&on_group_right_click), popover, null, 0);
-            c.gtk_widget_add_controller(btn, @ptrCast(click));
-
-            const long_press = c.gtk_gesture_long_press_new();
-            _ = c.g_signal_connect_data(long_press, "pressed", @ptrCast(&on_group_long_press), popover, null, 0);
-            c.gtk_widget_add_controller(btn, @ptrCast(long_press));
-
-            return btn;
-        }
-    }.func;
-
-    // Paint Group (Brush, Pencil, Airbrush)
-    const paint_entries = [_]ToolEntry{
-        .{ .tool = .brush, .icon_data = Assets.brush_png, .tooltip = "Brush" },
-        .{ .tool = .pencil, .icon_data = Assets.pencil_png, .tooltip = "Pencil" },
-        .{ .tool = .airbrush, .icon_data = Assets.airbrush_png, .tooltip = "Airbrush" },
-    };
-    const paint_group_btn = createToolGroup(&active_paint_tool, &paint_entries, null);
-    appendTool(tools_container, paint_group_btn, &tools_row_box, &tools_in_row);
-    c.gtk_toggle_button_set_active(@ptrCast(paint_group_btn), 1);
-
-    // Eraser
-    const eraser_btn = createToolButton(&eraser_tool, Assets.eraser_png, null, "Eraser", @ptrCast(paint_group_btn));
-    appendTool(tools_container, eraser_btn, &tools_row_box, &tools_in_row);
-
-    // Bucket Fill
-    const fill_btn = createToolButton(&bucket_fill_tool, Assets.bucket_png, null, "Bucket Fill", @ptrCast(paint_group_btn));
-    appendTool(tools_container, fill_btn, &tools_row_box, &tools_in_row);
-
-    // Selection Group
-    const select_entries = [_]ToolEntry{
-        .{ .tool = .rect_select, .icon_data = Assets.rect_select_svg, .tooltip = "Rectangle Select" },
-        .{ .tool = .ellipse_select, .icon_data = Assets.ellipse_select_svg, .tooltip = "Ellipse Select" },
-        .{ .tool = .lasso, .icon_data = Assets.lasso_select_svg, .tooltip = "Lasso Select" },
-    };
-    const select_group_btn = createToolGroup(&active_selection_tool, &select_entries, @ptrCast(paint_group_btn));
-    appendTool(tools_container, select_group_btn, &tools_row_box, &tools_in_row);
-
-    // Text Tool
-    const text_btn = createToolButton(&text_tool, Assets.text_svg, null, "Text Tool", @ptrCast(paint_group_btn));
-    appendTool(tools_container, text_btn, &tools_row_box, &tools_in_row);
-
-    // Shapes Group
-    const shape_entries = [_]ToolEntry{
-        .{ .tool = .rect_shape, .icon_data = Assets.rect_shape_svg, .tooltip = "Rectangle Tool" },
-        .{ .tool = .ellipse_shape, .icon_data = Assets.ellipse_shape_svg, .tooltip = "Ellipse Tool" },
-        .{ .tool = .rounded_rect_shape, .icon_data = Assets.rounded_rect_shape_svg, .tooltip = "Rounded Rectangle Tool" },
-        .{ .tool = .polygon, .icon_data = Assets.polygon_svg, .tooltip = "Polygon Tool" },
-    };
-    const shape_group_btn = createToolGroup(&active_shape_tool, &shape_entries, @ptrCast(paint_group_btn));
-    appendTool(tools_container, shape_group_btn, &tools_row_box, &tools_in_row);
-
-    // Unified Transform
-    const transform_btn = createToolButton(&unified_transform_tool, Assets.transform_svg, null, "Unified Transform", @ptrCast(paint_group_btn));
-    appendTool(tools_container, transform_btn, &tools_row_box, &tools_in_row);
-
-    // Color Picker
-    const picker_btn = createToolButton(&color_picker_tool, Assets.color_picker_svg, null, "Color Picker", @ptrCast(paint_group_btn));
-    appendTool(tools_container, picker_btn, &tools_row_box, &tools_in_row);
-
-    // Gradient Tool
-    const gradient_btn = createToolButton(&gradient_tool, Assets.gradient_svg, null, "Gradient Tool", @ptrCast(paint_group_btn));
-    appendTool(tools_container, gradient_btn, &tools_row_box, &tools_in_row);
-
-    // Lines Group
-    const line_entries = [_]ToolEntry{
-        .{ .tool = .line, .icon_data = Assets.line_svg, .tooltip = "Line Tool (Shift to snap)" },
-        .{ .tool = .curve, .icon_data = Assets.curve_svg, .tooltip = "Curve Tool (Drag Line -> Bend 1 -> Bend 2)" },
-    };
-    const line_group_btn = createToolGroup(&active_line_tool, &line_entries, @ptrCast(paint_group_btn));
-    appendTool(tools_container, line_group_btn, &tools_row_box, &tools_in_row);
-
-    // Separator
-    c.gtk_box_append(@ptrCast(sidebar), c.gtk_separator_new(c.GTK_ORIENTATION_HORIZONTAL));
-
-    // Color Palette (Default 28 Colors)
-    const palette = ColorPalette.create(&engine, &update_color_btn_visual);
-    c.gtk_box_append(@ptrCast(sidebar), palette);
-
-    // Color Selection & Edit
-    const color_box = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 5);
-    c.gtk_widget_set_halign(color_box, c.GTK_ALIGN_CENTER);
-    c.gtk_box_append(@ptrCast(sidebar), color_box);
-
-    color_btn = create_color_button();
-    c.gtk_box_append(@ptrCast(color_box), color_btn);
-
-    const edit_colors_btn = c.gtk_button_new_with_mnemonic("_Edit Colors");
-    _ = c.g_signal_connect_data(edit_colors_btn, "clicked", @ptrCast(&on_edit_colors_clicked), window, null, 0);
-    c.gtk_box_append(@ptrCast(color_box), edit_colors_btn);
-
-    // Tool Options Panel
-    tool_options_panel = ToolOptionsPanel.create(&engine, &queue_draw);
-    if (tool_options_panel) |p| {
-        c.gtk_box_append(@ptrCast(sidebar), p.widget());
-        p.update(current_tool);
-    }
-
-    // Layers Section
-    c.gtk_box_append(@ptrCast(sidebar), c.gtk_separator_new(c.GTK_ORIENTATION_HORIZONTAL));
-
-    c.gtk_box_append(@ptrCast(sidebar), c.gtk_label_new("Layers"));
-
-    const layers_list = c.gtk_list_box_new();
-    c.gtk_widget_set_vexpand(layers_list, 1);
-    c.gtk_list_box_set_selection_mode(@ptrCast(layers_list), c.GTK_SELECTION_SINGLE);
-    _ = c.g_signal_connect_data(layers_list, "row-selected", @ptrCast(&layer_selected), null, null, 0);
-
-    const scrolled = c.gtk_scrolled_window_new();
-    c.gtk_scrolled_window_set_child(@ptrCast(scrolled), layers_list);
-    c.gtk_widget_set_vexpand(scrolled, 1);
-    c.gtk_box_append(@ptrCast(sidebar), scrolled);
-
-    layers_list_box = layers_list;
-
-    const layers_btns = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 5);
-    c.gtk_widget_set_halign(layers_btns, c.GTK_ALIGN_CENTER);
-    c.gtk_box_append(@ptrCast(sidebar), layers_btns);
-
-    const add_layer_btn = c.gtk_button_new_from_icon_name("list-add-symbolic");
-    c.gtk_widget_set_tooltip_text(add_layer_btn, "Add Layer");
-    c.gtk_box_append(@ptrCast(layers_btns), add_layer_btn);
-    _ = c.g_signal_connect_data(add_layer_btn, "clicked", @ptrCast(&layer_add_clicked), null, null, 0);
-
-    const remove_layer_btn = c.gtk_button_new_from_icon_name("list-remove-symbolic");
-    c.gtk_widget_set_tooltip_text(remove_layer_btn, "Remove Layer");
-    c.gtk_box_append(@ptrCast(layers_btns), remove_layer_btn);
-    _ = c.g_signal_connect_data(remove_layer_btn, "clicked", @ptrCast(&layer_remove_clicked), null, null, 0);
-
-    const up_layer_btn = c.gtk_button_new_from_icon_name("go-up-symbolic");
-    c.gtk_widget_set_tooltip_text(up_layer_btn, "Move Up");
-    c.gtk_box_append(@ptrCast(layers_btns), up_layer_btn);
-    _ = c.g_signal_connect_data(up_layer_btn, "clicked", @ptrCast(&layer_up_clicked), null, null, 0);
-
-    const down_layer_btn = c.gtk_button_new_from_icon_name("go-down-symbolic");
-    c.gtk_widget_set_tooltip_text(down_layer_btn, "Move Down");
-    c.gtk_box_append(@ptrCast(layers_btns), down_layer_btn);
-    _ = c.g_signal_connect_data(down_layer_btn, "clicked", @ptrCast(&layer_down_clicked), null, null, 0);
-
-    // Undo History Section
-    c.gtk_box_append(@ptrCast(sidebar), c.gtk_separator_new(c.GTK_ORIENTATION_HORIZONTAL));
-    c.gtk_box_append(@ptrCast(sidebar), c.gtk_label_new("Undo History"));
-
-    const undo_list = c.gtk_list_box_new();
-    c.gtk_list_box_set_selection_mode(@ptrCast(undo_list), c.GTK_SELECTION_NONE);
-
-    const undo_scrolled = c.gtk_scrolled_window_new();
-    c.gtk_scrolled_window_set_child(@ptrCast(undo_scrolled), undo_list);
-    c.gtk_widget_set_vexpand(undo_scrolled, 1);
-    c.gtk_box_append(@ptrCast(sidebar), undo_scrolled);
-
-    undo_list_box = undo_list;
+    c.adw_overlay_split_view_set_sidebar(@ptrCast(split_view), sidebar_ui.widget);
 
     // Main Content (Right / Content Pane)
     const content = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 0);
