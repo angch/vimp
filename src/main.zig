@@ -387,7 +387,7 @@ fn refresh_undo_ui() void {
         }
 
         // Add undo commands
-        for (engine.undo_stack.items) |cmd| {
+        for (engine.history.undo_stack.items) |cmd| {
             const desc = cmd.description();
             const label = c.gtk_label_new(desc);
             c.gtk_widget_set_halign(label, c.GTK_ALIGN_START);

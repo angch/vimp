@@ -14,7 +14,12 @@ Vimp is a GIMP-like application built with **Zig**, **GTK4**, and **GEGL**. It a
 - [GEGL Usage](.agent/skills/gegl/SKILL.md) - Graph construction and export operations.
 - [GTK4 Migration](.agent/skills/gtk4_migration/SKILL.md) - Porting legacy patterns to modern GTK4.
 
-## 3. Documentation
+## 3. Testing
+*Strategies for verifying functionality.*
+
+- [Headless UI Testing](doc/testing.md) - Using Broadway + Playwright for E2E verification.
+
+## 4. Documentation
 *Project-specific architecture and analysis.*
 
 ### Key Docs
@@ -29,7 +34,7 @@ Vimp is a GIMP-like application built with **Zig**, **GTK4**, and **GEGL**. It a
 - [GIMP Analysis](doc/gimp-analysis.md) - Deep dive into GIMP architecture.
 - [GNOME HIG Analysis](doc/gnome-hig-analysis.md) - UI design guidelines.
 
-## 4. Agent Workflow
+## 5. Agent Workflow
 - [Ralph Loop Instructions](.agent/skills/ralph/LOOP_INSTRUCTIONS.md) - The prompt for the autonomous agent loop.
 - [PRD Creation](.agent/skills/prd/SKILL.md) - Creating feature specs.
 - [Ralph PRD Conversion](.agent/skills/ralph/SKILL.md) - Converting specs to JSON.

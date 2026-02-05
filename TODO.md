@@ -44,7 +44,7 @@
     - Leverage GNOME's accessibility layer (AT-SPI) to drive the UI for E2E tests.
     - Allows black-box testing of widgets and user flows without relying on brittle coordinate clicks.
     - Ensures the application remains accessible to screen readers.
-- [ ] **Evaluate Broadway + Web Automation (Playwright/Selenium):**
+- [x] **Evaluate Broadway + Web Automation (Playwright/Selenium):**
     - Run Vimp with `GDK_BACKEND=broadway` to render the UI in a web browser.
     - Use mature web testing ecosystems (Playwright, Cypress) to inspect DOM and simulate input.
     - Potential for cross-platform visual regression testing via browser screenshots.
