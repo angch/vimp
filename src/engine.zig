@@ -4,12 +4,11 @@ const SvgLoader = @import("svg_loader.zig");
 const OraMod = @import("ora_loader.zig");
 const OraLoader = OraMod.OraLoader;
 const LayersMod = @import("engine/layers.zig");
+const HistoryMod = @import("engine/history.zig");
+const TypesMod = @import("engine/types.zig");
 
 pub const Engine = struct {
-    pub const Point = struct {
-        x: f64,
-        y: f64,
-    };
+    pub const Point = TypesMod.Point;
 
     pub const PdfImportParams = struct {
         ppi: f64,
@@ -40,11 +39,7 @@ pub const Engine = struct {
         circle,
     };
 
-    pub const SelectionMode = enum {
-        rectangle,
-        ellipse,
-        lasso,
-    };
+    pub const SelectionMode = TypesMod.SelectionMode;
 
     pub const ShapeType = enum {
         rectangle,
@@ -100,74 +95,12 @@ pub const Engine = struct {
         skew_y: f64 = 0.0,
     };
 
-    pub const PaintCommand = struct {
-        layer_idx: usize,
-        before: *c.GeglBuffer,
-        after: ?*c.GeglBuffer = null,
-
-        pub fn deinit(self: *PaintCommand) void {
-            c.g_object_unref(self.before);
-            if (self.after) |a| c.g_object_unref(a);
-        }
-    };
-
     pub const LayerSnapshot = LayersMod.LayerSnapshot;
     pub const LayerCommand = LayersMod.LayerCommand;
-
-    pub const SelectionCommand = struct {
-        before: ?c.GeglRectangle,
-        before_mode: SelectionMode,
-        after: ?c.GeglRectangle = null,
-        after_mode: SelectionMode = .rectangle,
-        before_points: ?[]Point = null,
-        after_points: ?[]Point = null,
-
-        pub fn deinit(self: *SelectionCommand) void {
-            if (self.before_points) |p| std.heap.c_allocator.free(p);
-            if (self.after_points) |p| std.heap.c_allocator.free(p);
-        }
-    };
-
-    pub const CanvasSizeCommand = struct {
-        before_width: c_int,
-        before_height: c_int,
-        after_width: c_int,
-        after_height: c_int,
-    };
-
-    pub const Command = union(enum) {
-        paint: PaintCommand,
-        transform: PaintCommand,
-        layer: LayersMod.LayerCommand,
-        selection: SelectionCommand,
-        canvas_size: CanvasSizeCommand,
-
-        pub fn description(self: Command) [:0]const u8 {
-            switch (self) {
-                .paint => return "Paint Stroke",
-                .transform => return "Transform Layer",
-                .layer => |l_cmd| switch (l_cmd) {
-                    .add => return "Add Layer",
-                    .remove => return "Remove Layer",
-                    .reorder => return "Reorder Layer",
-                    .visibility => return "Toggle Visibility",
-                    .lock => return "Toggle Lock",
-                },
-                .selection => return "Selection Change",
-                .canvas_size => return "Resize Canvas",
-            }
-        }
-
-        pub fn deinit(self: *Command) void {
-            switch (self.*) {
-                .paint => |*cmd| cmd.deinit(),
-                .transform => |*cmd| cmd.deinit(),
-                .layer => |*cmd| cmd.deinit(),
-                .selection => |*cmd| cmd.deinit(),
-                .canvas_size => {},
-            }
-        }
-    };
+    pub const PaintCommand = HistoryMod.PaintCommand;
+    pub const SelectionCommand = HistoryMod.SelectionCommand;
+    pub const CanvasSizeCommand = HistoryMod.CanvasSizeCommand;
+    pub const Command = HistoryMod.Command;
 
     pub const Layer = LayersMod.Layer;
 
@@ -179,8 +112,7 @@ pub const Engine = struct {
     base_node: ?*c.GeglNode = null,
     composition_nodes: std.ArrayList(*c.GeglNode) = undefined,
 
-    undo_stack: std.ArrayList(Command) = undefined,
-    redo_stack: std.ArrayList(Command) = undefined,
+    history: HistoryMod.History = undefined,
     current_command: ?Command = null,
 
     paths: std.ArrayList(VectorPath) = undefined,
@@ -261,8 +193,7 @@ pub const Engine = struct {
     fn initData(self: *Engine) void {
         self.layers = std.ArrayList(Layer){};
         self.composition_nodes = std.ArrayList(*c.GeglNode){};
-        self.undo_stack = std.ArrayList(Command){};
-        self.redo_stack = std.ArrayList(Command){};
+        self.history = HistoryMod.History.init(std.heap.c_allocator);
         self.paths = std.ArrayList(VectorPath){};
         self.fill_buffer = std.ArrayList(u8){};
         self.preview_points = std.ArrayList(Point){};
@@ -292,10 +223,7 @@ pub const Engine = struct {
     }
 
     fn cleanupData(self: *Engine) void {
-        for (self.undo_stack.items) |*cmd| cmd.deinit();
-        self.undo_stack.deinit(std.heap.c_allocator);
-        for (self.redo_stack.items) |*cmd| cmd.deinit();
-        self.redo_stack.deinit(std.heap.c_allocator);
+        self.history.deinit();
         if (self.current_command) |*cmd| cmd.deinit();
 
         self.fill_buffer.deinit(std.heap.c_allocator);
@@ -360,11 +288,9 @@ pub const Engine = struct {
                 .after_height = height,
             },
         };
-        self.undo_stack.append(std.heap.c_allocator, cmd) catch |err| {
+        self.history.push(cmd) catch |err| {
             std.debug.print("Failed to push undo: {}\n", .{err});
         };
-        for (self.redo_stack.items) |*r_cmd| r_cmd.deinit();
-        self.redo_stack.clearRetainingCapacity();
     }
 
     pub fn beginTransaction(self: *Engine) void {
@@ -440,23 +366,18 @@ pub const Engine = struct {
                 .canvas_size => {},
             }
             // Move current_command to undo stack
-            self.undo_stack.append(std.heap.c_allocator, self.current_command.?) catch |err| {
+            self.history.push(self.current_command.?) catch |err| {
                 std.debug.print("Failed to append to undo stack: {}\n", .{err});
                 self.current_command.?.deinit();
                 self.current_command = null;
                 return;
             };
             self.current_command = null;
-
-            // Clear redo stack
-            for (self.redo_stack.items) |*r_cmd| r_cmd.deinit();
-            self.redo_stack.clearRetainingCapacity();
         }
     }
 
     pub fn undo(self: *Engine) void {
-        if (self.undo_stack.items.len == 0) return;
-        const cmd_opt = self.undo_stack.pop();
+        const cmd_opt = self.history.popUndo();
         if (cmd_opt) |cmd| {
             // Need a mutable copy to update snapshots
             var mutable_cmd = cmd;
@@ -525,15 +446,14 @@ pub const Engine = struct {
                 },
             }
 
-            self.redo_stack.append(std.heap.c_allocator, mutable_cmd) catch {
+            self.history.pushRedo(mutable_cmd) catch {
                 mutable_cmd.deinit();
             };
         }
     }
 
     pub fn redo(self: *Engine) void {
-        if (self.redo_stack.items.len == 0) return;
-        const cmd_opt = self.redo_stack.pop();
+        const cmd_opt = self.history.popRedo();
 
         if (cmd_opt) |cmd| {
             // Need a mutable copy to update snapshots
@@ -601,7 +521,7 @@ pub const Engine = struct {
                 },
             }
 
-            self.undo_stack.append(std.heap.c_allocator, mutable_cmd) catch {
+            self.history.pushUndo(mutable_cmd) catch {
                 mutable_cmd.deinit();
             };
         }
@@ -1264,11 +1184,9 @@ pub const Engine = struct {
         const cmd = Command{
             .layer = .{ .add = .{ .index = index, .snapshot = null } },
         };
-        self.undo_stack.append(std.heap.c_allocator, cmd) catch |err| {
+        self.history.push(cmd) catch |err| {
             std.debug.print("Failed to push undo: {}\n", .{err});
         };
-        for (self.redo_stack.items) |*r_cmd| r_cmd.deinit();
-        self.redo_stack.clearRetainingCapacity();
     }
 
     pub fn getPdfPageCount(self: *Engine, path: []const u8) !i32 {
@@ -1381,9 +1299,7 @@ pub const Engine = struct {
             const cmd = Command{
                 .layer = .{ .add = .{ .index = index, .snapshot = null } },
             };
-            self.undo_stack.append(std.heap.c_allocator, cmd) catch {};
-            for (self.redo_stack.items) |*r_cmd| r_cmd.deinit();
-            self.redo_stack.clearRetainingCapacity();
+            self.history.push(cmd) catch {};
         }
     }
 
@@ -1458,9 +1374,7 @@ pub const Engine = struct {
         const cmd = Command{
             .layer = .{ .add = .{ .index = index, .snapshot = null } },
         };
-        self.undo_stack.append(std.heap.c_allocator, cmd) catch {};
-        for (self.redo_stack.items) |*r_cmd| r_cmd.deinit();
-        self.redo_stack.clearRetainingCapacity();
+        self.history.push(cmd) catch {};
     }
 
     pub fn loadFromFile(self: *Engine, path: []const u8) !void {
@@ -1502,11 +1416,9 @@ pub const Engine = struct {
         const cmd = Command{
             .layer = .{ .add = .{ .index = index, .snapshot = null } },
         };
-        self.undo_stack.append(std.heap.c_allocator, cmd) catch |err| {
+        self.history.push(cmd) catch |err| {
             std.debug.print("Failed to push undo: {}\n", .{err});
         };
-        for (self.redo_stack.items) |*r_cmd| r_cmd.deinit();
-        self.redo_stack.clearRetainingCapacity();
     }
 
     /// Exports the current composition to a file using GEGL's generic save operation.
@@ -1604,12 +1516,10 @@ pub const Engine = struct {
         const cmd = Command{
             .layer = .{ .remove = .{ .index = index, .snapshot = snapshot } },
         };
-        self.undo_stack.append(std.heap.c_allocator, cmd) catch |err| {
+        self.history.push(cmd) catch |err| {
             std.debug.print("Failed to push undo: {}\n", .{err});
             snapshot.deinit(); // Prevent leak
         };
-        for (self.redo_stack.items) |*r_cmd| r_cmd.deinit();
-        self.redo_stack.clearRetainingCapacity();
     }
 
     fn reorderLayerInternal(self: *Engine, from: usize, to: usize) void {
@@ -1639,11 +1549,9 @@ pub const Engine = struct {
         const cmd = Command{
             .layer = .{ .reorder = .{ .from = from, .to = to } },
         };
-        self.undo_stack.append(std.heap.c_allocator, cmd) catch |err| {
+        self.history.push(cmd) catch |err| {
             std.debug.print("Failed to push undo: {}\n", .{err});
         };
-        for (self.redo_stack.items) |*r_cmd| r_cmd.deinit();
-        self.redo_stack.clearRetainingCapacity();
     }
 
     pub fn setActiveLayer(self: *Engine, index: usize) void {
@@ -1665,11 +1573,9 @@ pub const Engine = struct {
             const cmd = Command{
                 .layer = .{ .visibility = .{ .index = index } },
             };
-            self.undo_stack.append(std.heap.c_allocator, cmd) catch |err| {
+            self.history.push(cmd) catch |err| {
                 std.debug.print("Failed to push undo: {}\n", .{err});
             };
-            for (self.redo_stack.items) |*r_cmd| r_cmd.deinit();
-            self.redo_stack.clearRetainingCapacity();
         }
     }
 
@@ -1685,11 +1591,9 @@ pub const Engine = struct {
             const cmd = Command{
                 .layer = .{ .lock = .{ .index = index } },
             };
-            self.undo_stack.append(std.heap.c_allocator, cmd) catch |err| {
+            self.history.push(cmd) catch |err| {
                 std.debug.print("Failed to push undo: {}\n", .{err});
             };
-            for (self.redo_stack.items) |*r_cmd| r_cmd.deinit();
-            self.redo_stack.clearRetainingCapacity();
         }
     }
 
@@ -2952,9 +2856,7 @@ pub const Engine = struct {
         const cmd = Command{
             .layer = .{ .add = .{ .index = self.layers.items.len - 1, .snapshot = null } },
         };
-        self.undo_stack.append(std.heap.c_allocator, cmd) catch {};
-        for (self.redo_stack.items) |*r_cmd| r_cmd.deinit();
-        self.redo_stack.clearRetainingCapacity();
+        self.history.push(cmd) catch {};
     }
 
     pub fn drawGradient(self: *Engine, x1: c_int, y1: c_int, x2: c_int, y2: c_int) !void {
@@ -4350,30 +4252,30 @@ test "Engine layer undo redo" {
     try std.testing.expectEqual(engine.layers.items.len, 1);
     // setupGraph adds "Background", which pushes to undo stack.
     // Let's clear undo stack to start fresh for this test logic
-    for (engine.undo_stack.items) |*cmd| cmd.deinit();
-    engine.undo_stack.clearRetainingCapacity();
+    for (engine.history.undo_stack.items) |*cmd| cmd.deinit();
+    engine.history.undo_stack.clearRetainingCapacity();
 
     // 1. Add Layer 1
     try engine.addLayer("Layer 1");
     try std.testing.expectEqual(engine.layers.items.len, 2);
-    try std.testing.expectEqual(engine.undo_stack.items.len, 1);
+    try std.testing.expectEqual(engine.history.undo_stack.items.len, 1);
 
     // 2. Undo Add (Should remove Layer 1)
     engine.undo();
     try std.testing.expectEqual(engine.layers.items.len, 1);
-    try std.testing.expectEqual(engine.undo_stack.items.len, 0);
-    try std.testing.expectEqual(engine.redo_stack.items.len, 1);
+    try std.testing.expectEqual(engine.history.undo_stack.items.len, 0);
+    try std.testing.expectEqual(engine.history.redo_stack.items.len, 1);
 
     // 3. Redo Add (Should restore Layer 1)
     engine.redo();
     try std.testing.expectEqual(engine.layers.items.len, 2);
-    try std.testing.expectEqual(engine.undo_stack.items.len, 1);
-    try std.testing.expectEqual(engine.redo_stack.items.len, 0);
+    try std.testing.expectEqual(engine.history.undo_stack.items.len, 1);
+    try std.testing.expectEqual(engine.history.redo_stack.items.len, 0);
 
     // 4. Remove Layer 1 (Index 1)
     engine.removeLayer(1);
     try std.testing.expectEqual(engine.layers.items.len, 1);
-    try std.testing.expectEqual(engine.undo_stack.items.len, 2); // Add + Remove
+    try std.testing.expectEqual(engine.history.undo_stack.items.len, 2); // Add + Remove
 
     // 5. Undo Remove (Should restore Layer 1)
     engine.undo();
@@ -4406,7 +4308,7 @@ test "Engine selection undo redo" {
         try std.testing.expectEqual(s.x, 10);
         try std.testing.expectEqual(s.width, 100);
     }
-    try std.testing.expectEqual(engine.undo_stack.items.len, 2); // Initial Layer + Selection
+    try std.testing.expectEqual(engine.history.undo_stack.items.len, 2); // Initial Layer + Selection
 
     // 3. Undo -> Should be no selection
     engine.undo();

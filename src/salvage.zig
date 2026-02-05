@@ -54,8 +54,6 @@ pub const Salvage = struct {
         const cmd = Engine.Command{
             .layer = .{ .add = .{ .index = engine.layers.items.len - 1, .snapshot = null } },
         };
-        engine.undo_stack.append(std.heap.c_allocator, cmd) catch {};
-        for (engine.redo_stack.items) |*r_cmd| r_cmd.deinit();
-        engine.redo_stack.clearRetainingCapacity();
+        engine.history.push(cmd) catch {};
     }
 };
