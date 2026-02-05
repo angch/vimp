@@ -9,7 +9,7 @@
 > Technical debt reduction to enable easier feature development and maintainability.
 
 - [ ] **Refactor Engine - Split Modules:** Break down `src/engine.zig` (God Object) into cohesive modules in `src/engine/`.
-    - [ ] Extract `Layer` struct and management logic to `src/engine/layers.zig` with unit tests.
+    - [x] Extract `Layer` struct and management logic to `src/engine/layers.zig` with unit tests.
     - [ ] Extract `Command` and Undo/Redo stack to `src/engine/history.zig` with unit tests.
     - [ ] Extract painting primitives (Bresenham, Airbrush) to `src/engine/paint.zig` with unit tests.
     - [ ] Extract selection logic (Rectangle, Ellipse, Lasso) to `src/engine/selection.zig` with unit tests.
