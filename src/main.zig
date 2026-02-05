@@ -2,6 +2,7 @@ const std = @import("std");
 
 const c = @import("c.zig").c;
 const Engine = @import("engine.zig").Engine;
+const EngineIO = @import("engine.zig").io;
 const CanvasUtils = @import("canvas_utils.zig");
 const RecentManager = @import("recent.zig").RecentManager;
 const RecentColorsManager = @import("recent_colors.zig").RecentColorsManager;
@@ -979,7 +980,7 @@ fn generate_thumbnail(path: [:0]const u8) void {
     };
     defer std.heap.c_allocator.free(thumb_path);
 
-    engine.saveThumbnail(thumb_path, 96, 96) catch |e| {
+    EngineIO.saveThumbnail(&engine, thumb_path, 96, 96) catch |e| {
         std.debug.print("Failed to save thumbnail: {}\n", .{e});
     };
 }
@@ -1231,7 +1232,7 @@ fn on_pdf_import(user_data: ?*anyopaque, path: [:0]const u8, params: ?Engine.Pdf
         }
 
         var success = true;
-        engine.loadPdf(path, p) catch |e| {
+        EngineIO.loadPdf(&engine, path, p) catch |e| {
             show_toast("Failed to load PDF: {}", .{e});
             success = false;
         };
@@ -1250,7 +1251,7 @@ fn on_svg_import(user_data: ?*anyopaque, path: [:0]const u8, params: ?Engine.Svg
         }
 
         var success = true;
-        engine.loadSvg(path, p) catch |e| {
+        EngineIO.loadSvg(&engine, path, p) catch |e| {
             show_toast("Failed to load SVG: {}", .{e});
             success = false;
         };
@@ -1266,7 +1267,7 @@ fn openFileFromPath(path: [:0]const u8, as_layers: bool, add_to_recent: bool) vo
 
     if (is_ora) {
         var success = true;
-        engine.loadOra(path, !as_layers) catch |e| {
+        EngineIO.loadOra(&engine, path, !as_layers) catch |e| {
             show_toast("Failed to load ORA: {}", .{e});
             success = false;
         };
@@ -1319,7 +1320,7 @@ fn openFileFromPath(path: [:0]const u8, as_layers: bool, add_to_recent: bool) vo
 
     var load_success = true;
     // Call engine load
-    engine.loadFromFile(path) catch |e| {
+    EngineIO.loadFromFile(&engine, path) catch |e| {
         // Offer salvage
         show_toast_with_action("app.salvage", path, "Try to Salvage", "Failed to load file: {}", .{e});
         load_success = false;
@@ -1382,7 +1383,7 @@ fn save_file(filename_c: [*c]const u8) void {
     const filename = std.mem.span(filename_c);
     const ext = std.fs.path.extension(filename);
     if (std.ascii.eqlIgnoreCase(ext, ".ora")) {
-        engine.saveOra(filename) catch |err| {
+        EngineIO.saveOra(&engine, filename) catch |err| {
             show_toast("Error saving ORA: {}", .{err});
         };
         show_toast("File saved to: {s}", .{filename});
@@ -1390,7 +1391,7 @@ fn save_file(filename_c: [*c]const u8) void {
     }
 
     // Try generic export for other formats (JPG, PNG, WEBP, etc.)
-    engine.exportImage(filename) catch |err| {
+    EngineIO.exportImage(&engine, filename) catch |err| {
         show_toast("Error saving file: {}", .{err});
         return;
     };
@@ -2149,7 +2150,7 @@ fn autosave_callback(user_data: ?*anyopaque) callconv(std.builtin.CallingConvent
     const path = std.fs.path.join(std.heap.c_allocator, &[_][]const u8{ cache_dir, "vimp", "autosave" }) catch return 1;
     defer std.heap.c_allocator.free(path);
 
-    engine.saveProject(path) catch |err| {
+    EngineIO.saveProject(&engine, path) catch |err| {
         std.debug.print("Autosave failed: {}\n", .{err});
     };
 
@@ -2172,7 +2173,7 @@ fn recovery_response(
     const resp_span = std.mem.span(response);
 
     if (std.mem.eql(u8, resp_span, "recover")) {
-        engine.loadProject(ctx.path) catch |err| {
+        EngineIO.loadProject(&engine, ctx.path) catch |err| {
             show_toast("Failed to recover project: {}", .{err});
         };
         refresh_layers_ui();
