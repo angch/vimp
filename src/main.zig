@@ -24,6 +24,8 @@ const PencilTool = @import("tools/pencil.zig").PencilTool;
 const BucketFillTool = @import("tools/bucket_fill.zig").BucketFillTool;
 const EraserTool = @import("tools/eraser.zig").EraserTool;
 const AirbrushTool = @import("tools/airbrush.zig").AirbrushTool;
+const RectSelectTool = @import("tools/rect_select.zig").RectSelectTool;
+const EllipseSelectTool = @import("tools/ellipse_select.zig").EllipseSelectTool;
 const Assets = @import("assets.zig");
 const Salvage = @import("salvage.zig").Salvage;
 
@@ -317,11 +319,21 @@ fn tool_toggled(
                 osd_show("Bucket Fill");
             },
             .rect_select => {
-                engine.setSelectionMode(.rectangle);
+                const tool = RectSelectTool.create(std.heap.c_allocator) catch {
+                    std.debug.print("Failed to create RectSelectTool\n", .{});
+                    return;
+                };
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
                 osd_show("Rectangle Select");
             },
             .ellipse_select => {
-                engine.setSelectionMode(.ellipse);
+                const tool = EllipseSelectTool.create(std.heap.c_allocator) catch {
+                    std.debug.print("Failed to create EllipseSelectTool\n", .{});
+                    return;
+                };
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
                 osd_show("Ellipse Select");
             },
             .rect_shape => {
@@ -1178,25 +1190,7 @@ fn drag_begin(
         }
 
         if (button == 1 or button == 3) {
-            if (current_tool == .rect_select or current_tool == .ellipse_select) {
-                if (button != 1) return;
-                const c_x = (view_x + x) / view_scale;
-                const c_y = (view_y + y) / view_scale;
-                const ix: i32 = @intFromFloat(c_x);
-                const iy: i32 = @intFromFloat(c_y);
-
-                if (engine.selection.rect != null and engine.isPointInSelection(ix, iy)) {
-                    engine.beginMoveSelection(c_x, c_y) catch |err| {
-                        show_toast("Failed to move selection: {}", .{err});
-                        return;
-                    };
-                    is_moving_selection = true;
-                } else {
-                    engine.beginSelection();
-                    engine.clearSelection();
-                }
-                c.gtk_widget_queue_draw(widget);
-            } else if (current_tool == .lasso) {
+            if (current_tool == .lasso) {
                 if (button != 1) return;
                 const c_x = (view_x + x) / view_scale;
                 const c_y = (view_y + y) / view_scale;
@@ -1492,32 +1486,6 @@ fn drag_update(
                 s.y2 = ey;
             }
 
-            c.gtk_widget_queue_draw(widget);
-
-            prev_x = current_x;
-            prev_y = current_y;
-            return;
-        }
-
-        if (current_tool == .rect_select or current_tool == .ellipse_select) {
-            if (is_moving_selection) {
-                const dx = offset_x / view_scale;
-                const dy = offset_y / view_scale;
-                engine.updateMoveSelection(dx, dy);
-                canvas_dirty = true;
-            } else {
-                // Dragging selection
-                const start_world_x = (view_x + start_sx) / view_scale;
-                const start_world_y = (view_y + start_sy) / view_scale;
-
-                // Calculate min/max
-                const min_x: c_int = @intFromFloat(@min(start_world_x, c_curr_x));
-                const min_y: c_int = @intFromFloat(@min(start_world_y, c_curr_y));
-                const max_x: c_int = @intFromFloat(@max(start_world_x, c_curr_x));
-                const max_y: c_int = @intFromFloat(@max(start_world_y, c_curr_y));
-
-                engine.setSelection(min_x, min_y, max_x - min_x, max_y - min_y);
-            }
             c.gtk_widget_queue_draw(widget);
 
             prev_x = current_x;
