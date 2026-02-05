@@ -5,6 +5,9 @@ const HistoryMod = @import("history.zig");
 const TypesMod = @import("types.zig");
 const PaintMod = @import("paint.zig");
 const SelectionMod = @import("selection.zig");
+const TransformMod = @import("transform.zig");
+const FiltersMod = @import("filters.zig");
+const PreviewMod = @import("preview.zig");
 
 pub const Engine = struct {
     pub const Point = TypesMod.Point;
@@ -31,59 +34,10 @@ pub const Engine = struct {
 
     pub const SelectionMode = TypesMod.SelectionMode;
 
-    pub const ShapeType = enum {
-        rectangle,
-        ellipse,
-        rounded_rectangle,
-        line,
-        curve,
-        polygon,
-    };
-
-    pub const ShapePreview = struct {
-        type: ShapeType,
-        x: c_int,
-        y: c_int,
-        width: c_int,
-        height: c_int,
-        x2: c_int = 0,
-        y2: c_int = 0,
-        cx1: c_int = 0,
-        cy1: c_int = 0,
-        cx2: c_int = 0,
-        cy2: c_int = 0,
-        thickness: c_int,
-        filled: bool,
-        points: ?[]const Point = null,
-        radius: c_int = 0,
-    };
-
-    pub const PreviewMode = enum {
-        none,
-        blur,
-        motion_blur,
-        pixelize,
-        transform,
-        unsharp_mask,
-        noise_reduction,
-        oilify,
-        drop_shadow,
-        red_eye_removal,
-        waves,
-        supernova,
-        lighting,
-        move_selection,
-    };
-
-    pub const TransformParams = struct {
-        x: f64 = 0.0,
-        y: f64 = 0.0,
-        rotate: f64 = 0.0,
-        scale_x: f64 = 1.0,
-        scale_y: f64 = 1.0,
-        skew_x: f64 = 0.0,
-        skew_y: f64 = 0.0,
-    };
+    pub const ShapeType = TypesMod.ShapeType;
+    pub const ShapePreview = TypesMod.ShapePreview;
+    pub const PreviewMode = TypesMod.PreviewMode;
+    pub const TransformParams = TypesMod.TransformParams;
 
     pub const LayerSnapshot = LayersMod.LayerSnapshot;
     pub const LayerCommand = LayersMod.LayerCommand;
@@ -646,365 +600,51 @@ pub const Engine = struct {
 
             var source_output = layer.source_node;
 
-            if (i == self.active_layer_idx) {
-                if (self.preview_mode == .blur) {
-                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:gaussian-blur", "std-dev-x", self.preview_radius, "std-dev-y", self.preview_radius, @as(?*anyopaque, null))) |blur_node| {
-                        _ = c.gegl_node_connect(blur_node, "input", source_output, "output");
-                        self.composition_nodes.append(std.heap.c_allocator, blur_node) catch {};
-                        if (self.split_view_enabled) {
-                             const w: f64 = @floatFromInt(self.canvas_width);
-                            const h: f64 = @floatFromInt(self.canvas_height);
-                            const sx = self.split_x;
-                            if (c.gegl_node_new_child(self.graph, "operation", "gegl:crop", "x", @as(f64, 0.0), "y", @as(f64, 0.0), "width", sx, "height", h, @as(?*anyopaque, null))) |left_crop| {
-                                _ = c.gegl_node_connect(left_crop, "input", source_output, "output");
-                                self.composition_nodes.append(std.heap.c_allocator, left_crop) catch {};
-                                if (c.gegl_node_new_child(self.graph, "operation", "gegl:crop", "x", sx, "y", @as(f64, 0.0), "width", w - sx, "height", h, @as(?*anyopaque, null))) |right_crop| {
-                                    _ = c.gegl_node_connect(right_crop, "input", blur_node, "output");
-                                    self.composition_nodes.append(std.heap.c_allocator, right_crop) catch {};
-                                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:over", @as(?*anyopaque, null))) |split_over| {
-                                        _ = c.gegl_node_connect(split_over, "input", left_crop, "output");
-                                        _ = c.gegl_node_connect(split_over, "aux", right_crop, "output");
-                                        self.composition_nodes.append(std.heap.c_allocator, split_over) catch {};
-                                        source_output = split_over;
-                                    }
-                                }
-                            }
-                        } else {
-                            source_output = blur_node;
-                        }
-                    }
-                } else if (self.preview_mode == .motion_blur) {
-                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:motion-blur-linear", "length", self.preview_radius, "angle", self.preview_angle, @as(?*anyopaque, null))) |blur_node| {
-                        _ = c.gegl_node_connect(blur_node, "input", source_output, "output");
-                        self.composition_nodes.append(std.heap.c_allocator, blur_node) catch {};
-                        if (self.split_view_enabled) {
-                             const w: f64 = @floatFromInt(self.canvas_width);
-                            const h: f64 = @floatFromInt(self.canvas_height);
-                            const sx = self.split_x;
-                            if (c.gegl_node_new_child(self.graph, "operation", "gegl:crop", "x", @as(f64, 0.0), "y", @as(f64, 0.0), "width", sx, "height", h, @as(?*anyopaque, null))) |left_crop| {
-                                _ = c.gegl_node_connect(left_crop, "input", source_output, "output");
-                                self.composition_nodes.append(std.heap.c_allocator, left_crop) catch {};
-                                if (c.gegl_node_new_child(self.graph, "operation", "gegl:crop", "x", sx, "y", @as(f64, 0.0), "width", w - sx, "height", h, @as(?*anyopaque, null))) |right_crop| {
-                                    _ = c.gegl_node_connect(right_crop, "input", blur_node, "output");
-                                    self.composition_nodes.append(std.heap.c_allocator, right_crop) catch {};
-                                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:over", @as(?*anyopaque, null))) |split_over| {
-                                        _ = c.gegl_node_connect(split_over, "input", left_crop, "output");
-                                        _ = c.gegl_node_connect(split_over, "aux", right_crop, "output");
-                                        self.composition_nodes.append(std.heap.c_allocator, split_over) catch {};
-                                        source_output = split_over;
-                                    }
-                                }
-                            }
-                        } else {
-                            source_output = blur_node;
-                        }
-                    }
-                } else if (self.preview_mode == .pixelize) {
-                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:pixelize", "size-x", self.preview_pixel_size, "size-y", self.preview_pixel_size, @as(?*anyopaque, null))) |pix_node| {
-                        _ = c.gegl_node_connect(pix_node, "input", source_output, "output");
-                        self.composition_nodes.append(std.heap.c_allocator, pix_node) catch {};
-                        if (self.split_view_enabled) {
-                             const w: f64 = @floatFromInt(self.canvas_width);
-                            const h: f64 = @floatFromInt(self.canvas_height);
-                            const sx = self.split_x;
-                            if (c.gegl_node_new_child(self.graph, "operation", "gegl:crop", "x", @as(f64, 0.0), "y", @as(f64, 0.0), "width", sx, "height", h, @as(?*anyopaque, null))) |left_crop| {
-                                _ = c.gegl_node_connect(left_crop, "input", source_output, "output");
-                                self.composition_nodes.append(std.heap.c_allocator, left_crop) catch {};
-                                if (c.gegl_node_new_child(self.graph, "operation", "gegl:crop", "x", sx, "y", @as(f64, 0.0), "width", w - sx, "height", h, @as(?*anyopaque, null))) |right_crop| {
-                                    _ = c.gegl_node_connect(right_crop, "input", pix_node, "output");
-                                    self.composition_nodes.append(std.heap.c_allocator, right_crop) catch {};
-                                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:over", @as(?*anyopaque, null))) |split_over| {
-                                        _ = c.gegl_node_connect(split_over, "input", left_crop, "output");
-                                        _ = c.gegl_node_connect(split_over, "aux", right_crop, "output");
-                                        self.composition_nodes.append(std.heap.c_allocator, split_over) catch {};
-                                        source_output = split_over;
-                                    }
-                                }
-                            }
-                        } else {
-                            source_output = pix_node;
-                        }
-                    }
-                } else if (self.preview_mode == .unsharp_mask) {
-                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:unsharp-mask", "std-dev", self.preview_radius, "scale", self.preview_unsharp_scale, @as(?*anyopaque, null))) |filter_node| {
-                        _ = c.gegl_node_connect(filter_node, "input", source_output, "output");
-                        self.composition_nodes.append(std.heap.c_allocator, filter_node) catch {};
-                        if (self.split_view_enabled) {
-                             const w: f64 = @floatFromInt(self.canvas_width);
-                            const h: f64 = @floatFromInt(self.canvas_height);
-                            const sx = self.split_x;
-                            if (c.gegl_node_new_child(self.graph, "operation", "gegl:crop", "x", @as(f64, 0.0), "y", @as(f64, 0.0), "width", sx, "height", h, @as(?*anyopaque, null))) |left_crop| {
-                                _ = c.gegl_node_connect(left_crop, "input", source_output, "output");
-                                self.composition_nodes.append(std.heap.c_allocator, left_crop) catch {};
-                                if (c.gegl_node_new_child(self.graph, "operation", "gegl:crop", "x", sx, "y", @as(f64, 0.0), "width", w - sx, "height", h, @as(?*anyopaque, null))) |right_crop| {
-                                    _ = c.gegl_node_connect(right_crop, "input", filter_node, "output");
-                                    self.composition_nodes.append(std.heap.c_allocator, right_crop) catch {};
-                                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:over", @as(?*anyopaque, null))) |split_over| {
-                                        _ = c.gegl_node_connect(split_over, "input", left_crop, "output");
-                                        _ = c.gegl_node_connect(split_over, "aux", right_crop, "output");
-                                        self.composition_nodes.append(std.heap.c_allocator, split_over) catch {};
-                                        source_output = split_over;
-                                    }
-                                }
-                            }
-                        } else {
-                            source_output = filter_node;
-                        }
-                    }
-                } else if (self.preview_mode == .noise_reduction) {
-                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:noise-reduction", "iterations", self.preview_noise_iterations, @as(?*anyopaque, null))) |filter_node| {
-                        _ = c.gegl_node_connect(filter_node, "input", source_output, "output");
-                        self.composition_nodes.append(std.heap.c_allocator, filter_node) catch {};
-                        if (self.split_view_enabled) {
-                             const w: f64 = @floatFromInt(self.canvas_width);
-                            const h: f64 = @floatFromInt(self.canvas_height);
-                            const sx = self.split_x;
-                            if (c.gegl_node_new_child(self.graph, "operation", "gegl:crop", "x", @as(f64, 0.0), "y", @as(f64, 0.0), "width", sx, "height", h, @as(?*anyopaque, null))) |left_crop| {
-                                _ = c.gegl_node_connect(left_crop, "input", source_output, "output");
-                                self.composition_nodes.append(std.heap.c_allocator, left_crop) catch {};
-                                if (c.gegl_node_new_child(self.graph, "operation", "gegl:crop", "x", sx, "y", @as(f64, 0.0), "width", w - sx, "height", h, @as(?*anyopaque, null))) |right_crop| {
-                                    _ = c.gegl_node_connect(right_crop, "input", filter_node, "output");
-                                    self.composition_nodes.append(std.heap.c_allocator, right_crop) catch {};
-                                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:over", @as(?*anyopaque, null))) |split_over| {
-                                        _ = c.gegl_node_connect(split_over, "input", left_crop, "output");
-                                        _ = c.gegl_node_connect(split_over, "aux", right_crop, "output");
-                                        self.composition_nodes.append(std.heap.c_allocator, split_over) catch {};
-                                        source_output = split_over;
-                                    }
-                                }
-                            }
-                        } else {
-                            source_output = filter_node;
-                        }
-                    }
-                } else if (self.preview_mode == .oilify) {
-                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:oilify", "mask-radius", self.preview_oilify_mask_radius, @as(?*anyopaque, null))) |filter_node| {
-                        _ = c.gegl_node_connect(filter_node, "input", source_output, "output");
-                        self.composition_nodes.append(std.heap.c_allocator, filter_node) catch {};
-                        if (self.split_view_enabled) {
-                             const w: f64 = @floatFromInt(self.canvas_width);
-                            const h: f64 = @floatFromInt(self.canvas_height);
-                            const sx = self.split_x;
-                            if (c.gegl_node_new_child(self.graph, "operation", "gegl:crop", "x", @as(f64, 0.0), "y", @as(f64, 0.0), "width", sx, "height", h, @as(?*anyopaque, null))) |left_crop| {
-                                _ = c.gegl_node_connect(left_crop, "input", source_output, "output");
-                                self.composition_nodes.append(std.heap.c_allocator, left_crop) catch {};
-                                if (c.gegl_node_new_child(self.graph, "operation", "gegl:crop", "x", sx, "y", @as(f64, 0.0), "width", w - sx, "height", h, @as(?*anyopaque, null))) |right_crop| {
-                                    _ = c.gegl_node_connect(right_crop, "input", filter_node, "output");
-                                    self.composition_nodes.append(std.heap.c_allocator, right_crop) catch {};
-                                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:over", @as(?*anyopaque, null))) |split_over| {
-                                        _ = c.gegl_node_connect(split_over, "input", left_crop, "output");
-                                        _ = c.gegl_node_connect(split_over, "aux", right_crop, "output");
-                                        self.composition_nodes.append(std.heap.c_allocator, split_over) catch {};
-                                        source_output = split_over;
-                                    }
-                                }
-                            }
-                        } else {
-                            source_output = filter_node;
-                        }
-                    }
-                } else if (self.preview_mode == .drop_shadow) {
-                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:dropshadow", "x", self.preview_drop_shadow_x, "y", self.preview_drop_shadow_y, "radius", self.preview_drop_shadow_radius, "opacity", self.preview_drop_shadow_opacity, @as(?*anyopaque, null))) |filter_node| {
-                        _ = c.gegl_node_connect(filter_node, "input", source_output, "output");
-                        self.composition_nodes.append(std.heap.c_allocator, filter_node) catch {};
-                        if (self.split_view_enabled) {
-                             const w: f64 = @floatFromInt(self.canvas_width);
-                            const h: f64 = @floatFromInt(self.canvas_height);
-                            const sx = self.split_x;
-                            if (c.gegl_node_new_child(self.graph, "operation", "gegl:crop", "x", @as(f64, 0.0), "y", @as(f64, 0.0), "width", sx, "height", h, @as(?*anyopaque, null))) |left_crop| {
-                                _ = c.gegl_node_connect(left_crop, "input", source_output, "output");
-                                self.composition_nodes.append(std.heap.c_allocator, left_crop) catch {};
-                                if (c.gegl_node_new_child(self.graph, "operation", "gegl:crop", "x", sx, "y", @as(f64, 0.0), "width", w - sx, "height", h, @as(?*anyopaque, null))) |right_crop| {
-                                    _ = c.gegl_node_connect(right_crop, "input", filter_node, "output");
-                                    self.composition_nodes.append(std.heap.c_allocator, right_crop) catch {};
-                                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:over", @as(?*anyopaque, null))) |split_over| {
-                                        _ = c.gegl_node_connect(split_over, "input", left_crop, "output");
-                                        _ = c.gegl_node_connect(split_over, "aux", right_crop, "output");
-                                        self.composition_nodes.append(std.heap.c_allocator, split_over) catch {};
-                                        source_output = split_over;
-                                    }
-                                }
-                            }
-                        } else {
-                            source_output = filter_node;
-                        }
-                    }
-                } else if (self.preview_mode == .red_eye_removal) {
-                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:red-eye-removal", "threshold", self.preview_red_eye_threshold, @as(?*anyopaque, null))) |filter_node| {
-                        _ = c.gegl_node_connect(filter_node, "input", source_output, "output");
-                        self.composition_nodes.append(std.heap.c_allocator, filter_node) catch {};
-                        if (self.split_view_enabled) {
-                             const w: f64 = @floatFromInt(self.canvas_width);
-                            const h: f64 = @floatFromInt(self.canvas_height);
-                            const sx = self.split_x;
-                            if (c.gegl_node_new_child(self.graph, "operation", "gegl:crop", "x", @as(f64, 0.0), "y", @as(f64, 0.0), "width", sx, "height", h, @as(?*anyopaque, null))) |left_crop| {
-                                _ = c.gegl_node_connect(left_crop, "input", source_output, "output");
-                                self.composition_nodes.append(std.heap.c_allocator, left_crop) catch {};
-                                if (c.gegl_node_new_child(self.graph, "operation", "gegl:crop", "x", sx, "y", @as(f64, 0.0), "width", w - sx, "height", h, @as(?*anyopaque, null))) |right_crop| {
-                                    _ = c.gegl_node_connect(right_crop, "input", filter_node, "output");
-                                    self.composition_nodes.append(std.heap.c_allocator, right_crop) catch {};
-                                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:over", @as(?*anyopaque, null))) |split_over| {
-                                        _ = c.gegl_node_connect(split_over, "input", left_crop, "output");
-                                        _ = c.gegl_node_connect(split_over, "aux", right_crop, "output");
-                                        self.composition_nodes.append(std.heap.c_allocator, split_over) catch {};
-                                        source_output = split_over;
-                                    }
-                                }
-                            }
-                        } else {
-                            source_output = filter_node;
-                        }
-                    }
-                } else if (self.preview_mode == .waves) {
-                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:waves", "amplitude", self.preview_waves_amplitude, "phase", self.preview_waves_phase, "wavelength", self.preview_waves_wavelength, "center-x", self.preview_waves_center_x, "center-y", self.preview_waves_center_y, @as(?*anyopaque, null))) |filter_node| {
-                        _ = c.gegl_node_connect(filter_node, "input", source_output, "output");
-                        self.composition_nodes.append(std.heap.c_allocator, filter_node) catch {};
-                        if (self.split_view_enabled) {
-                             const w: f64 = @floatFromInt(self.canvas_width);
-                            const h: f64 = @floatFromInt(self.canvas_height);
-                            const sx = self.split_x;
-                            if (c.gegl_node_new_child(self.graph, "operation", "gegl:crop", "x", @as(f64, 0.0), "y", @as(f64, 0.0), "width", sx, "height", h, @as(?*anyopaque, null))) |left_crop| {
-                                _ = c.gegl_node_connect(left_crop, "input", source_output, "output");
-                                self.composition_nodes.append(std.heap.c_allocator, left_crop) catch {};
-                                if (c.gegl_node_new_child(self.graph, "operation", "gegl:crop", "x", sx, "y", @as(f64, 0.0), "width", w - sx, "height", h, @as(?*anyopaque, null))) |right_crop| {
-                                    _ = c.gegl_node_connect(right_crop, "input", filter_node, "output");
-                                    self.composition_nodes.append(std.heap.c_allocator, right_crop) catch {};
-                                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:over", @as(?*anyopaque, null))) |split_over| {
-                                        _ = c.gegl_node_connect(split_over, "input", left_crop, "output");
-                                        _ = c.gegl_node_connect(split_over, "aux", right_crop, "output");
-                                        self.composition_nodes.append(std.heap.c_allocator, split_over) catch {};
-                                        source_output = split_over;
-                                    }
-                                }
-                            }
-                        } else {
-                            source_output = filter_node;
-                        }
-                    }
-                } else if (self.preview_mode == .supernova) {
-                    var buf: [64]u8 = undefined;
-                    const color_str = std.fmt.bufPrintZ(&buf, "rgba({d}, {d}, {d}, {d})", .{
-                        self.preview_supernova_color[0],
-                        self.preview_supernova_color[1],
-                        self.preview_supernova_color[2],
-                        @as(f32, @floatFromInt(self.preview_supernova_color[3])) / 255.0,
-                    }) catch "rgba(0,0,1,1)";
-                    const color = c.gegl_color_new(color_str.ptr);
-                    defer c.g_object_unref(color);
+            if (i == self.active_layer_idx and self.preview_mode != .none) {
+                const ctx = PreviewMod.PreviewContext{
+                    .mode = self.preview_mode,
+                    .radius = self.preview_radius,
+                    .angle = self.preview_angle,
+                    .pixel_size = self.preview_pixel_size,
+                    .transform = self.preview_transform,
+                    .unsharp_scale = self.preview_unsharp_scale,
+                    .noise_iterations = self.preview_noise_iterations,
+                    .oilify_mask_radius = self.preview_oilify_mask_radius,
+                    .drop_shadow_x = self.preview_drop_shadow_x,
+                    .drop_shadow_y = self.preview_drop_shadow_y,
+                    .drop_shadow_radius = self.preview_drop_shadow_radius,
+                    .drop_shadow_opacity = self.preview_drop_shadow_opacity,
+                    .red_eye_threshold = self.preview_red_eye_threshold,
+                    .waves_amplitude = self.preview_waves_amplitude,
+                    .waves_phase = self.preview_waves_phase,
+                    .waves_wavelength = self.preview_waves_wavelength,
+                    .waves_center_x = self.preview_waves_center_x,
+                    .waves_center_y = self.preview_waves_center_y,
+                    .supernova_x = self.preview_supernova_x,
+                    .supernova_y = self.preview_supernova_y,
+                    .supernova_radius = self.preview_supernova_radius,
+                    .supernova_spokes = self.preview_supernova_spokes,
+                    .supernova_color = self.preview_supernova_color,
+                    .lighting_x = self.preview_lighting_x,
+                    .lighting_y = self.preview_lighting_y,
+                    .lighting_z = self.preview_lighting_z,
+                    .lighting_intensity = self.preview_lighting_intensity,
+                    .lighting_color = self.preview_lighting_color,
+                    .split_view_enabled = self.split_view_enabled,
+                    .split_x = self.split_x,
+                    .canvas_width = self.canvas_width,
+                    .canvas_height = self.canvas_height,
+                    .floating_buffer = self.floating_buffer,
+                    .floating_x = self.floating_x,
+                    .floating_y = self.floating_y,
+                    .source_layer_buffer = layer.buffer,
+                };
 
-                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:supernova", "center-x", self.preview_supernova_x, "center-y", self.preview_supernova_y, "radius", self.preview_supernova_radius, "spokes", self.preview_supernova_spokes, "color", color, @as(?*anyopaque, null))) |filter_node| {
-                        _ = c.gegl_node_connect(filter_node, "input", source_output, "output");
-                        self.composition_nodes.append(std.heap.c_allocator, filter_node) catch {};
-                        if (self.split_view_enabled) {
-                             const w: f64 = @floatFromInt(self.canvas_width);
-                            const h: f64 = @floatFromInt(self.canvas_height);
-                            const sx = self.split_x;
-                            if (c.gegl_node_new_child(self.graph, "operation", "gegl:crop", "x", @as(f64, 0.0), "y", @as(f64, 0.0), "width", sx, "height", h, @as(?*anyopaque, null))) |left_crop| {
-                                _ = c.gegl_node_connect(left_crop, "input", source_output, "output");
-                                self.composition_nodes.append(std.heap.c_allocator, left_crop) catch {};
-                                if (c.gegl_node_new_child(self.graph, "operation", "gegl:crop", "x", sx, "y", @as(f64, 0.0), "width", w - sx, "height", h, @as(?*anyopaque, null))) |right_crop| {
-                                    _ = c.gegl_node_connect(right_crop, "input", filter_node, "output");
-                                    self.composition_nodes.append(std.heap.c_allocator, right_crop) catch {};
-                                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:over", @as(?*anyopaque, null))) |split_over| {
-                                        _ = c.gegl_node_connect(split_over, "input", left_crop, "output");
-                                        _ = c.gegl_node_connect(split_over, "aux", right_crop, "output");
-                                        self.composition_nodes.append(std.heap.c_allocator, split_over) catch {};
-                                        source_output = split_over;
-                                    }
-                                }
-                            }
-                        } else {
-                            source_output = filter_node;
-                        }
-                    }
-                } else if (self.preview_mode == .lighting) {
-                    var buf: [64]u8 = undefined;
-                    const color_str = std.fmt.bufPrintZ(&buf, "rgba({d}, {d}, {d}, {d})", .{
-                        self.preview_lighting_color[0],
-                        self.preview_lighting_color[1],
-                        self.preview_lighting_color[2],
-                        @as(f32, @floatFromInt(self.preview_lighting_color[3])) / 255.0,
-                    }) catch "rgba(1,1,1,1)";
-                    const color = c.gegl_color_new(color_str.ptr);
-                    defer c.g_object_unref(color);
-
-                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:lighting", "x", self.preview_lighting_x, "y", self.preview_lighting_y, "z", self.preview_lighting_z, "intensity", self.preview_lighting_intensity, "color", color, "type", @as(c_int, 0), @as(?*anyopaque, null))) |filter_node| {
-                        _ = c.gegl_node_connect(filter_node, "input", source_output, "output");
-                        self.composition_nodes.append(std.heap.c_allocator, filter_node) catch {};
-                        if (self.split_view_enabled) {
-                             const w: f64 = @floatFromInt(self.canvas_width);
-                            const h: f64 = @floatFromInt(self.canvas_height);
-                            const sx = self.split_x;
-                            if (c.gegl_node_new_child(self.graph, "operation", "gegl:crop", "x", @as(f64, 0.0), "y", @as(f64, 0.0), "width", sx, "height", h, @as(?*anyopaque, null))) |left_crop| {
-                                _ = c.gegl_node_connect(left_crop, "input", source_output, "output");
-                                self.composition_nodes.append(std.heap.c_allocator, left_crop) catch {};
-                                if (c.gegl_node_new_child(self.graph, "operation", "gegl:crop", "x", sx, "y", @as(f64, 0.0), "width", w - sx, "height", h, @as(?*anyopaque, null))) |right_crop| {
-                                    _ = c.gegl_node_connect(right_crop, "input", filter_node, "output");
-                                    self.composition_nodes.append(std.heap.c_allocator, right_crop) catch {};
-                                    if (c.gegl_node_new_child(self.graph, "operation", "gegl:over", @as(?*anyopaque, null))) |split_over| {
-                                        _ = c.gegl_node_connect(split_over, "input", left_crop, "output");
-                                        _ = c.gegl_node_connect(split_over, "aux", right_crop, "output");
-                                        self.composition_nodes.append(std.heap.c_allocator, split_over) catch {};
-                                        source_output = split_over;
-                                    }
-                                }
-                            }
-                        } else {
-                            source_output = filter_node;
-                        }
-                    }
-                } else if (self.preview_mode == .transform) {
-                    const extent = c.gegl_buffer_get_extent(layer.buffer);
-                    const cx = @as(f64, @floatFromInt(extent.*.x)) + @as(f64, @floatFromInt(extent.*.width)) / 2.0;
-                    const cy = @as(f64, @floatFromInt(extent.*.y)) + @as(f64, @floatFromInt(extent.*.height)) / 2.0;
-                    const tp = self.preview_transform;
-                    const t1 = c.gegl_node_new_child(self.graph, "operation", "gegl:translate", "x", -cx, "y", -cy, @as(?*anyopaque, null));
-                    const scale = c.gegl_node_new_child(self.graph, "operation", "gegl:scale-ratio", "x", tp.scale_x, "y", tp.scale_y, @as(?*anyopaque, null));
-                    const rotate = c.gegl_node_new_child(self.graph, "operation", "gegl:rotate", "degrees", tp.rotate, @as(?*anyopaque, null));
-                    const t2 = c.gegl_node_new_child(self.graph, "operation", "gegl:translate", "x", cx + tp.x, "y", cy + tp.y, @as(?*anyopaque, null));
-                    var skew: ?*c.GeglNode = null;
-                    const has_skew = (@abs(tp.skew_x) > 0.001 or @abs(tp.skew_y) > 0.001);
-                    var buf: [128]u8 = undefined;
-                    if (has_skew) {
-                        const rad_x = std.math.degreesToRadians(tp.skew_x);
-                        const rad_y = std.math.degreesToRadians(tp.skew_y);
-                        const tan_x = std.math.tan(rad_x);
-                        const tan_y = std.math.tan(rad_y);
-                        const transform_str = std.fmt.bufPrintZ(&buf, "matrix(1.0 {d:.6} {d:.6} 1.0 0.0 0.0)", .{ tan_y, tan_x }) catch "matrix(1.0 0.0 0.0 1.0 0.0 0.0)";
-                        skew = c.gegl_node_new_child(self.graph, "operation", "gegl:transform", "transform", transform_str.ptr, @as(?*anyopaque, null));
-                    }
-                    if (t1 != null and scale != null and rotate != null and t2 != null) {
-                        _ = c.gegl_node_connect(t1, "input", source_output, "output");
-                        _ = c.gegl_node_connect(scale, "input", t1, "output");
-                        if (has_skew and skew != null) {
-                            _ = c.gegl_node_connect(skew, "input", scale, "output");
-                            _ = c.gegl_node_connect(rotate, "input", skew, "output");
-                            self.composition_nodes.append(std.heap.c_allocator, skew.?) catch {};
-                        } else {
-                            _ = c.gegl_node_connect(rotate, "input", scale, "output");
-                        }
-                        _ = c.gegl_node_connect(t2, "input", rotate, "output");
-                        self.composition_nodes.append(std.heap.c_allocator, t1.?) catch {};
-                        self.composition_nodes.append(std.heap.c_allocator, scale.?) catch {};
-                        self.composition_nodes.append(std.heap.c_allocator, rotate.?) catch {};
-                        self.composition_nodes.append(std.heap.c_allocator, t2.?) catch {};
-                        source_output = t2.?;
-                        self.preview_bbox = c.gegl_node_get_bounding_box(t2);
-                    }
-                } else if (self.preview_mode == .move_selection) {
-                    if (self.floating_buffer) |fb| {
-                        const float_src = c.gegl_node_new_child(self.graph, "operation", "gegl:buffer-source", "buffer", fb, @as(?*anyopaque, null));
-                        const translate = c.gegl_node_new_child(self.graph, "operation", "gegl:translate", "x", self.floating_x, "y", self.floating_y, @as(?*anyopaque, null));
-                        _ = c.gegl_node_link_many(float_src, translate, @as(?*anyopaque, null));
-                        const over = c.gegl_node_new_child(self.graph, "operation", "gegl:over", @as(?*anyopaque, null));
-                        _ = c.gegl_node_connect(over, "input", source_output, "output");
-                        _ = c.gegl_node_connect(over, "aux", translate, "output");
-                        self.composition_nodes.append(std.heap.c_allocator, float_src.?) catch {};
-                        self.composition_nodes.append(std.heap.c_allocator, translate.?) catch {};
-                        self.composition_nodes.append(std.heap.c_allocator, over.?) catch {};
-                        source_output = over.?;
-                        self.preview_bbox = c.gegl_node_get_bounding_box(translate);
-                    }
+                if (PreviewMod.addPreviewOps(std.heap.c_allocator, self.graph.?, source_output, ctx, &self.composition_nodes)) |res| {
+                    source_output = res.output;
+                    self.preview_bbox = res.bbox;
+                } else |err| {
+                    std.debug.print("Failed to add preview ops: {}\n", .{err});
                 }
             }
 
@@ -1261,33 +901,13 @@ pub const Engine = struct {
         if (self.active_layer_idx >= self.layers.items.len) return;
         const layer = &self.layers.items[self.active_layer_idx];
         if (layer.locked) return;
-        const extent = c.gegl_buffer_get_extent(layer.buffer);
-        const cx = @as(f64, @floatFromInt(extent.*.x)) + @as(f64, @floatFromInt(extent.*.width)) / 2.0;
-        const cy = @as(f64, @floatFromInt(extent.*.y)) + @as(f64, @floatFromInt(extent.*.height)) / 2.0;
 
         self.beginTransaction();
 
-        const temp_graph = c.gegl_node_new();
-        defer c.g_object_unref(temp_graph);
-
-        const input_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:buffer-source", "buffer", layer.buffer, @as(?*anyopaque, null));
-        const t1 = c.gegl_node_new_child(temp_graph, "operation", "gegl:translate", "x", -cx, "y", -cy, @as(?*anyopaque, null));
-        const scale = c.gegl_node_new_child(temp_graph, "operation", "gegl:scale-ratio", "x", @as(f64, -1.0), "y", @as(f64, 1.0), "sampler", c.GEGL_SAMPLER_NEAREST, @as(?*anyopaque, null));
-        const t2 = c.gegl_node_new_child(temp_graph, "operation", "gegl:translate", "x", cx, "y", cy, @as(?*anyopaque, null));
-
-        _ = c.gegl_node_link_many(input_node, t1, scale, t2, @as(?*anyopaque, null));
-
-        const bbox = c.gegl_node_get_bounding_box(t2);
-        const format = c.babl_format("R'G'B'A u8");
-        const new_buffer = c.gegl_buffer_new(&bbox, format);
-        if (new_buffer == null) return;
-
-        const write_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:write-buffer", "buffer", new_buffer, @as(?*anyopaque, null));
-        _ = c.gegl_node_link(t2, write_node);
-        _ = c.gegl_node_process(write_node);
+        const new_buffer = try TransformMod.flipBuffer(layer.buffer, true);
 
         c.g_object_unref(layer.buffer);
-        layer.buffer = new_buffer.?;
+        layer.buffer = new_buffer;
         _ = c.gegl_node_set(layer.source_node, "buffer", new_buffer, @as(?*anyopaque, null));
 
         self.commitTransaction();
@@ -1297,33 +917,13 @@ pub const Engine = struct {
         if (self.active_layer_idx >= self.layers.items.len) return;
         const layer = &self.layers.items[self.active_layer_idx];
         if (layer.locked) return;
-        const extent = c.gegl_buffer_get_extent(layer.buffer);
-        const cx = @as(f64, @floatFromInt(extent.*.x)) + @as(f64, @floatFromInt(extent.*.width)) / 2.0;
-        const cy = @as(f64, @floatFromInt(extent.*.y)) + @as(f64, @floatFromInt(extent.*.height)) / 2.0;
 
         self.beginTransaction();
 
-        const temp_graph = c.gegl_node_new();
-        defer c.g_object_unref(temp_graph);
-
-        const input_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:buffer-source", "buffer", layer.buffer, @as(?*anyopaque, null));
-        const t1 = c.gegl_node_new_child(temp_graph, "operation", "gegl:translate", "x", -cx, "y", -cy, @as(?*anyopaque, null));
-        const scale = c.gegl_node_new_child(temp_graph, "operation", "gegl:scale-ratio", "x", @as(f64, 1.0), "y", @as(f64, -1.0), "sampler", c.GEGL_SAMPLER_NEAREST, @as(?*anyopaque, null));
-        const t2 = c.gegl_node_new_child(temp_graph, "operation", "gegl:translate", "x", cx, "y", cy, @as(?*anyopaque, null));
-
-        _ = c.gegl_node_link_many(input_node, t1, scale, t2, @as(?*anyopaque, null));
-
-        const bbox = c.gegl_node_get_bounding_box(t2);
-        const format = c.babl_format("R'G'B'A u8");
-        const new_buffer = c.gegl_buffer_new(&bbox, format);
-        if (new_buffer == null) return;
-
-        const write_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:write-buffer", "buffer", new_buffer, @as(?*anyopaque, null));
-        _ = c.gegl_node_link(t2, write_node);
-        _ = c.gegl_node_process(write_node);
+        const new_buffer = try TransformMod.flipBuffer(layer.buffer, false);
 
         c.g_object_unref(layer.buffer);
-        layer.buffer = new_buffer.?;
+        layer.buffer = new_buffer;
         _ = c.gegl_node_set(layer.source_node, "buffer", new_buffer, @as(?*anyopaque, null));
 
         self.commitTransaction();
@@ -1333,33 +933,13 @@ pub const Engine = struct {
         if (self.active_layer_idx >= self.layers.items.len) return;
         const layer = &self.layers.items[self.active_layer_idx];
         if (layer.locked) return;
-        const extent = c.gegl_buffer_get_extent(layer.buffer);
-        const cx = @as(f64, @floatFromInt(extent.*.x)) + @as(f64, @floatFromInt(extent.*.width)) / 2.0;
-        const cy = @as(f64, @floatFromInt(extent.*.y)) + @as(f64, @floatFromInt(extent.*.height)) / 2.0;
 
         self.beginTransaction();
 
-        const temp_graph = c.gegl_node_new();
-        defer c.g_object_unref(temp_graph);
-
-        const input_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:buffer-source", "buffer", layer.buffer, @as(?*anyopaque, null));
-        const t1 = c.gegl_node_new_child(temp_graph, "operation", "gegl:translate", "x", -cx, "y", -cy, @as(?*anyopaque, null));
-        const rotate = c.gegl_node_new_child(temp_graph, "operation", "gegl:rotate", "degrees", degrees, "sampler", c.GEGL_SAMPLER_NEAREST, @as(?*anyopaque, null));
-        const t2 = c.gegl_node_new_child(temp_graph, "operation", "gegl:translate", "x", cx, "y", cy, @as(?*anyopaque, null));
-
-        _ = c.gegl_node_link_many(input_node, t1, rotate, t2, @as(?*anyopaque, null));
-
-        const bbox = c.gegl_node_get_bounding_box(t2);
-        const format = c.babl_format("R'G'B'A u8");
-        const new_buffer = c.gegl_buffer_new(&bbox, format);
-        if (new_buffer == null) return;
-
-        const write_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:write-buffer", "buffer", new_buffer, @as(?*anyopaque, null));
-        _ = c.gegl_node_link(t2, write_node);
-        _ = c.gegl_node_process(write_node);
+        const new_buffer = try TransformMod.rotateBuffer(layer.buffer, degrees);
 
         c.g_object_unref(layer.buffer);
-        layer.buffer = new_buffer.?;
+        layer.buffer = new_buffer;
         _ = c.gegl_node_set(layer.source_node, "buffer", new_buffer, @as(?*anyopaque, null));
 
         self.commitTransaction();
@@ -1382,21 +962,15 @@ pub const Engine = struct {
         if (self.active_layer_idx >= self.layers.items.len) return;
         const layer = &self.layers.items[self.active_layer_idx];
         if (layer.locked) return;
+
         self.beginTransaction();
-        const temp_graph = c.gegl_node_new();
-        defer c.g_object_unref(temp_graph);
-        const input_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:buffer-source", "buffer", layer.buffer, @as(?*anyopaque, null));
-        const blur_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:gaussian-blur", "std-dev-x", radius, "std-dev-y", radius, @as(?*anyopaque, null));
-        const format = c.babl_format("R'G'B'A u8");
-        const extent = c.gegl_buffer_get_extent(layer.buffer);
-        const new_buffer = c.gegl_buffer_new(extent, format);
-        if (new_buffer == null) return;
-        const write_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:write-buffer", "buffer", new_buffer, @as(?*anyopaque, null));
-        _ = c.gegl_node_link_many(input_node, blur_node, write_node, @as(?*anyopaque, null));
-        _ = c.gegl_node_process(write_node);
+
+        const new_buffer = try FiltersMod.applyGaussianBlur(layer.buffer, radius);
+
         c.g_object_unref(layer.buffer);
-        layer.buffer = new_buffer.?;
+        layer.buffer = new_buffer;
         _ = c.gegl_node_set(layer.source_node, "buffer", new_buffer, @as(?*anyopaque, null));
+
         self.commitTransaction();
     }
 
@@ -1404,21 +978,15 @@ pub const Engine = struct {
         if (self.active_layer_idx >= self.layers.items.len) return;
         const layer = &self.layers.items[self.active_layer_idx];
         if (layer.locked) return;
+
         self.beginTransaction();
-        const temp_graph = c.gegl_node_new();
-        defer c.g_object_unref(temp_graph);
-        const input_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:buffer-source", "buffer", layer.buffer, @as(?*anyopaque, null));
-        const blur_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:motion-blur-linear", "length", length, "angle", angle, @as(?*anyopaque, null));
-        const format = c.babl_format("R'G'B'A u8");
-        const extent = c.gegl_buffer_get_extent(layer.buffer);
-        const new_buffer = c.gegl_buffer_new(extent, format);
-        if (new_buffer == null) return;
-        const write_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:write-buffer", "buffer", new_buffer, @as(?*anyopaque, null));
-        _ = c.gegl_node_link_many(input_node, blur_node, write_node, @as(?*anyopaque, null));
-        _ = c.gegl_node_process(write_node);
+
+        const new_buffer = try FiltersMod.applyMotionBlur(layer.buffer, length, angle);
+
         c.g_object_unref(layer.buffer);
-        layer.buffer = new_buffer.?;
+        layer.buffer = new_buffer;
         _ = c.gegl_node_set(layer.source_node, "buffer", new_buffer, @as(?*anyopaque, null));
+
         self.commitTransaction();
     }
 
@@ -1426,21 +994,15 @@ pub const Engine = struct {
         if (self.active_layer_idx >= self.layers.items.len) return;
         const layer = &self.layers.items[self.active_layer_idx];
         if (layer.locked) return;
+
         self.beginTransaction();
-        const temp_graph = c.gegl_node_new();
-        defer c.g_object_unref(temp_graph);
-        const input_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:buffer-source", "buffer", layer.buffer, @as(?*anyopaque, null));
-        const pixelize_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:pixelize", "size-x", size, "size-y", size, @as(?*anyopaque, null));
-        const format = c.babl_format("R'G'B'A u8");
-        const extent = c.gegl_buffer_get_extent(layer.buffer);
-        const new_buffer = c.gegl_buffer_new(extent, format);
-        if (new_buffer == null) return;
-        const write_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:write-buffer", "buffer", new_buffer, @as(?*anyopaque, null));
-        _ = c.gegl_node_link_many(input_node, pixelize_node, write_node, @as(?*anyopaque, null));
-        _ = c.gegl_node_process(write_node);
+
+        const new_buffer = try FiltersMod.applyPixelize(layer.buffer, size);
+
         c.g_object_unref(layer.buffer);
-        layer.buffer = new_buffer.?;
+        layer.buffer = new_buffer;
         _ = c.gegl_node_set(layer.source_node, "buffer", new_buffer, @as(?*anyopaque, null));
+
         self.commitTransaction();
     }
 
@@ -1448,21 +1010,15 @@ pub const Engine = struct {
         if (self.active_layer_idx >= self.layers.items.len) return;
         const layer = &self.layers.items[self.active_layer_idx];
         if (layer.locked) return;
+
         self.beginTransaction();
-        const temp_graph = c.gegl_node_new();
-        defer c.g_object_unref(temp_graph);
-        const input_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:buffer-source", "buffer", layer.buffer, @as(?*anyopaque, null));
-        const unsharp_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:unsharp-mask", "std-dev", std_dev, "scale", scale, @as(?*anyopaque, null));
-        const format = c.babl_format("R'G'B'A u8");
-        const extent = c.gegl_buffer_get_extent(layer.buffer);
-        const new_buffer = c.gegl_buffer_new(extent, format);
-        if (new_buffer == null) return;
-        const write_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:write-buffer", "buffer", new_buffer, @as(?*anyopaque, null));
-        _ = c.gegl_node_link_many(input_node, unsharp_node, write_node, @as(?*anyopaque, null));
-        _ = c.gegl_node_process(write_node);
+
+        const new_buffer = try FiltersMod.applyUnsharpMask(layer.buffer, std_dev, scale);
+
         c.g_object_unref(layer.buffer);
-        layer.buffer = new_buffer.?;
+        layer.buffer = new_buffer;
         _ = c.gegl_node_set(layer.source_node, "buffer", new_buffer, @as(?*anyopaque, null));
+
         self.commitTransaction();
     }
 
@@ -1470,21 +1026,15 @@ pub const Engine = struct {
         if (self.active_layer_idx >= self.layers.items.len) return;
         const layer = &self.layers.items[self.active_layer_idx];
         if (layer.locked) return;
+
         self.beginTransaction();
-        const temp_graph = c.gegl_node_new();
-        defer c.g_object_unref(temp_graph);
-        const input_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:buffer-source", "buffer", layer.buffer, @as(?*anyopaque, null));
-        const noise_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:noise-reduction", "iterations", iterations, @as(?*anyopaque, null));
-        const format = c.babl_format("R'G'B'A u8");
-        const extent = c.gegl_buffer_get_extent(layer.buffer);
-        const new_buffer = c.gegl_buffer_new(extent, format);
-        if (new_buffer == null) return;
-        const write_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:write-buffer", "buffer", new_buffer, @as(?*anyopaque, null));
-        _ = c.gegl_node_link_many(input_node, noise_node, write_node, @as(?*anyopaque, null));
-        _ = c.gegl_node_process(write_node);
+
+        const new_buffer = try FiltersMod.applyNoiseReduction(layer.buffer, iterations);
+
         c.g_object_unref(layer.buffer);
-        layer.buffer = new_buffer.?;
+        layer.buffer = new_buffer;
         _ = c.gegl_node_set(layer.source_node, "buffer", new_buffer, @as(?*anyopaque, null));
+
         self.commitTransaction();
     }
 
@@ -1492,21 +1042,15 @@ pub const Engine = struct {
         if (self.active_layer_idx >= self.layers.items.len) return;
         const layer = &self.layers.items[self.active_layer_idx];
         if (layer.locked) return;
+
         self.beginTransaction();
-        const temp_graph = c.gegl_node_new();
-        defer c.g_object_unref(temp_graph);
-        const input_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:buffer-source", "buffer", layer.buffer, @as(?*anyopaque, null));
-        const oilify_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:oilify", "mask-radius", mask_radius, @as(?*anyopaque, null));
-        const format = c.babl_format("R'G'B'A u8");
-        const extent = c.gegl_buffer_get_extent(layer.buffer);
-        const new_buffer = c.gegl_buffer_new(extent, format);
-        if (new_buffer == null) return;
-        const write_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:write-buffer", "buffer", new_buffer, @as(?*anyopaque, null));
-        _ = c.gegl_node_link_many(input_node, oilify_node, write_node, @as(?*anyopaque, null));
-        _ = c.gegl_node_process(write_node);
+
+        const new_buffer = try FiltersMod.applyOilify(layer.buffer, mask_radius);
+
         c.g_object_unref(layer.buffer);
-        layer.buffer = new_buffer.?;
+        layer.buffer = new_buffer;
         _ = c.gegl_node_set(layer.source_node, "buffer", new_buffer, @as(?*anyopaque, null));
+
         self.commitTransaction();
     }
 
@@ -1514,23 +1058,15 @@ pub const Engine = struct {
         if (self.active_layer_idx >= self.layers.items.len) return;
         const layer = &self.layers.items[self.active_layer_idx];
         if (layer.locked) return;
+
         self.beginTransaction();
-        const temp_graph = c.gegl_node_new();
-        defer c.g_object_unref(temp_graph);
-        const input_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:buffer-source", "buffer", layer.buffer, @as(?*anyopaque, null));
-        const ds_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:dropshadow", "x", x, "y", y, "radius", radius, "opacity", opacity, @as(?*anyopaque, null));
-        if (input_node == null or ds_node == null) return error.GeglGraphFailed;
-        _ = c.gegl_node_connect(ds_node, "input", input_node, "output");
-        const bbox = c.gegl_node_get_bounding_box(ds_node);
-        const format = c.babl_format("R'G'B'A u8");
-        const new_buffer = c.gegl_buffer_new(&bbox, format);
-        if (new_buffer == null) return;
-        const write_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:write-buffer", "buffer", new_buffer, @as(?*anyopaque, null));
-        _ = c.gegl_node_connect(write_node, "input", ds_node, "output");
-        _ = c.gegl_node_process(write_node);
+
+        const new_buffer = try FiltersMod.applyDropShadow(layer.buffer, x, y, radius, opacity);
+
         c.g_object_unref(layer.buffer);
-        layer.buffer = new_buffer.?;
+        layer.buffer = new_buffer;
         _ = c.gegl_node_set(layer.source_node, "buffer", new_buffer, @as(?*anyopaque, null));
+
         self.commitTransaction();
     }
 
@@ -1538,21 +1074,15 @@ pub const Engine = struct {
         if (self.active_layer_idx >= self.layers.items.len) return;
         const layer = &self.layers.items[self.active_layer_idx];
         if (layer.locked) return;
+
         self.beginTransaction();
-        const temp_graph = c.gegl_node_new();
-        defer c.g_object_unref(temp_graph);
-        const input_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:buffer-source", "buffer", layer.buffer, @as(?*anyopaque, null));
-        const filter_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:red-eye-removal", "threshold", threshold, @as(?*anyopaque, null));
-        const format = c.babl_format("R'G'B'A u8");
-        const extent = c.gegl_buffer_get_extent(layer.buffer);
-        const new_buffer = c.gegl_buffer_new(extent, format);
-        if (new_buffer == null) return;
-        const write_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:write-buffer", "buffer", new_buffer, @as(?*anyopaque, null));
-        _ = c.gegl_node_link_many(input_node, filter_node, write_node, @as(?*anyopaque, null));
-        _ = c.gegl_node_process(write_node);
+
+        const new_buffer = try FiltersMod.applyRedEyeRemoval(layer.buffer, threshold);
+
         c.g_object_unref(layer.buffer);
-        layer.buffer = new_buffer.?;
+        layer.buffer = new_buffer;
         _ = c.gegl_node_set(layer.source_node, "buffer", new_buffer, @as(?*anyopaque, null));
+
         self.commitTransaction();
     }
 
@@ -1560,21 +1090,15 @@ pub const Engine = struct {
         if (self.active_layer_idx >= self.layers.items.len) return;
         const layer = &self.layers.items[self.active_layer_idx];
         if (layer.locked) return;
+
         self.beginTransaction();
-        const temp_graph = c.gegl_node_new();
-        defer c.g_object_unref(temp_graph);
-        const input_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:buffer-source", "buffer", layer.buffer, @as(?*anyopaque, null));
-        const filter_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:waves", "amplitude", amplitude, "phase", phase, "wavelength", wavelength, "center-x", center_x, "center-y", center_y, @as(?*anyopaque, null));
-        const format = c.babl_format("R'G'B'A u8");
-        const extent = c.gegl_buffer_get_extent(layer.buffer);
-        const new_buffer = c.gegl_buffer_new(extent, format);
-        if (new_buffer == null) return;
-        const write_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:write-buffer", "buffer", new_buffer, @as(?*anyopaque, null));
-        _ = c.gegl_node_link_many(input_node, filter_node, write_node, @as(?*anyopaque, null));
-        _ = c.gegl_node_process(write_node);
+
+        const new_buffer = try FiltersMod.applyWaves(layer.buffer, amplitude, phase, wavelength, center_x, center_y);
+
         c.g_object_unref(layer.buffer);
-        layer.buffer = new_buffer.?;
+        layer.buffer = new_buffer;
         _ = c.gegl_node_set(layer.source_node, "buffer", new_buffer, @as(?*anyopaque, null));
+
         self.commitTransaction();
     }
 
@@ -1582,30 +1106,15 @@ pub const Engine = struct {
         if (self.active_layer_idx >= self.layers.items.len) return;
         const layer = &self.layers.items[self.active_layer_idx];
         if (layer.locked) return;
+
         self.beginTransaction();
-        const temp_graph = c.gegl_node_new();
-        defer c.g_object_unref(temp_graph);
-        const color_str = try std.fmt.allocPrintSentinel(std.heap.c_allocator, "rgba({d}, {d}, {d}, {d})", .{
-            color_rgba[0],
-            color_rgba[1],
-            color_rgba[2],
-            @as(f32, @floatFromInt(color_rgba[3])) / 255.0,
-        }, 0);
-        defer std.heap.c_allocator.free(color_str);
-        const color = c.gegl_color_new(color_str.ptr);
-        defer c.g_object_unref(color);
-        const input_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:buffer-source", "buffer", layer.buffer, @as(?*anyopaque, null));
-        const filter_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:supernova", "center-x", x, "center-y", y, "radius", radius, "spokes", spokes, "color", color, @as(?*anyopaque, null));
-        const format = c.babl_format("R'G'B'A u8");
-        const extent = c.gegl_buffer_get_extent(layer.buffer);
-        const new_buffer = c.gegl_buffer_new(extent, format);
-        if (new_buffer == null) return;
-        const write_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:write-buffer", "buffer", new_buffer, @as(?*anyopaque, null));
-        _ = c.gegl_node_link_many(input_node, filter_node, write_node, @as(?*anyopaque, null));
-        _ = c.gegl_node_process(write_node);
+
+        const new_buffer = try FiltersMod.applySupernova(layer.buffer, x, y, radius, spokes, color_rgba);
+
         c.g_object_unref(layer.buffer);
-        layer.buffer = new_buffer.?;
+        layer.buffer = new_buffer;
         _ = c.gegl_node_set(layer.source_node, "buffer", new_buffer, @as(?*anyopaque, null));
+
         self.commitTransaction();
     }
 
@@ -1613,30 +1122,15 @@ pub const Engine = struct {
         if (self.active_layer_idx >= self.layers.items.len) return;
         const layer = &self.layers.items[self.active_layer_idx];
         if (layer.locked) return;
+
         self.beginTransaction();
-        const temp_graph = c.gegl_node_new();
-        defer c.g_object_unref(temp_graph);
-        const color_str = try std.fmt.allocPrintSentinel(std.heap.c_allocator, "rgba({d}, {d}, {d}, {d})", .{
-            color_rgba[0],
-            color_rgba[1],
-            color_rgba[2],
-            @as(f32, @floatFromInt(color_rgba[3])) / 255.0,
-        }, 0);
-        defer std.heap.c_allocator.free(color_str);
-        const color = c.gegl_color_new(color_str.ptr);
-        defer c.g_object_unref(color);
-        const input_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:buffer-source", "buffer", layer.buffer, @as(?*anyopaque, null));
-        const filter_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:lighting", "x", x, "y", y, "z", z, "intensity", intensity, "color", color, "type", @as(c_int, 0), @as(?*anyopaque, null));
-        const format = c.babl_format("R'G'B'A u8");
-        const extent = c.gegl_buffer_get_extent(layer.buffer);
-        const new_buffer = c.gegl_buffer_new(extent, format);
-        if (new_buffer == null) return;
-        const write_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:write-buffer", "buffer", new_buffer, @as(?*anyopaque, null));
-        _ = c.gegl_node_link_many(input_node, filter_node, write_node, @as(?*anyopaque, null));
-        _ = c.gegl_node_process(write_node);
+
+        const new_buffer = try FiltersMod.applyLighting(layer.buffer, x, y, z, intensity, color_rgba);
+
         c.g_object_unref(layer.buffer);
-        layer.buffer = new_buffer.?;
+        layer.buffer = new_buffer;
         _ = c.gegl_node_set(layer.source_node, "buffer", new_buffer, @as(?*anyopaque, null));
+
         self.commitTransaction();
     }
 
@@ -1734,60 +1228,6 @@ pub const Engine = struct {
         self.rebuildGraph();
     }
 
-    fn calculateTransformBBox(self: *Engine, layer_bbox: *const c.GeglRectangle, params: TransformParams) c.GeglRectangle {
-        _ = self;
-        const cx = @as(f64, @floatFromInt(layer_bbox.x)) + @as(f64, @floatFromInt(layer_bbox.width)) / 2.0;
-        const cy = @as(f64, @floatFromInt(layer_bbox.y)) + @as(f64, @floatFromInt(layer_bbox.height)) / 2.0;
-
-        const rad_x = std.math.degreesToRadians(params.skew_x);
-        const rad_y = std.math.degreesToRadians(params.skew_y);
-        const tan_x = std.math.tan(rad_x);
-        const tan_y = std.math.tan(rad_y);
-
-        const rad_rot = std.math.degreesToRadians(params.rotate);
-        const cos_r = std.math.cos(rad_rot);
-        const sin_r = std.math.sin(rad_rot);
-
-        var min_x: f64 = std.math.inf(f64);
-        var min_y: f64 = std.math.inf(f64);
-        var max_x: f64 = -std.math.inf(f64);
-        var max_y: f64 = -std.math.inf(f64);
-
-        const corners = [4][2]f64{
-            .{ @floatFromInt(layer_bbox.x), @floatFromInt(layer_bbox.y) },
-            .{ @floatFromInt(layer_bbox.x + layer_bbox.width), @floatFromInt(layer_bbox.y) },
-            .{ @floatFromInt(layer_bbox.x + layer_bbox.width), @floatFromInt(layer_bbox.y + layer_bbox.height) },
-            .{ @floatFromInt(layer_bbox.x), @floatFromInt(layer_bbox.y + layer_bbox.height) },
-        };
-
-        for (corners) |p| {
-            var x = p[0] - cx;
-            var y = p[1] - cy;
-            x *= params.scale_x;
-            y *= params.scale_y;
-            const x_skew = x + tan_x * y;
-            const y_skew = tan_y * x + y;
-            x = x_skew;
-            y = y_skew;
-            const x_rot = x * cos_r - y * sin_r;
-            const y_rot = x * sin_r + y * cos_r;
-            x = x_rot;
-            y = y_rot;
-            x += cx + params.x;
-            y += cy + params.y;
-            if (x < min_x) min_x = x;
-            if (x > max_x) max_x = x;
-            if (y < min_y) min_y = y;
-            if (y > max_y) max_y = y;
-        }
-
-        return c.GeglRectangle{
-            .x = @intFromFloat(std.math.floor(min_x)),
-            .y = @intFromFloat(std.math.floor(min_y)),
-            .width = @intFromFloat(std.math.ceil(max_x - min_x)),
-            .height = @intFromFloat(std.math.ceil(max_y - min_y)),
-        };
-    }
 
     pub fn applyTransform(self: *Engine) !void {
         if (self.active_layer_idx >= self.layers.items.len) return;
@@ -1796,72 +1236,10 @@ pub const Engine = struct {
 
         self.beginTransformTransaction();
 
-        const temp_graph = c.gegl_node_new();
-        defer c.g_object_unref(temp_graph);
-
-        const input_node = c.gegl_node_new_child(temp_graph, "operation", "gegl:buffer-source", "buffer", layer.buffer, @as(?*anyopaque, null));
-
-        const extent = c.gegl_buffer_get_extent(layer.buffer);
-        const cx = @as(f64, @floatFromInt(extent.*.x)) + @as(f64, @floatFromInt(extent.*.width)) / 2.0;
-        const cy = @as(f64, @floatFromInt(extent.*.y)) + @as(f64, @floatFromInt(extent.*.height)) / 2.0;
-        const tp = self.preview_transform;
-
-        const t1 = c.gegl_node_new_child(temp_graph, "operation", "gegl:translate", "x", -cx, "y", -cy, @as(?*anyopaque, null));
-        const scale = c.gegl_node_new_child(temp_graph, "operation", "gegl:scale-ratio", "x", tp.scale_x, "y", tp.scale_y, @as(?*anyopaque, null));
-
-        const rotate = c.gegl_node_new_child(temp_graph, "operation", "gegl:rotate", "degrees", tp.rotate, @as(?*anyopaque, null));
-        const t2 = c.gegl_node_new_child(temp_graph, "operation", "gegl:translate", "x", cx + tp.x, "y", cy + tp.y, @as(?*anyopaque, null));
-
-        var skew: ?*c.GeglNode = null;
-        const has_skew = (@abs(tp.skew_x) > 0.001 or @abs(tp.skew_y) > 0.001);
-        var buf: [128]u8 = undefined;
-
-        if (has_skew) {
-            const rad_x = std.math.degreesToRadians(tp.skew_x);
-            const rad_y = std.math.degreesToRadians(tp.skew_y);
-            const tan_x = std.math.tan(rad_x);
-            const tan_y = std.math.tan(rad_y);
-            const transform_str = std.fmt.bufPrintZ(&buf, "matrix(1.0 {d:.6} {d:.6} 1.0 0.0 0.0)", .{ tan_y, tan_x }) catch "matrix(1.0 0.0 0.0 1.0 0.0 0.0)";
-            skew = c.gegl_node_new_child(temp_graph, "operation", "gegl:transform", "transform", transform_str.ptr, @as(?*anyopaque, null));
-        }
-
-        if (t1 == null or scale == null or rotate == null or t2 == null) return;
-        if (has_skew and skew == null) return;
-
-        _ = c.gegl_node_connect(scale, "input", t1, "output");
-        if (has_skew) {
-            _ = c.gegl_node_connect(skew, "input", scale, "output");
-            _ = c.gegl_node_connect(rotate, "input", skew, "output");
-        } else {
-            _ = c.gegl_node_connect(rotate, "input", scale, "output");
-        }
-        _ = c.gegl_node_connect(t2, "input", rotate, "output");
-
-        _ = c.gegl_node_connect(t1, "input", input_node, "output");
-
-        var bbox = self.calculateTransformBBox(extent, tp);
-
-        if (bbox.width > 20000) bbox.width = 20000;
-        if (bbox.height > 20000) bbox.height = 20000;
-
-        const format = c.babl_format("R'G'B'A u8");
-        const new_buffer = c.gegl_buffer_new(&bbox, format);
-
-        if (new_buffer == null) return;
-
-        const w: usize = @intCast(bbox.width);
-        const h: usize = @intCast(bbox.height);
-        const stride: c_int = bbox.width * 4;
-        const size = w * h * 4;
-
-        const mem = try std.heap.c_allocator.alloc(u8, size);
-        defer std.heap.c_allocator.free(mem);
-
-        c.gegl_node_blit(t2, 1.0, &bbox, format, mem.ptr, stride, c.GEGL_BLIT_DEFAULT);
-        c.gegl_buffer_set(new_buffer, &bbox, 0, format, mem.ptr, stride);
+        const new_buffer = try TransformMod.transformBuffer(layer.buffer, self.preview_transform);
 
         c.g_object_unref(layer.buffer);
-        layer.buffer = new_buffer.?;
+        layer.buffer = new_buffer;
         _ = c.gegl_node_set(layer.source_node, "buffer", new_buffer, @as(?*anyopaque, null));
 
         self.commitTransaction();

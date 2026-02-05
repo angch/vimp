@@ -44,3 +44,57 @@ pub const BrushOptions = struct {
     color: [4]u8,
     pressure: f64 = 1.0,
 };
+
+pub const ShapeType = enum {
+    rectangle,
+    ellipse,
+    rounded_rectangle,
+    line,
+    curve,
+    polygon,
+};
+
+pub const ShapePreview = struct {
+    type: ShapeType,
+    x: c_int,
+    y: c_int,
+    width: c_int,
+    height: c_int,
+    x2: c_int = 0,
+    y2: c_int = 0,
+    cx1: c_int = 0,
+    cy1: c_int = 0,
+    cx2: c_int = 0,
+    cy2: c_int = 0,
+    thickness: c_int,
+    filled: bool,
+    points: ?[]const Point = null,
+    radius: c_int = 0,
+};
+
+pub const PreviewMode = enum {
+    none,
+    blur,
+    motion_blur,
+    pixelize,
+    transform,
+    unsharp_mask,
+    noise_reduction,
+    oilify,
+    drop_shadow,
+    red_eye_removal,
+    waves,
+    supernova,
+    lighting,
+    move_selection,
+};
+
+pub const TransformParams = struct {
+    x: f64 = 0.0,
+    y: f64 = 0.0,
+    rotate: f64 = 0.0,
+    scale_x: f64 = 1.0,
+    scale_y: f64 = 1.0,
+    skew_x: f64 = 0.0,
+    skew_y: f64 = 0.0,
+};
