@@ -1,5 +1,4 @@
 ref/
-tools/
 .zig-cache/
 zig-out/
 libs/
