@@ -603,7 +603,7 @@ fn draw_func(
             }
 
             // Draw Selection Overlay
-            if (engine.selection) |sel| {
+            if (engine.selection.rect) |sel| {
                 const r: f64 = @floatFromInt(sel.x);
                 const g: f64 = @floatFromInt(sel.y);
                 const w: f64 = @floatFromInt(sel.width);
@@ -617,7 +617,7 @@ fn draw_func(
 
                 c.cairo_save(cr_ctx);
 
-                if (engine.selection_mode == .ellipse) {
+                if (engine.selection.mode == .ellipse) {
                     var matrix: c.cairo_matrix_t = undefined;
                     c.cairo_get_matrix(cr_ctx, &matrix);
 
@@ -626,14 +626,14 @@ fn draw_func(
                     c.cairo_arc(cr_ctx, 0.0, 0.0, 1.0, 0.0, 2.0 * std.math.pi);
 
                     c.cairo_set_matrix(cr_ctx, &matrix);
-                } else if (engine.selection_mode == .lasso) {
-                    if (engine.selection_points.items.len > 0) {
-                        const first = engine.selection_points.items[0];
+                } else if (engine.selection.mode == .lasso) {
+                    if (engine.selection.points.items.len > 0) {
+                        const first = engine.selection.points.items[0];
                         const fx = first.x * view_scale - view_x;
                         const fy = first.y * view_scale - view_y;
                         c.cairo_move_to(cr_ctx, fx, fy);
 
-                        for (engine.selection_points.items[1..]) |p| {
+                        for (engine.selection.points.items[1..]) |p| {
                             const px = p.x * view_scale - view_x;
                             const py = p.y * view_scale - view_y;
                             c.cairo_line_to(cr_ctx, px, py);
@@ -1156,7 +1156,7 @@ fn drag_begin(
                 const ix: i32 = @intFromFloat(c_x);
                 const iy: i32 = @intFromFloat(c_y);
 
-                if (engine.selection != null and engine.isPointInSelection(ix, iy)) {
+                if (engine.selection.rect != null and engine.isPointInSelection(ix, iy)) {
                     engine.beginMoveSelection(c_x, c_y) catch |err| {
                         show_toast("Failed to move selection: {}", .{err});
                         return;
@@ -1174,7 +1174,7 @@ fn drag_begin(
                 const ix: i32 = @intFromFloat(c_x);
                 const iy: i32 = @intFromFloat(c_y);
 
-                if (engine.selection != null and engine.isPointInSelection(ix, iy)) {
+                if (engine.selection.rect != null and engine.isPointInSelection(ix, iy)) {
                     engine.beginMoveSelection(c_x, c_y) catch |err| {
                         show_toast("Failed to move selection: {}", .{err});
                         return;
@@ -2349,6 +2349,10 @@ fn about_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callcon
     std.debug.print("Vimp Application\nVersion 0.1\n", .{});
 }
 
+fn inspector_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    c.gtk_window_set_interactive_debugging(1);
+}
+
 fn quit_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     const app: *c.GtkApplication = @ptrCast(@alignCast(user_data));
     const windows = c.gtk_application_get_windows(app);
@@ -3246,6 +3250,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     add_action(app, "open-location", @ptrCast(&open_location_activated), window);
     add_action(app, "save", @ptrCast(&save_activated), window);
     add_action(app, "about", @ptrCast(&about_activated), null);
+    add_action(app, "inspector", @ptrCast(&inspector_activated), null);
     add_action(app, "quit", @ptrCast(&quit_activated), app);
 
     // Salvage Action (Parameter: String)
@@ -3314,6 +3319,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     set_accel(app, "app.clear-image", "<Ctrl><Shift>n");
     set_accel(app, "app.rotate-90", "<Ctrl>r");
     set_accel(app, "app.command-palette", "<Ctrl>k");
+    set_accel(app, "app.inspector", "<Ctrl><Shift>i");
     const zoom_in_accels = [_]?[*:0]const u8{ "<Ctrl>plus", "<Ctrl>equal", null };
     c.gtk_application_set_accels_for_action(app, "app.zoom-in", @ptrCast(&zoom_in_accels));
     set_accel(app, "app.zoom-out", "<Ctrl>minus");
@@ -3445,6 +3451,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     const menu = c.g_menu_new();
     c.g_menu_append(menu, "_Command Palette...", "app.command-palette");
     c.g_menu_append(menu, "_Open Location...", "app.open-location");
+    c.g_menu_append(menu, "_Inspector", "app.inspector");
     c.g_menu_append(menu, "_About Vimp", "app.about");
     c.g_menu_append(menu, "_Quit", "app.quit");
 

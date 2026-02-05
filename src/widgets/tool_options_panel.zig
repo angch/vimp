@@ -108,7 +108,7 @@ pub const ToolOptionsPanel = struct {
             },
             .rect_select, .ellipse_select, .lasso => {
                 const check = c.gtk_check_button_new_with_mnemonic("_Transparent");
-                c.gtk_check_button_set_active(@ptrCast(check), if (self.engine.selection_transparent) 1 else 0);
+                c.gtk_check_button_set_active(@ptrCast(check), if (self.engine.selection.transparent) 1 else 0);
                 c.gtk_box_append(@ptrCast(box), check);
                 _ = c.g_signal_connect_data(check, "toggled", @ptrCast(&selection_transparent_toggled), self, null, 0);
             },
