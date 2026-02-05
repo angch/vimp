@@ -27,6 +27,16 @@ const AirbrushTool = @import("tools/airbrush.zig").AirbrushTool;
 const RectSelectTool = @import("tools/rect_select.zig").RectSelectTool;
 const EllipseSelectTool = @import("tools/ellipse_select.zig").EllipseSelectTool;
 const LassoTool = @import("tools/lasso.zig").LassoTool;
+const RectShapeTool = @import("tools/rect_shape.zig").RectShapeTool;
+const EllipseShapeTool = @import("tools/ellipse_shape.zig").EllipseShapeTool;
+const RoundedRectShapeTool = @import("tools/rounded_rect_shape.zig").RoundedRectShapeTool;
+const LineTool = @import("tools/line.zig").LineTool;
+const CurveTool = @import("tools/curve.zig").CurveTool;
+const PolygonTool = @import("tools/polygon.zig").PolygonTool;
+const TextTool = @import("tools/text.zig").TextTool;
+const GradientTool = @import("tools/gradient.zig").GradientTool;
+const ColorPickerTool = @import("tools/color_picker.zig").ColorPickerTool;
+const UnifiedTransformTool = @import("tools/unified_transform.zig").UnifiedTransformTool;
 const Assets = @import("assets.zig");
 const Salvage = @import("salvage.zig").Salvage;
 
@@ -241,6 +251,26 @@ fn transform_cancel_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builti
     queue_draw();
 }
 
+fn on_text_tool_complete() void {
+    refresh_layers_ui();
+    refresh_undo_ui();
+    update_view_mode();
+    canvas_dirty = true;
+    queue_draw();
+}
+
+fn on_color_picked(color: [4]u8) void {
+    if (color_btn) |btn| {
+        const rgba = c.GdkRGBA{
+            .red = @as(f32, @floatFromInt(color[0])) / 255.0,
+            .green = @as(f32, @floatFromInt(color[1])) / 255.0,
+            .blue = @as(f32, @floatFromInt(color[2])) / 255.0,
+            .alpha = @as(f32, @floatFromInt(color[3])) / 255.0,
+        };
+        c.gtk_color_chooser_set_rgba(@ptrCast(btn), &rgba);
+    }
+}
+
 fn update_color_btn_visual() void {
     if (color_btn) |btn| {
         const fg = engine.fg_color;
@@ -338,40 +368,58 @@ fn tool_toggled(
                 osd_show("Ellipse Select");
             },
             .rect_shape => {
+                const tool = RectShapeTool.create(std.heap.c_allocator) catch return;
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
                 osd_show("Rectangle Tool");
             },
             .ellipse_shape => {
+                const tool = EllipseShapeTool.create(std.heap.c_allocator) catch return;
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
                 osd_show("Ellipse Tool");
             },
             .rounded_rect_shape => {
+                const tool = RoundedRectShapeTool.create(std.heap.c_allocator) catch return;
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
                 osd_show("Rounded Rectangle Tool");
             },
             .unified_transform => {
+                const tool = UnifiedTransformTool.create(std.heap.c_allocator) catch return;
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
                 osd_show("Unified Transform");
             },
             .color_picker => {
+                const tool = ColorPickerTool.create(std.heap.c_allocator, &on_color_picked) catch return;
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
                 osd_show("Color Picker");
             },
             .gradient => {
+                const tool = GradientTool.create(std.heap.c_allocator) catch return;
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
                 osd_show("Gradient Tool");
             },
             .line => {
-                engine.setMode(.paint);
-                engine.setBrushType(.circle);
+                const tool = LineTool.create(std.heap.c_allocator) catch return;
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
                 osd_show("Line Tool");
             },
             .curve => {
-                engine.setMode(.paint);
-                engine.setBrushType(.circle);
-                osd_show("Curve Tool (Drag Line -> Bend 1 -> Bend 2)");
-                curve_phase = 0;
+                const tool = CurveTool.create(std.heap.c_allocator) catch return;
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
+                osd_show("Curve Tool");
             },
             .polygon => {
-                engine.setMode(.paint);
-                engine.setBrushType(.circle);
-                osd_show("Polygon Tool (Click to add points, click start to close)");
-                polygon_active = false;
-                polygon_points.clearRetainingCapacity();
+                const tool = PolygonTool.create(std.heap.c_allocator) catch return;
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
+                osd_show("Polygon Tool");
             },
             .lasso => {
                 const tool = LassoTool.create(std.heap.c_allocator) catch {
@@ -381,11 +429,14 @@ fn tool_toggled(
                 active_tool_interface = tool.interface();
                 active_tool_interface.?.activate(&engine);
                 osd_show("Lasso Select");
-                polygon_active = false;
-                polygon_points.clearRetainingCapacity();
             },
             .text => {
-                osd_show("Text Tool (Click to insert text)");
+                const root = c.gtk_widget_get_root(@ptrCast(button));
+                const win: ?*c.GtkWindow = if (root) |r| @ptrCast(@alignCast(r)) else null;
+                const tool = TextTool.create(std.heap.c_allocator, win, &on_text_tool_complete) catch return;
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
+                osd_show("Text Tool");
             },
         }
     }
@@ -466,17 +517,6 @@ var polygon_tool = Tool.polygon;
 var lasso_tool = Tool.lasso;
 var text_tool = Tool.text;
 
-// Curve Tool State
-const Point = struct { x: f64, y: f64 };
-var curve_phase: c_int = 0;
-var curve_p1: Point = .{ .x = 0, .y = 0 };
-var curve_p2: Point = .{ .x = 0, .y = 0 };
-var curve_p3: Point = .{ .x = 0, .y = 0 };
-var curve_p4: Point = .{ .x = 0, .y = 0 };
-
-// Polygon Tool State
-var polygon_points: std.ArrayList(Engine.Point) = undefined;
-var polygon_active: bool = false;
 
 // Drag State
 var is_dragging_interaction: bool = false;
@@ -1000,19 +1040,10 @@ fn motion_func(
     mouse_x = x;
     mouse_y = y;
 
-    if (current_tool == .polygon and polygon_active) {
-        // Update preview line from last point to cursor
-        const wx = (view_x + x) / view_scale;
-        const wy = (view_y + y) / view_scale;
-
-        // We need to pass points + current cursor
-        // But allocating a new list every motion is expensive?
-        // ShapePreview needs a list.
-        // I can temporarily append, set preview, remove.
-        polygon_points.append(std.heap.c_allocator, Engine.Point{ .x = wx, .y = wy }) catch return;
-        engine.setShapePreviewPolygon(polygon_points.items, engine.brush_size, false);
-        _ = polygon_points.pop();
-
+    if (active_tool_interface) |tool| {
+        const c_x = (view_x + x) / view_scale;
+        const c_y = (view_y + y) / view_scale;
+        tool.motion(&engine, c_x, c_y);
         queue_draw();
     }
 }
@@ -1187,107 +1218,13 @@ fn drag_begin(
         drag_button = button;
 
         if (active_tool_interface) |tool| {
+            const state = c.gtk_event_controller_get_current_event_state(@ptrCast(gesture));
             const c_x = (view_x + x) / view_scale;
             const c_y = (view_y + y) / view_scale;
-            tool.start(&engine, c_x, c_y, button);
+            tool.start(&engine, c_x, c_y, button, state);
             canvas_dirty = true;
             c.gtk_widget_queue_draw(widget);
             return;
-        }
-
-        if (button == 1 or button == 3) {
-            if (current_tool == .lasso) {
-                if (button != 1) return;
-                const c_x = (view_x + x) / view_scale;
-                const c_y = (view_y + y) / view_scale;
-                const ix: i32 = @intFromFloat(c_x);
-                const iy: i32 = @intFromFloat(c_y);
-
-                if (engine.selection.rect != null and engine.isPointInSelection(ix, iy)) {
-                    engine.beginMoveSelection(c_x, c_y) catch |err| {
-                        show_toast("Failed to move selection: {}", .{err});
-                        return;
-                    };
-                    is_moving_selection = true;
-                } else {
-                    engine.beginSelection();
-                    engine.clearSelection(); // Clear previous selection immediately
-                    polygon_points.clearRetainingCapacity();
-                    const wx = (view_x + x) / view_scale;
-                    const wy = (view_y + y) / view_scale;
-                    polygon_points.append(std.heap.c_allocator, Engine.Point{ .x = wx, .y = wy }) catch {};
-                }
-                c.gtk_widget_queue_draw(widget);
-            } else if (current_tool == .color_picker) {
-                if (button != 1) return;
-                const c_x: i32 = @intFromFloat((view_x + x) / view_scale);
-                const c_y: i32 = @intFromFloat((view_y + y) / view_scale);
-                if (engine.pickColor(c_x, c_y)) |color| {
-                    engine.setFgColor(color[0], color[1], color[2], color[3]);
-                    if (color_btn) |btn| {
-                        const rgba = c.GdkRGBA{
-                            .red = @as(f32, @floatFromInt(color[0])) / 255.0,
-                            .green = @as(f32, @floatFromInt(color[1])) / 255.0,
-                            .blue = @as(f32, @floatFromInt(color[2])) / 255.0,
-                            .alpha = @as(f32, @floatFromInt(color[3])) / 255.0,
-                        };
-                        c.gtk_color_chooser_set_rgba(@ptrCast(btn), &rgba);
-                    }
-                } else |_| {}
-            } else if (current_tool == .rect_shape or current_tool == .ellipse_shape or current_tool == .rounded_rect_shape) {
-                if (button != 1) return;
-                // Do nothing at start, render preview during drag
-            } else if (current_tool == .gradient) {
-                if (button != 1) return;
-                engine.beginTransaction();
-            } else if (current_tool == .line) {
-                // Do nothing at start, render preview during drag
-            } else if (current_tool == .curve) {
-                if (curve_phase == 0) {
-                    curve_p1.x = (view_x + x) / view_scale;
-                    curve_p1.y = (view_y + y) / view_scale;
-                }
-            } else if (current_tool == .polygon) {
-                if (button != 1) return;
-                const wx = (view_x + x) / view_scale;
-                const wy = (view_y + y) / view_scale;
-
-                if (!polygon_active) {
-                    polygon_points.clearRetainingCapacity();
-                    polygon_points.append(std.heap.c_allocator, Engine.Point{ .x = wx, .y = wy }) catch {};
-                    polygon_active = true;
-                } else {
-                    // Check closure (screen distance < 10px)
-                    if (polygon_points.items.len > 0) {
-                        const first = polygon_points.items[0];
-                        const sx = first.x * view_scale - view_x;
-                        const sy = first.y * view_scale - view_y;
-                        const dx = x - sx;
-                        const dy = y - sy;
-                        if (dx * dx + dy * dy < 100.0) {
-                            // Close polygon
-                            engine.beginTransaction();
-                            // Default to outline for now, maybe add toggle later
-                            engine.drawPolygon(polygon_points.items, engine.brush_size, false) catch |err| {
-                                show_toast("Failed to draw polygon: {}", .{err});
-                            };
-                            engine.commitTransaction();
-                            engine.clearShapePreview();
-                            polygon_active = false;
-                            polygon_points.clearRetainingCapacity();
-                            refresh_undo_ui();
-                            canvas_dirty = true;
-                            c.gtk_widget_queue_draw(widget);
-                            return;
-                        }
-                    }
-                    polygon_points.append(std.heap.c_allocator, Engine.Point{ .x = wx, .y = wy }) catch {};
-                }
-                c.gtk_widget_queue_draw(widget);
-            } else {
-                // Paint tools
-                engine.beginTransaction();
-            }
         }
     }
 }
@@ -1324,192 +1261,14 @@ fn drag_update(
 
         queue_draw();
     } else if (active_tool_interface) |tool| {
+        const state = c.gtk_event_controller_get_current_event_state(@ptrCast(gesture));
         const c_x = (view_x + current_x) / view_scale;
         const c_y = (view_y + current_y) / view_scale;
-        tool.update(&engine, c_x, c_y);
+        tool.update(&engine, c_x, c_y, state);
         canvas_dirty = true;
         c.gtk_widget_queue_draw(widget);
         prev_x = current_x;
         prev_y = current_y;
-    } else if (button == 1 or button == 3) {
-        // Paint (Left or Right Mouse)
-        const c_prev_x = (view_x + prev_x) / view_scale;
-        const c_prev_y = (view_y + prev_y) / view_scale;
-        const c_curr_x = (view_x + current_x) / view_scale;
-        const c_curr_y = (view_y + current_y) / view_scale;
-
-        if (current_tool == .color_picker) {
-            const c_x: i32 = @intFromFloat(c_curr_x);
-            const c_y: i32 = @intFromFloat(c_curr_y);
-            if (engine.pickColor(c_x, c_y)) |color| {
-                engine.setFgColor(color[0], color[1], color[2], color[3]);
-                if (color_btn) |btn| {
-                    const rgba = c.GdkRGBA{
-                        .red = @as(f32, @floatFromInt(color[0])) / 255.0,
-                        .green = @as(f32, @floatFromInt(color[1])) / 255.0,
-                        .blue = @as(f32, @floatFromInt(color[2])) / 255.0,
-                        .alpha = @as(f32, @floatFromInt(color[3])) / 255.0,
-                    };
-                    c.gtk_color_chooser_set_rgba(@ptrCast(btn), &rgba);
-                }
-            } else |_| {}
-            prev_x = current_x;
-            prev_y = current_y;
-            return;
-        }
-
-        if (current_tool == .lasso) {
-            if (is_moving_selection) {
-                const dx = offset_x / view_scale;
-                const dy = offset_y / view_scale;
-                engine.updateMoveSelection(dx, dy);
-                canvas_dirty = true;
-            } else {
-                polygon_points.append(std.heap.c_allocator, Engine.Point{ .x = c_curr_x, .y = c_curr_y }) catch {};
-                engine.setShapePreviewPolygon(polygon_points.items, 1, false);
-            }
-            c.gtk_widget_queue_draw(widget);
-            prev_x = current_x;
-            prev_y = current_y;
-            return;
-        }
-
-        if (current_tool == .curve) {
-            if (curve_phase == 0) {
-                // Dragging line endpoint
-                curve_p4.x = c_curr_x;
-                curve_p4.y = c_curr_y;
-                // CP1, CP2 follow line for now
-                curve_p2 = curve_p1;
-                curve_p3 = curve_p4;
-            } else if (curve_phase == 1) {
-                // Dragging CP1
-                curve_p2.x = c_curr_x;
-                curve_p2.y = c_curr_y;
-            } else if (curve_phase == 2) {
-                // Dragging CP2
-                curve_p3.x = c_curr_x;
-                curve_p3.y = c_curr_y;
-            }
-
-            const sx: c_int = @intFromFloat(curve_p1.x);
-            const sy: c_int = @intFromFloat(curve_p1.y);
-            const ex: c_int = @intFromFloat(curve_p4.x);
-            const ey: c_int = @intFromFloat(curve_p4.y);
-            const cx1: c_int = @intFromFloat(curve_p2.x);
-            const cy1: c_int = @intFromFloat(curve_p2.y);
-            const cx2: c_int = @intFromFloat(curve_p3.x);
-            const cy2: c_int = @intFromFloat(curve_p3.y);
-
-            engine.setShapePreview(sx, sy, 0, 0, 1, false);
-            if (engine.preview_shape) |*s| {
-                s.type = .curve;
-                s.x2 = ex;
-                s.y2 = ey;
-                s.cx1 = cx1;
-                s.cy1 = cy1;
-                s.cx2 = cx2;
-                s.cy2 = cy2;
-            }
-            c.gtk_widget_queue_draw(widget);
-            return;
-        }
-
-        if (current_tool == .line) {
-            const start_world_x = (view_x + start_sx) / view_scale;
-            const start_world_y = (view_y + start_sy) / view_scale;
-
-            var end_x = c_curr_x;
-            var end_y = c_curr_y;
-
-            const state = c.gtk_event_controller_get_current_event_state(@ptrCast(gesture));
-            if ((state & c.GDK_SHIFT_MASK) != 0) {
-                const snapped = CanvasUtils.snapAngle(start_world_x, start_world_y, c_curr_x, c_curr_y, 45.0);
-                end_x = snapped.x;
-                end_y = snapped.y;
-            }
-
-            const sx: c_int = @intFromFloat(start_world_x);
-            const sy: c_int = @intFromFloat(start_world_y);
-            const ex: c_int = @intFromFloat(end_x);
-            const ey: c_int = @intFromFloat(end_y);
-
-            engine.setShapePreview(sx, sy, 0, 0, 1, false);
-            if (engine.preview_shape) |*s| {
-                s.type = .line;
-                s.x2 = ex;
-                s.y2 = ey;
-            }
-
-            c.gtk_widget_queue_draw(widget);
-
-            prev_x = current_x;
-            prev_y = current_y;
-            return;
-        }
-
-        if (current_tool == .rect_shape or current_tool == .ellipse_shape or current_tool == .rounded_rect_shape) {
-            // Dragging shape
-            const start_world_x = (view_x + start_sx) / view_scale;
-            const start_world_y = (view_y + start_sy) / view_scale;
-
-            const min_x: c_int = @intFromFloat(@min(start_world_x, c_curr_x));
-            const min_y: c_int = @intFromFloat(@min(start_world_y, c_curr_y));
-            const w: c_int = @intFromFloat(@abs(c_curr_x - start_world_x));
-            const h: c_int = @intFromFloat(@abs(c_curr_y - start_world_y));
-
-            engine.setShapePreview(min_x, min_y, w, h, engine.brush_size, engine.brush_filled);
-            if (current_tool == .ellipse_shape) {
-                // Update type
-                if (engine.preview_shape) |*s| s.type = .ellipse;
-            } else if (current_tool == .rounded_rect_shape) {
-                if (engine.preview_shape) |*s| {
-                    s.type = .rounded_rectangle;
-                    s.radius = 20;
-                }
-            }
-
-            c.gtk_widget_queue_draw(widget);
-
-            prev_x = current_x;
-            prev_y = current_y;
-            return;
-        }
-
-        if (current_tool == .gradient) {
-            const start_world_x = (view_x + start_sx) / view_scale;
-            const start_world_y = (view_y + start_sy) / view_scale;
-
-            const sx: c_int = @intFromFloat(start_world_x);
-            const sy: c_int = @intFromFloat(start_world_y);
-            const ex: c_int = @intFromFloat(c_curr_x);
-            const ey: c_int = @intFromFloat(c_curr_y);
-
-            engine.setShapePreview(sx, sy, 0, 0, 1, false);
-            if (engine.preview_shape) |*s| {
-                s.type = .line;
-                s.x2 = ex;
-                s.y2 = ey;
-            }
-
-            c.gtk_widget_queue_draw(widget);
-
-            prev_x = current_x;
-            prev_y = current_y;
-            return;
-        }
-
-        // Default pressure 1.0 for now
-        if (button == 3) {
-            // Check tools allowed for right click
-            if (current_tool == .brush or current_tool == .pencil or current_tool == .airbrush or current_tool == .line or current_tool == .curve or current_tool == .eraser) {
-                engine.paintStrokeWithColor(c_prev_x, c_prev_y, c_curr_x, c_curr_y, 1.0, engine.bg_color);
-            }
-        } else {
-            engine.paintStroke(c_prev_x, c_prev_y, c_curr_x, c_curr_y, 1.0);
-        }
-        canvas_dirty = true;
-        c.gtk_widget_queue_draw(widget);
     }
 
     prev_x = current_x;
@@ -1525,6 +1284,7 @@ fn drag_end(
     is_dragging_interaction = false;
 
     if (active_tool_interface) |tool| {
+        const state = c.gtk_event_controller_get_current_event_state(@ptrCast(gesture));
         var start_sx: f64 = 0;
         var start_sy: f64 = 0;
         _ = c.gtk_gesture_drag_get_start_point(gesture, &start_sx, &start_sy);
@@ -1533,7 +1293,7 @@ fn drag_end(
         const c_x = (view_x + current_x) / view_scale;
         const c_y = (view_y + current_y) / view_scale;
 
-        tool.end(&engine, c_x, c_y);
+        tool.end(&engine, c_x, c_y, state);
         refresh_undo_ui();
         canvas_dirty = true;
         if (user_data) |ud| {
@@ -1542,235 +1302,6 @@ fn drag_end(
         }
         return;
     }
-
-    if (is_moving_selection) {
-        engine.commitMoveSelection() catch |err| {
-            show_toast("Failed to commit move: {}", .{err});
-        };
-        is_moving_selection = false;
-        refresh_undo_ui();
-        canvas_dirty = true;
-        if (user_data) |ud| {
-            const widget: *c.GtkWidget = @ptrCast(@alignCast(ud));
-            c.gtk_widget_queue_draw(widget);
-        }
-        return;
-    }
-
-    if (current_tool == .text) {
-        var start_sx: f64 = 0;
-        var start_sy: f64 = 0;
-        _ = c.gtk_gesture_drag_get_start_point(gesture, &start_sx, &start_sy);
-
-        const dist = offset_x * offset_x + offset_y * offset_y;
-        if (dist < 25.0) {
-            const start_world_x = (view_x + start_sx) / view_scale;
-            const start_world_y = (view_y + start_sy) / view_scale;
-
-            const x: i32 = @intFromFloat(start_world_x);
-            const y: i32 = @intFromFloat(start_world_y);
-
-            if (std.heap.c_allocator.create(TextContext)) |ctx| {
-                ctx.* = .{ .x = x, .y = y };
-
-                var parent_window: ?*c.GtkWindow = null;
-                if (user_data) |ud| {
-                    const widget: *c.GtkWidget = @ptrCast(@alignCast(ud));
-                    if (c.gtk_widget_get_root(widget)) |root| {
-                        parent_window = @ptrCast(@alignCast(root));
-                    }
-                }
-
-                TextDialog.showTextDialog(parent_window, engine.font_size, &on_text_insert, ctx, &destroy_text_context) catch |err| {
-                    show_toast("Failed to show text dialog: {}", .{err});
-                    std.heap.c_allocator.destroy(ctx);
-                };
-            } else |_| {}
-        }
-        return;
-    }
-
-    if (current_tool == .rect_shape or current_tool == .ellipse_shape or current_tool == .rounded_rect_shape) {
-        var start_sx: f64 = 0;
-        var start_sy: f64 = 0;
-        _ = c.gtk_gesture_drag_get_start_point(gesture, &start_sx, &start_sy);
-        const current_x = start_sx + offset_x;
-        const current_y = start_sy + offset_y;
-
-        const start_world_x = (view_x + start_sx) / view_scale;
-        const start_world_y = (view_y + start_sy) / view_scale;
-        const c_curr_x = (view_x + current_x) / view_scale;
-        const c_curr_y = (view_y + current_y) / view_scale;
-
-        const min_x: c_int = @intFromFloat(@min(start_world_x, c_curr_x));
-        const min_y: c_int = @intFromFloat(@min(start_world_y, c_curr_y));
-        const w: c_int = @intFromFloat(@abs(c_curr_x - start_world_x));
-        const h: c_int = @intFromFloat(@abs(c_curr_y - start_world_y));
-
-        engine.beginTransaction();
-        if (current_tool == .rect_shape) {
-            engine.drawRectangle(min_x, min_y, w, h, engine.brush_size, engine.brush_filled) catch |err| {
-                show_toast("Failed to draw rect: {}", .{err});
-            };
-        } else if (current_tool == .rounded_rect_shape) {
-            engine.drawRoundedRectangle(min_x, min_y, w, h, 20, engine.brush_size, engine.brush_filled) catch |err| {
-                show_toast("Failed to draw rounded rect: {}", .{err});
-            };
-        } else {
-            engine.drawEllipse(min_x, min_y, w, h, engine.brush_size, engine.brush_filled) catch |err| {
-                show_toast("Failed to draw ellipse: {}", .{err});
-            };
-        }
-        engine.commitTransaction();
-        engine.clearShapePreview();
-        refresh_undo_ui();
-        canvas_dirty = true;
-
-        if (user_data) |ud| {
-            const widget: *c.GtkWidget = @ptrCast(@alignCast(ud));
-            c.gtk_widget_queue_draw(widget);
-        }
-        return;
-    }
-
-    if (current_tool == .lasso) {
-        engine.setSelectionLasso(polygon_points.items);
-        engine.commitTransaction();
-        engine.clearShapePreview();
-        polygon_points.clearRetainingCapacity();
-        refresh_undo_ui();
-        canvas_dirty = true;
-        if (user_data) |ud| {
-            const widget: *c.GtkWidget = @ptrCast(@alignCast(ud));
-            c.gtk_widget_queue_draw(widget);
-        }
-        return;
-    }
-
-    if (current_tool == .curve) {
-        if (curve_phase == 0) {
-            curve_phase = 1;
-            // Keep preview, do nothing else
-        } else if (curve_phase == 1) {
-            curve_phase = 2;
-            // Keep preview
-        } else if (curve_phase == 2) {
-            // Commit
-            const sx: c_int = @intFromFloat(curve_p1.x);
-            const sy: c_int = @intFromFloat(curve_p1.y);
-            const ex: c_int = @intFromFloat(curve_p4.x);
-            const ey: c_int = @intFromFloat(curve_p4.y);
-            const cx1: c_int = @intFromFloat(curve_p2.x);
-            const cy1: c_int = @intFromFloat(curve_p2.y);
-            const cx2: c_int = @intFromFloat(curve_p3.x);
-            const cy2: c_int = @intFromFloat(curve_p3.y);
-
-            engine.beginTransaction();
-            const original_fg = engine.fg_color;
-            if (drag_button == 3) engine.setFgColor(engine.bg_color[0], engine.bg_color[1], engine.bg_color[2], engine.bg_color[3]);
-
-            engine.drawCurve(sx, sy, ex, ey, cx1, cy1, cx2, cy2) catch |err| {
-                show_toast("Failed to draw curve: {}", .{err});
-            };
-
-            if (drag_button == 3) engine.setFgColor(original_fg[0], original_fg[1], original_fg[2], original_fg[3]);
-            engine.commitTransaction();
-            engine.clearShapePreview();
-            curve_phase = 0;
-            refresh_undo_ui();
-            canvas_dirty = true;
-
-            if (user_data) |ud| {
-                const widget: *c.GtkWidget = @ptrCast(@alignCast(ud));
-                c.gtk_widget_queue_draw(widget);
-            }
-        }
-        return;
-    }
-
-    if (current_tool == .line) {
-        var start_sx: f64 = 0;
-        var start_sy: f64 = 0;
-        _ = c.gtk_gesture_drag_get_start_point(gesture, &start_sx, &start_sy);
-        const current_x = start_sx + offset_x;
-        const current_y = start_sy + offset_y;
-
-        const start_world_x = (view_x + start_sx) / view_scale;
-        const start_world_y = (view_y + start_sy) / view_scale;
-        const c_curr_x = (view_x + current_x) / view_scale;
-        const c_curr_y = (view_y + current_y) / view_scale;
-
-        var end_x = c_curr_x;
-        var end_y = c_curr_y;
-
-        const state = c.gtk_event_controller_get_current_event_state(@ptrCast(gesture));
-        if ((state & c.GDK_SHIFT_MASK) != 0) {
-            const snapped = CanvasUtils.snapAngle(start_world_x, start_world_y, c_curr_x, c_curr_y, 45.0);
-            end_x = snapped.x;
-            end_y = snapped.y;
-        }
-
-        const sx: c_int = @intFromFloat(start_world_x);
-        const sy: c_int = @intFromFloat(start_world_y);
-        const ex: c_int = @intFromFloat(end_x);
-        const ey: c_int = @intFromFloat(end_y);
-
-        engine.beginTransaction();
-        const original_fg = engine.fg_color;
-        if (drag_button == 3) engine.setFgColor(engine.bg_color[0], engine.bg_color[1], engine.bg_color[2], engine.bg_color[3]);
-
-        engine.drawLine(sx, sy, ex, ey) catch |err| {
-            show_toast("Failed to draw line: {}", .{err});
-        };
-
-        if (drag_button == 3) engine.setFgColor(original_fg[0], original_fg[1], original_fg[2], original_fg[3]);
-        engine.commitTransaction();
-        engine.clearShapePreview();
-        refresh_undo_ui();
-        canvas_dirty = true;
-
-        if (user_data) |ud| {
-            const widget: *c.GtkWidget = @ptrCast(@alignCast(ud));
-            c.gtk_widget_queue_draw(widget);
-        }
-        return;
-    }
-
-    if (current_tool == .gradient) {
-        var start_sx: f64 = 0;
-        var start_sy: f64 = 0;
-        _ = c.gtk_gesture_drag_get_start_point(gesture, &start_sx, &start_sy);
-        const current_x = start_sx + offset_x;
-        const current_y = start_sy + offset_y;
-
-        const start_world_x = (view_x + start_sx) / view_scale;
-        const start_world_y = (view_y + start_sy) / view_scale;
-        const c_curr_x = (view_x + current_x) / view_scale;
-        const c_curr_y = (view_y + current_y) / view_scale;
-
-        const sx: c_int = @intFromFloat(start_world_x);
-        const sy: c_int = @intFromFloat(start_world_y);
-        const ex: c_int = @intFromFloat(c_curr_x);
-        const ey: c_int = @intFromFloat(c_curr_y);
-
-        engine.drawGradient(sx, sy, ex, ey) catch |err| {
-            show_toast("Failed to draw gradient: {}", .{err});
-        };
-        engine.commitTransaction();
-        engine.clearShapePreview();
-        refresh_undo_ui();
-        canvas_dirty = true;
-
-        if (user_data) |ud| {
-            const widget: *c.GtkWidget = @ptrCast(@alignCast(ud));
-            c.gtk_widget_queue_draw(widget);
-        }
-        return;
-    }
-
-    // Commit transaction if any (e.g. from paint tools)
-    engine.commitTransaction();
-    refresh_undo_ui();
 }
 
 fn new_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
@@ -2011,29 +1542,6 @@ fn convertRawAndOpen(path: [:0]const u8, as_layers: bool, add_to_recent: bool) v
     }
 }
 
-const TextContext = struct {
-    x: i32,
-    y: i32,
-};
-
-fn destroy_text_context(data: ?*anyopaque) void {
-    const ctx: *TextContext = @ptrCast(@alignCast(data));
-    std.heap.c_allocator.destroy(ctx);
-}
-
-fn on_text_insert(user_data: ?*anyopaque, text: [:0]const u8, size: i32) void {
-    const ctx: *TextContext = @ptrCast(@alignCast(user_data));
-
-    engine.drawText(text, ctx.x, ctx.y, size) catch |err| {
-        show_toast("Failed to draw text: {}", .{err});
-    };
-
-    refresh_layers_ui();
-    refresh_undo_ui();
-    update_view_mode();
-    canvas_dirty = true;
-    queue_draw();
-}
 
 fn finish_file_open(path: [:0]const u8, as_layers: bool, success: bool, add_to_recent: bool) void {
     if (success and add_to_recent) {
@@ -3246,9 +2754,6 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     recent_colors_manager.load() catch |err| {
         std.debug.print("Failed to load recent colors: {}\n", .{err});
     };
-
-    // Init polygon points
-    polygon_points = .{};
 
     // Start Autosave Timer (every 30 seconds)
     if (autosave_timer_id == 0) {
