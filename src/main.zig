@@ -55,6 +55,40 @@ var toast_overlay: ?*c.AdwToastOverlay = null;
 var sidebar_ui: *Sidebar = undefined;
 var header_ui: *Header = undefined;
 var active_tool_interface: ?ToolInterface = null;
+var cli_page_number: i32 = -1;
+
+fn handle_local_options(
+    _: *c.GApplication,
+    options: *c.GVariantDict,
+    _: ?*anyopaque,
+) callconv(std.builtin.CallingConvention.c) c_int {
+    var page: c_int = -1;
+    if (c.g_variant_dict_lookup(options, "page", "i", &page) != 0) {
+        cli_page_number = page;
+    }
+    return -1; // Continue default processing
+}
+
+fn open_func(
+    _: *c.GApplication,
+    files: [*c]?*c.GFile,
+    n_files: c_int,
+    _: [*c]const u8,
+    _: ?*anyopaque,
+) callconv(std.builtin.CallingConvention.c) void {
+    var i: usize = 0;
+    while (i < n_files) : (i += 1) {
+        const file = files[i];
+        if (file) |f| {
+            const path = c.g_file_get_path(f);
+            if (path) |p| {
+                const span = std.mem.span(@as([*:0]const u8, @ptrCast(p)));
+                openFileFromPath(span, false, true);
+                c.g_free(p);
+            }
+        }
+    }
+}
 
 pub fn main() !void {
     engine.init();
@@ -64,24 +98,42 @@ pub fn main() !void {
     engine.setupGraph();
 
     // Create the application
-    // Use NON_UNIQUE to avoid dbus complications in dev
-    const flags = c.G_APPLICATION_NON_UNIQUE;
+    // Use NON_UNIQUE to avoid dbus complications in dev, and HANDLES_OPEN to support opening files
+    const flags = c.G_APPLICATION_NON_UNIQUE | c.G_APPLICATION_HANDLES_OPEN;
     // Migrate to AdwApplication
     const app = c.adw_application_new("org.vimp.app.dev", flags);
     defer c.g_object_unref(app);
 
-    // Connect the activate signal
-    _ = c.g_signal_connect_data(
-        app,
-        "activate",
-        @ptrCast(&activate),
-        null,
-        null,
-        0,
-    );
+    // Add Options
+    const entries = [_]c.GOptionEntry{
+        .{
+            .long_name = "page",
+            .short_name = 'p',
+            .flags = 0,
+            .arg = c.G_OPTION_ARG_INT,
+            .arg_data = null,
+            .description = "Page number to open (PDF)",
+            .arg_description = "PAGE",
+        },
+        .{
+            .long_name = null,
+            .short_name = 0,
+            .flags = 0,
+            .arg = c.G_OPTION_ARG_NONE,
+            .arg_data = null,
+            .description = null,
+            .arg_description = null,
+        },
+    };
+    c.g_application_add_main_option_entries(@ptrCast(app), &entries);
+
+    // Connect signals
+    _ = c.g_signal_connect_data(app, "activate", @ptrCast(&activate), null, null, 0);
+    _ = c.g_signal_connect_data(app, "handle-local-options", @ptrCast(&handle_local_options), null, null, 0);
+    _ = c.g_signal_connect_data(app, "open", @ptrCast(&open_func), null, null, 0);
 
     // Run the application
-    const status = c.g_application_run(@ptrCast(app), 0, null);
+    const status = c.g_application_run(@ptrCast(app), @intCast(std.os.argv.len), @ptrCast(std.os.argv.ptr));
     _ = status;
 }
 
@@ -1201,14 +1253,55 @@ fn on_pdf_import(user_data: ?*anyopaque, path: [:0]const u8, params: ?Engine.Pdf
     defer std.heap.c_allocator.destroy(ctx);
 
     if (params) |p| {
-        var perform_reset = !ctx.as_layers;
+        const perform_reset = !ctx.as_layers;
 
         if (p.split_pages) {
-            if (p.pages.len > 1) {
-                show_toast("Opening multiple pages as separate images is not yet supported. Opening as layers.", .{});
+            // "Separate Images": Open first page here, spawn processes for others
+            const self_exe = std.fs.selfExePathAlloc(std.heap.c_allocator) catch |err| {
+                show_toast("Failed to get executable path: {}", .{err});
+                return;
+            };
+            defer std.heap.c_allocator.free(self_exe);
+
+            for (p.pages, 0..) |page_num, i| {
+                if (i == 0) {
+                    // Open first page in CURRENT window
+                    var single_page = [_]i32{page_num};
+                    const single_params = Engine.PdfImportParams{
+                        .ppi = p.ppi,
+                        .pages = &single_page,
+                        .split_pages = false,
+                    };
+
+                    if (perform_reset) {
+                        engine.reset();
+                    }
+
+                    var success = true;
+                    EngineIO.loadPdf(&engine, path, single_params) catch |e| {
+                        show_toast("Failed to load PDF page {d}: {}", .{ page_num, e });
+                        success = false;
+                    };
+                    finish_file_open(path, !perform_reset, success, true);
+                } else {
+                    // Open subsequent pages in NEW process
+                    var page_buf: [16]u8 = undefined;
+                    const page_str = std.fmt.bufPrint(&page_buf, "{d}", .{page_num}) catch "1";
+
+                    const argv = [_][]const u8{
+                        self_exe,
+                        path,
+                        "--page",
+                        page_str,
+                    };
+
+                    var child = std.process.Child.init(&argv, std.heap.c_allocator);
+                    child.spawn() catch |err| {
+                        show_toast("Failed to spawn process for page {d}: {}", .{ page_num, err });
+                    };
+                }
             }
-            // "Separate Images" implies opening as a new image (since we lack tabs), replacing current.
-            perform_reset = true;
+            return;
         }
 
         if (perform_reset) {
@@ -1279,6 +1372,27 @@ fn openFileFromPath(path: [:0]const u8, as_layers: bool, add_to_recent: bool) vo
     }
 
     if (is_pdf) {
+        if (cli_page_number != -1) {
+            var pages = [_]i32{cli_page_number};
+            const params = Engine.PdfImportParams{
+                .ppi = 300.0,
+                .pages = &pages,
+                .split_pages = false,
+            };
+
+            if (!as_layers) {
+                engine.reset();
+            }
+
+            var success = true;
+            EngineIO.loadPdf(&engine, path, params) catch |e| {
+                show_toast("Failed to load PDF page {d}: {}", .{ cli_page_number, e });
+                success = false;
+            };
+            finish_file_open(path, as_layers, success, add_to_recent);
+            return;
+        }
+
         const ctx = std.heap.c_allocator.create(ImportContext) catch return;
         ctx.* = .{ .as_layers = as_layers };
 
