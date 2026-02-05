@@ -23,24 +23,8 @@ const SidebarCallbacks = @import("ui/sidebar.zig").SidebarCallbacks;
 const Header = @import("ui/header.zig").Header;
 const Tool = @import("tools.zig").Tool;
 const ToolInterface = @import("tools/interface.zig").ToolInterface;
-const BrushTool = @import("tools/brush.zig").BrushTool;
-const PencilTool = @import("tools/pencil.zig").PencilTool;
-const BucketFillTool = @import("tools/bucket_fill.zig").BucketFillTool;
-const EraserTool = @import("tools/eraser.zig").EraserTool;
-const AirbrushTool = @import("tools/airbrush.zig").AirbrushTool;
-const RectSelectTool = @import("tools/rect_select.zig").RectSelectTool;
-const EllipseSelectTool = @import("tools/ellipse_select.zig").EllipseSelectTool;
-const LassoTool = @import("tools/lasso.zig").LassoTool;
-const RectShapeTool = @import("tools/rect_shape.zig").RectShapeTool;
-const EllipseShapeTool = @import("tools/ellipse_shape.zig").EllipseShapeTool;
-const RoundedRectShapeTool = @import("tools/rounded_rect_shape.zig").RoundedRectShapeTool;
-const LineTool = @import("tools/line.zig").LineTool;
-const CurveTool = @import("tools/curve.zig").CurveTool;
-const PolygonTool = @import("tools/polygon.zig").PolygonTool;
-const TextTool = @import("tools/text.zig").TextTool;
-const GradientTool = @import("tools/gradient.zig").GradientTool;
-const ColorPickerTool = @import("tools/color_picker.zig").ColorPickerTool;
-const UnifiedTransformTool = @import("tools/unified_transform.zig").UnifiedTransformTool;
+const ToolFactory = @import("tools/factory.zig").ToolFactory;
+const ToolCreationContext = @import("tools/factory.zig").ToolCreationContext;
 const Assets = @import("assets.zig");
 const Salvage = @import("salvage.zig").Salvage;
 
@@ -2437,141 +2421,26 @@ fn tool_toggled(
         if (sidebar_ui.tool_options_panel) |p| p.update(current_tool);
         if (transform_action_bar) |b| c.gtk_widget_set_visible(b, if (is_transform) 1 else 0);
 
-        switch (current_tool) {
-            .brush => {
-                const tool = BrushTool.create(std.heap.c_allocator) catch {
-                    std.debug.print("Failed to create BrushTool\n", .{});
-                    return;
-                };
-                active_tool_interface = tool.interface();
-                active_tool_interface.?.activate(&engine);
-                osd_show("Brush");
-            },
-            .pencil => {
-                const tool = PencilTool.create(std.heap.c_allocator) catch {
-                    std.debug.print("Failed to create PencilTool\n", .{});
-                    return;
-                };
-                active_tool_interface = tool.interface();
-                active_tool_interface.?.activate(&engine);
-                osd_show("Pencil");
-            },
-            .airbrush => {
-                const tool = AirbrushTool.create(std.heap.c_allocator) catch {
-                    std.debug.print("Failed to create AirbrushTool\n", .{});
-                    return;
-                };
-                active_tool_interface = tool.interface();
-                active_tool_interface.?.activate(&engine);
-                osd_show("Airbrush");
-            },
-            .eraser => {
-                const tool = EraserTool.create(std.heap.c_allocator) catch {
-                    std.debug.print("Failed to create EraserTool\n", .{});
-                    return;
-                };
-                active_tool_interface = tool.interface();
-                active_tool_interface.?.activate(&engine);
-                osd_show("Eraser");
-            },
-            .bucket_fill => {
-                const tool = BucketFillTool.create(std.heap.c_allocator) catch {
-                    std.debug.print("Failed to create BucketFillTool\n", .{});
-                    return;
-                };
-                active_tool_interface = tool.interface();
-                active_tool_interface.?.activate(&engine);
-                osd_show("Bucket Fill");
-            },
-            .rect_select => {
-                const tool = RectSelectTool.create(std.heap.c_allocator) catch {
-                    std.debug.print("Failed to create RectSelectTool\n", .{});
-                    return;
-                };
-                active_tool_interface = tool.interface();
-                active_tool_interface.?.activate(&engine);
-                osd_show("Rectangle Select");
-            },
-            .ellipse_select => {
-                const tool = EllipseSelectTool.create(std.heap.c_allocator) catch {
-                    std.debug.print("Failed to create EllipseSelectTool\n", .{});
-                    return;
-                };
-                active_tool_interface = tool.interface();
-                active_tool_interface.?.activate(&engine);
-                osd_show("Ellipse Select");
-            },
-            .rect_shape => {
-                const tool = RectShapeTool.create(std.heap.c_allocator) catch return;
-                active_tool_interface = tool.interface();
-                active_tool_interface.?.activate(&engine);
-                osd_show("Rectangle Tool");
-            },
-            .ellipse_shape => {
-                const tool = EllipseShapeTool.create(std.heap.c_allocator) catch return;
-                active_tool_interface = tool.interface();
-                active_tool_interface.?.activate(&engine);
-                osd_show("Ellipse Tool");
-            },
-            .rounded_rect_shape => {
-                const tool = RoundedRectShapeTool.create(std.heap.c_allocator) catch return;
-                active_tool_interface = tool.interface();
-                active_tool_interface.?.activate(&engine);
-                osd_show("Rounded Rectangle Tool");
-            },
-            .unified_transform => {
-                const tool = UnifiedTransformTool.create(std.heap.c_allocator) catch return;
-                active_tool_interface = tool.interface();
-                active_tool_interface.?.activate(&engine);
-                osd_show("Unified Transform");
-            },
-            .color_picker => {
-                const tool = ColorPickerTool.create(std.heap.c_allocator, &on_color_picked) catch return;
-                active_tool_interface = tool.interface();
-                active_tool_interface.?.activate(&engine);
-                osd_show("Color Picker");
-            },
-            .gradient => {
-                const tool = GradientTool.create(std.heap.c_allocator) catch return;
-                active_tool_interface = tool.interface();
-                active_tool_interface.?.activate(&engine);
-                osd_show("Gradient Tool");
-            },
-            .line => {
-                const tool = LineTool.create(std.heap.c_allocator) catch return;
-                active_tool_interface = tool.interface();
-                active_tool_interface.?.activate(&engine);
-                osd_show("Line Tool");
-            },
-            .curve => {
-                const tool = CurveTool.create(std.heap.c_allocator) catch return;
-                active_tool_interface = tool.interface();
-                active_tool_interface.?.activate(&engine);
-                osd_show("Curve Tool");
-            },
-            .polygon => {
-                const tool = PolygonTool.create(std.heap.c_allocator) catch return;
-                active_tool_interface = tool.interface();
-                active_tool_interface.?.activate(&engine);
-                osd_show("Polygon Tool");
-            },
-            .lasso => {
-                const tool = LassoTool.create(std.heap.c_allocator) catch {
-                    std.debug.print("Failed to create LassoTool\n", .{});
-                    return;
-                };
-                active_tool_interface = tool.interface();
-                active_tool_interface.?.activate(&engine);
-                osd_show("Lasso Select");
-            },
-            .text => {
-                const root = c.gtk_widget_get_root(@ptrCast(button));
-                const win: ?*c.GtkWindow = if (root) |r| @ptrCast(@alignCast(r)) else null;
-                const tool = TextTool.create(std.heap.c_allocator, win, &on_text_tool_complete) catch return;
-                active_tool_interface = tool.interface();
-                active_tool_interface.?.activate(&engine);
-                osd_show("Text Tool");
-            },
+        var ctx = ToolCreationContext{
+            .window = null,
+            .color_picked_cb = &on_color_picked,
+            .text_complete_cb = &on_text_tool_complete,
+        };
+
+        if (current_tool == .text) {
+            const root = c.gtk_widget_get_root(@ptrCast(button));
+            if (root) |r| {
+                ctx.window = @ptrCast(@alignCast(r));
+            }
+        }
+
+        if (ToolFactory.createTool(std.heap.c_allocator, current_tool, ctx)) |tool| {
+            active_tool_interface = tool;
+            active_tool_interface.?.activate(&engine);
+            const name = ToolFactory.getToolName(current_tool);
+            osd_show(name);
+        } else |err| {
+            std.debug.print("Failed to create tool: {}\n", .{err});
         }
     }
 }

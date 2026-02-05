@@ -13,12 +13,13 @@
     - [x] Extract `Command` and Undo/Redo stack to `src/engine/history.zig` with unit tests.
     - [x] Extract painting primitives (Bresenham, Airbrush) to `src/engine/paint.zig` with unit tests.
     - [x] Extract selection logic (Rectangle, Ellipse, Lasso) to `src/engine/selection.zig` with unit tests.
-- [ ] **Refactor Tool System:** Decouple `src/main.zig` by implementing a polymorphic Tool interface.
+- [x] **Refactor Tool System:** Decouple `src/main.zig` by implementing a polymorphic Tool interface.
     - [x] Define `Tool` interface in `src/tools/interface.zig` (handling `drag_begin`, `update`, `end`, etc.).
     - [x] Move Paint Tools (Brush, Pencil, Airbrush, Eraser, Bucket Fill) to `src/tools/`.
     - [x] Move Selection Tools (Rect, Ellipse) to `src/tools/`.
     - [x] Move remaining tools (Lasso, Shapes, Lines, Text, Gradient, Picker) to `src/tools/`.
     - [x] Update `src/main.zig` to delegate events to the active `Tool` instance.
+    - [x] Refactor tool creation to `src/tools/factory.zig`.
 - [x] **Refactor UI - Split Main:** Decompose `src/main.zig` UI construction.
     - [x] Extract Sidebar construction to `src/ui/sidebar.zig`.
     - [x] Extract Header construction to `src/ui/header.zig`.
@@ -28,15 +29,15 @@
 - [ ] **PDF Import:** Support opening multiple pages as separate images (currently warning/reset).
 
 ## Input & Navigation (Priority: Medium)
-- [ ] Implement pinch-to-zoom gesture support (Verify existing implementation covers all cases).
+- [x] Implement pinch-to-zoom gesture support (Verified existing implementation).
 - [ ] Implement two-finger pan gesture support (Verify existing implementation covers all cases).
 
 ## UI/UX Improvements (Priority: Medium)
-- [ ] [Verify/Complete] Implement Tool Grouping (Popovers/long-press revealers are present in `main.zig`, verify completeness).
-- [ ] Implement Properties Sidebar (contextual tool options).
+- [x] Implement Tool Grouping (Implemented in `src/ui/sidebar.zig` with popovers).
+- [x] Implement Properties Sidebar (Implemented `src/widgets/tool_options_panel.zig`).
 
 ## Specialized Features (Priority: Low)
-- [ ] Implement HUD for live dimensions during selection/transform.
+- [x] Implement HUD for live dimensions during selection/transform (Implemented in `src/main.zig`).
 - [ ] PostScript (.ps, .eps) import.
 
 ## Testing & Quality Assurance (Proposals)
