@@ -1,6 +1,7 @@
 const std = @import("std");
 const c = @import("../c.zig").c;
 const Engine = @import("../engine.zig").Engine;
+const EngineIO = @import("../engine.zig").io;
 
 // Callbacks
 pub const PdfImportCallback = *const fn (user_data: ?*anyopaque, path: [:0]const u8, params: ?Engine.PdfImportParams) void;
@@ -145,7 +146,7 @@ pub fn showPdfImportDialog(
 
     const dialog = c.adw_message_dialog_new(parent, "Import PDF", "Select pages to import");
 
-    const total_pages = engine.getPdfPageCount(path) catch 0;
+    const total_pages = EngineIO.getPdfPageCount(engine, path) catch 0;
 
     // Content Box
     const box = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 10);
@@ -204,7 +205,7 @@ pub fn showPdfImportDialog(
     const loop_limit = if (total_pages > max_preview_pages) max_preview_pages else total_pages;
 
     while (page <= loop_limit) : (page += 1) {
-        if (engine.getPdfThumbnail(path, page, 128)) |buf| {
+        if (EngineIO.getPdfThumbnail(engine, path, page, 128)) |buf| {
             defer c.g_object_unref(buf);
             if (createTextureFromBuffer(buf)) |texture| {
                 const item_box = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 5);

@@ -1,6 +1,7 @@
 const std = @import("std");
 const c = @import("c.zig").c;
 const Engine = @import("engine.zig").Engine;
+const EngineIO = @import("engine.zig").io;
 
 fn createDummyPng(allocator: std.mem.Allocator, path: []const u8) !void {
     // Create a 10x10 red PNG
@@ -80,7 +81,7 @@ test "Engine load ORA" {
     }
 
     // 3. Load ORA
-    try engine.loadOra(zip_path, true);
+    try EngineIO.loadOra(&engine, zip_path, true);
 
     // 4. Verify
     try std.testing.expectEqual(engine.canvas_width, 100);
@@ -130,7 +131,7 @@ test "Engine save ORA" {
         engine.paintStroke(100, 100, 100, 100, 1.0); // Paint dot at 100,100
 
         // 2. Save ORA
-        try engine.saveOra(save_path);
+        try EngineIO.saveOra(&engine, save_path);
     }
 
     // 3. Load ORA into new engine
@@ -138,7 +139,7 @@ test "Engine save ORA" {
     engine2.init();
     defer engine2.deinit();
 
-    try engine2.loadOra(save_path, true);
+    try EngineIO.loadOra(&engine2, save_path, true);
 
     // 4. Verify
     try std.testing.expectEqual(engine2.canvas_width, 200);

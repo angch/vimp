@@ -1,5 +1,6 @@
 const std = @import("std");
 const Engine = @import("engine.zig").Engine;
+const EngineIO = @import("engine.zig").io;
 const c = @import("c.zig").c;
 
 fn ensureDirs() !void {
@@ -103,7 +104,7 @@ fn checkBaseline(engine: *Engine, test_name: []const u8) !void {
     defer allocator.free(output_path);
 
     // Export current state to output
-    try engine.exportImage(output_path);
+    try EngineIO.exportImage(engine, output_path);
 
     // Check if baseline exists
     const file = std.fs.cwd().openFile(baseline_path, .{}) catch |err| {
