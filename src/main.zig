@@ -21,6 +21,7 @@ const Tool = @import("tools.zig").Tool;
 const ToolInterface = @import("tools/interface.zig").ToolInterface;
 const BrushTool = @import("tools/brush.zig").BrushTool;
 const PencilTool = @import("tools/pencil.zig").PencilTool;
+const BucketFillTool = @import("tools/bucket_fill.zig").BucketFillTool;
 const Assets = @import("assets.zig");
 const Salvage = @import("salvage.zig").Salvage;
 
@@ -301,7 +302,12 @@ fn tool_toggled(
                 osd_show("Eraser");
             },
             .bucket_fill => {
-                engine.setMode(.fill);
+                const tool = BucketFillTool.create(std.heap.c_allocator) catch {
+                    std.debug.print("Failed to create BucketFillTool\n", .{});
+                    return;
+                };
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
                 osd_show("Bucket Fill");
             },
             .rect_select => {
@@ -1160,28 +1166,13 @@ fn drag_begin(
             const c_x = (view_x + x) / view_scale;
             const c_y = (view_y + y) / view_scale;
             tool.start(&engine, c_x, c_y, button);
+            canvas_dirty = true;
             c.gtk_widget_queue_draw(widget);
             return;
         }
 
         if (button == 1 or button == 3) {
-            if (current_tool == .bucket_fill) {
-                engine.beginTransaction();
-                const c_x = (view_x + x) / view_scale;
-                const c_y = (view_y + y) / view_scale;
-                if (button == 3) {
-                    engine.bucketFillWithColor(c_x, c_y, engine.bg_color) catch |err| {
-                        show_toast("Bucket fill failed: {}", .{err});
-                    };
-                } else {
-                    engine.bucketFill(c_x, c_y) catch |err| {
-                        show_toast("Bucket fill failed: {}", .{err});
-                    };
-                }
-                engine.commitTransaction();
-                canvas_dirty = true;
-                c.gtk_widget_queue_draw(widget);
-            } else if (current_tool == .rect_select or current_tool == .ellipse_select) {
+            if (current_tool == .rect_select or current_tool == .ellipse_select) {
                 if (button != 1) return;
                 const c_x = (view_x + x) / view_scale;
                 const c_y = (view_y + y) / view_scale;
@@ -1336,11 +1327,6 @@ fn drag_update(
         prev_y = current_y;
     } else if (button == 1 or button == 3) {
         // Paint (Left or Right Mouse)
-        if (current_tool == .bucket_fill) {
-            // Bucket fill handled in drag_begin, do nothing on drag
-            return;
-        }
-
         const c_prev_x = (view_x + prev_x) / view_scale;
         const c_prev_y = (view_y + prev_y) / view_scale;
         const c_curr_x = (view_x + current_x) / view_scale;
