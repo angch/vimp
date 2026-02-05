@@ -14,9 +14,9 @@
     - [x] Extract painting primitives (Bresenham, Airbrush) to `src/engine/paint.zig` with unit tests.
     - [x] Extract selection logic (Rectangle, Ellipse, Lasso) to `src/engine/selection.zig` with unit tests.
 - [ ] **Refactor Tool System:** Decouple `src/main.zig` by implementing a polymorphic Tool interface.
-    - [ ] Define `Tool` interface in `src/tools/interface.zig` (handling `drag_begin`, `update`, `end`, etc.).
-    - [ ] Move tool-specific logic (Brush, Pencil, Select, etc.) from `src/main.zig` to `src/tools/<tool>.zig`.
-    - [ ] Update `src/main.zig` to delegate events to the active `Tool` instance.
+    - [x] Define `Tool` interface in `src/tools/interface.zig` (handling `drag_begin`, `update`, `end`, etc.).
+    - [ ] Move tool-specific logic (Brush, Pencil, Select, etc.) from `src/main.zig` to `src/tools/<tool>.zig` (Brush moved).
+    - [x] Update `src/main.zig` to delegate events to the active `Tool` instance.
 - [ ] **Refactor UI - Split Main:** Decompose `src/main.zig` UI construction.
     - [ ] Extract Sidebar construction to `src/ui/sidebar.zig`.
     - [ ] Extract Header construction to `src/ui/header.zig`.

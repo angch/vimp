@@ -18,6 +18,8 @@ const ColorPalette = @import("widgets/color_palette.zig").ColorPalette;
 const RawLoader = @import("raw_loader.zig").RawLoader;
 const ToolOptionsPanel = @import("widgets/tool_options_panel.zig").ToolOptionsPanel;
 const Tool = @import("tools.zig").Tool;
+const ToolInterface = @import("tools/interface.zig").ToolInterface;
+const BrushTool = @import("tools/brush.zig").BrushTool;
 const Assets = @import("assets.zig");
 const Salvage = @import("salvage.zig").Salvage;
 
@@ -63,6 +65,8 @@ var transform_action_bar: ?*c.GtkWidget = null;
 var main_stack: ?*c.GtkWidget = null;
 var toast_overlay: ?*c.AdwToastOverlay = null;
 var color_btn: ?*c.GtkWidget = null;
+
+var active_tool_interface: ?ToolInterface = null;
 
 pub fn main() !void {
     engine.init();
@@ -248,6 +252,12 @@ fn tool_toggled(
     user_data: ?*anyopaque,
 ) callconv(std.builtin.CallingConvention.c) void {
     if (c.gtk_toggle_button_get_active(button) == 1) {
+        if (active_tool_interface) |iface| {
+            iface.deactivate(&engine);
+            iface.destroy(std.heap.c_allocator);
+        }
+        active_tool_interface = null;
+
         const tool_ptr = @as(*Tool, @ptrCast(@alignCast(user_data)));
         current_tool = tool_ptr.*;
         std.debug.print("Tool switched to: {}\n", .{current_tool});
@@ -258,8 +268,12 @@ fn tool_toggled(
 
         switch (current_tool) {
             .brush => {
-                engine.setMode(.paint);
-                engine.setBrushType(.circle);
+                const tool = BrushTool.create(std.heap.c_allocator) catch {
+                    std.debug.print("Failed to create BrushTool\n", .{});
+                    return;
+                };
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
                 osd_show("Brush");
             },
             .pencil => {
@@ -602,8 +616,13 @@ fn draw_func(
                 c.cairo_show_text(cr_ctx, msg);
             }
 
+            // Tool Overlay
+            if (active_tool_interface) |tool| {
+                tool.drawOverlay(cr_ctx, view_scale, view_x, view_y);
+            }
+
             // Draw Selection Overlay
-            if (engine.selection) |sel| {
+            if (engine.selection.rect) |sel| {
                 const r: f64 = @floatFromInt(sel.x);
                 const g: f64 = @floatFromInt(sel.y);
                 const w: f64 = @floatFromInt(sel.width);
@@ -617,7 +636,7 @@ fn draw_func(
 
                 c.cairo_save(cr_ctx);
 
-                if (engine.selection_mode == .ellipse) {
+                if (engine.selection.mode == .ellipse) {
                     var matrix: c.cairo_matrix_t = undefined;
                     c.cairo_get_matrix(cr_ctx, &matrix);
 
@@ -626,14 +645,14 @@ fn draw_func(
                     c.cairo_arc(cr_ctx, 0.0, 0.0, 1.0, 0.0, 2.0 * std.math.pi);
 
                     c.cairo_set_matrix(cr_ctx, &matrix);
-                } else if (engine.selection_mode == .lasso) {
-                    if (engine.selection_points.items.len > 0) {
-                        const first = engine.selection_points.items[0];
+                } else if (engine.selection.mode == .lasso) {
+                    if (engine.selection.points.items.len > 0) {
+                        const first = engine.selection.points.items[0];
                         const fx = first.x * view_scale - view_x;
                         const fy = first.y * view_scale - view_y;
                         c.cairo_move_to(cr_ctx, fx, fy);
 
-                        for (engine.selection_points.items[1..]) |p| {
+                        for (engine.selection.points.items[1..]) |p| {
                             const px = p.x * view_scale - view_x;
                             const py = p.y * view_scale - view_y;
                             c.cairo_line_to(cr_ctx, px, py);
@@ -1132,6 +1151,14 @@ fn drag_begin(
         }
         drag_button = button;
 
+        if (active_tool_interface) |tool| {
+            const c_x = (view_x + x) / view_scale;
+            const c_y = (view_y + y) / view_scale;
+            tool.start(&engine, c_x, c_y, button);
+            c.gtk_widget_queue_draw(widget);
+            return;
+        }
+
         if (button == 1 or button == 3) {
             if (current_tool == .bucket_fill) {
                 engine.beginTransaction();
@@ -1156,7 +1183,7 @@ fn drag_begin(
                 const ix: i32 = @intFromFloat(c_x);
                 const iy: i32 = @intFromFloat(c_y);
 
-                if (engine.selection != null and engine.isPointInSelection(ix, iy)) {
+                if (engine.selection.rect != null and engine.isPointInSelection(ix, iy)) {
                     engine.beginMoveSelection(c_x, c_y) catch |err| {
                         show_toast("Failed to move selection: {}", .{err});
                         return;
@@ -1174,7 +1201,7 @@ fn drag_begin(
                 const ix: i32 = @intFromFloat(c_x);
                 const iy: i32 = @intFromFloat(c_y);
 
-                if (engine.selection != null and engine.isPointInSelection(ix, iy)) {
+                if (engine.selection.rect != null and engine.isPointInSelection(ix, iy)) {
                     engine.beginMoveSelection(c_x, c_y) catch |err| {
                         show_toast("Failed to move selection: {}", .{err});
                         return;
@@ -1294,6 +1321,14 @@ fn drag_update(
         canvas_dirty = true;
 
         queue_draw();
+    } else if (active_tool_interface) |tool| {
+        const c_x = (view_x + current_x) / view_scale;
+        const c_y = (view_y + current_y) / view_scale;
+        tool.update(&engine, c_x, c_y);
+        canvas_dirty = true;
+        c.gtk_widget_queue_draw(widget);
+        prev_x = current_x;
+        prev_y = current_y;
     } else if (button == 1 or button == 3) {
         // Paint (Left or Right Mouse)
         if (current_tool == .bucket_fill) {
@@ -1517,6 +1552,25 @@ fn drag_end(
     user_data: ?*anyopaque,
 ) callconv(std.builtin.CallingConvention.c) void {
     is_dragging_interaction = false;
+
+    if (active_tool_interface) |tool| {
+        var start_sx: f64 = 0;
+        var start_sy: f64 = 0;
+        _ = c.gtk_gesture_drag_get_start_point(gesture, &start_sx, &start_sy);
+        const current_x = start_sx + offset_x;
+        const current_y = start_sy + offset_y;
+        const c_x = (view_x + current_x) / view_scale;
+        const c_y = (view_y + current_y) / view_scale;
+
+        tool.end(&engine, c_x, c_y);
+        refresh_undo_ui();
+        canvas_dirty = true;
+        if (user_data) |ud| {
+            const widget: *c.GtkWidget = @ptrCast(@alignCast(ud));
+            c.gtk_widget_queue_draw(widget);
+        }
+        return;
+    }
 
     if (is_moving_selection) {
         engine.commitMoveSelection() catch |err| {
