@@ -33,3 +33,7 @@ Vimp is a GIMP-like application built with **Zig**, **GTK4**, and **GEGL**. It a
 - [Ralph Loop Instructions](.agent/skills/ralph/LOOP_INSTRUCTIONS.md) - The prompt for the autonomous agent loop.
 - [PRD Creation](.agent/skills/prd/SKILL.md) - Creating feature specs.
 - [Ralph PRD Conversion](.agent/skills/ralph/SKILL.md) - Converting specs to JSON.
+
+## 5. Critical Learnings & Gotchas
+- **Zig std.ArrayList**: In this environment (Zig 0.15.2), `std.ArrayList(T)` behaves like an unmanaged list. It must be initialized with `{}` (e.g. `var list = std.ArrayList(T){}`) and methods like `append` require passing the allocator explicitly (e.g. `list.append(allocator, item)`).
+- **Selection Consistency**: The previous implementation of `drawRectangle` (filled) used `gegl:rectangle` which ignored the active selection. The new implementation in `src/engine/paint.zig` uses CPU-side rasterization and correctly respects the selection mask, consistent with other drawing tools.
