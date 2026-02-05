@@ -26,6 +26,7 @@ const EraserTool = @import("tools/eraser.zig").EraserTool;
 const AirbrushTool = @import("tools/airbrush.zig").AirbrushTool;
 const RectSelectTool = @import("tools/rect_select.zig").RectSelectTool;
 const EllipseSelectTool = @import("tools/ellipse_select.zig").EllipseSelectTool;
+const LassoTool = @import("tools/lasso.zig").LassoTool;
 const Assets = @import("assets.zig");
 const Salvage = @import("salvage.zig").Salvage;
 
@@ -373,7 +374,12 @@ fn tool_toggled(
                 polygon_points.clearRetainingCapacity();
             },
             .lasso => {
-                engine.setSelectionMode(.lasso);
+                const tool = LassoTool.create(std.heap.c_allocator) catch {
+                    std.debug.print("Failed to create LassoTool\n", .{});
+                    return;
+                };
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
                 osd_show("Lasso Select");
                 polygon_active = false;
                 polygon_points.clearRetainingCapacity();
