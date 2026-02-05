@@ -19,9 +19,9 @@
     - [x] Move Selection Tools (Rect, Ellipse) to `src/tools/`.
     - [x] Move remaining tools (Lasso, Shapes, Lines, Text, Gradient, Picker) to `src/tools/`.
     - [x] Update `src/main.zig` to delegate events to the active `Tool` instance.
-- [ ] **Refactor UI - Split Main:** Decompose `src/main.zig` UI construction.
-    - [ ] Extract Sidebar construction to `src/ui/sidebar.zig`.
-    - [ ] Extract Header construction to `src/ui/header.zig`.
+- [x] **Refactor UI - Split Main:** Decompose `src/main.zig` UI construction.
+    - [x] Extract Sidebar construction to `src/ui/sidebar.zig`.
+    - [x] Extract Header construction to `src/ui/header.zig`.
 
 ## File Format Support (Priority: High)
 - [ ] **XCF:** Full layer/channel/path support (currently basic flattened load).
