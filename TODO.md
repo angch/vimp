@@ -40,7 +40,8 @@
 ## Testing & Quality Assurance (Proposals)
 > Strategies to improve stability and accessibility verification.
 
-- [ ] **Evaluate AT-SPI based testing (Dogtail/PyATSPI):**
+- [x] **Evaluate AT-SPI based testing (Dogtail/PyATSPI):**
+    - **Outcome:** Deferred. Requires system-level dependencies (`gobject-introspection`, `at-spi2-core`) which are not available in the current environment.
     - Leverage GNOME's accessibility layer (AT-SPI) to drive the UI for E2E tests.
     - Allows black-box testing of widgets and user flows without relying on brittle coordinate clicks.
     - Ensures the application remains accessible to screen readers.

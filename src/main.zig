@@ -2403,6 +2403,10 @@ fn about_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callcon
     std.debug.print("Vimp Application\nVersion 0.1\n", .{});
 }
 
+fn inspector_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    c.gtk_window_set_interactive_debugging(1);
+}
+
 fn quit_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     const app: *c.GtkApplication = @ptrCast(@alignCast(user_data));
     const windows = c.gtk_application_get_windows(app);
@@ -3300,6 +3304,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     add_action(app, "open-location", @ptrCast(&open_location_activated), window);
     add_action(app, "save", @ptrCast(&save_activated), window);
     add_action(app, "about", @ptrCast(&about_activated), null);
+    add_action(app, "inspector", @ptrCast(&inspector_activated), null);
     add_action(app, "quit", @ptrCast(&quit_activated), app);
 
     // Salvage Action (Parameter: String)
@@ -3368,6 +3373,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     set_accel(app, "app.clear-image", "<Ctrl><Shift>n");
     set_accel(app, "app.rotate-90", "<Ctrl>r");
     set_accel(app, "app.command-palette", "<Ctrl>k");
+    set_accel(app, "app.inspector", "<Ctrl><Shift>i");
     const zoom_in_accels = [_]?[*:0]const u8{ "<Ctrl>plus", "<Ctrl>equal", null };
     c.gtk_application_set_accels_for_action(app, "app.zoom-in", @ptrCast(&zoom_in_accels));
     set_accel(app, "app.zoom-out", "<Ctrl>minus");
@@ -3499,6 +3505,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     const menu = c.g_menu_new();
     c.g_menu_append(menu, "_Command Palette...", "app.command-palette");
     c.g_menu_append(menu, "_Open Location...", "app.open-location");
+    c.g_menu_append(menu, "_Inspector", "app.inspector");
     c.g_menu_append(menu, "_About Vimp", "app.about");
     c.g_menu_append(menu, "_Quit", "app.quit");
 
