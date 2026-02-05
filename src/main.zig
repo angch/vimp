@@ -22,6 +22,8 @@ const ToolInterface = @import("tools/interface.zig").ToolInterface;
 const BrushTool = @import("tools/brush.zig").BrushTool;
 const PencilTool = @import("tools/pencil.zig").PencilTool;
 const BucketFillTool = @import("tools/bucket_fill.zig").BucketFillTool;
+const EraserTool = @import("tools/eraser.zig").EraserTool;
+const AirbrushTool = @import("tools/airbrush.zig").AirbrushTool;
 const Assets = @import("assets.zig");
 const Salvage = @import("salvage.zig").Salvage;
 
@@ -288,17 +290,21 @@ fn tool_toggled(
                 osd_show("Pencil");
             },
             .airbrush => {
-                engine.setMode(.airbrush);
-                engine.setBrushType(.circle);
+                const tool = AirbrushTool.create(std.heap.c_allocator) catch {
+                    std.debug.print("Failed to create AirbrushTool\n", .{});
+                    return;
+                };
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
                 osd_show("Airbrush");
             },
             .eraser => {
-                engine.setMode(.erase);
-                // Eraser shape? Usually square or round. Let's default to circle for now or keep previous behavior.
-                // Previous behavior was square (default).
-                // Let's make eraser square for consistency with typical pixel erasers, or circle.
-                // Let's stick to square for eraser for now as it was default.
-                engine.setBrushType(.square);
+                const tool = EraserTool.create(std.heap.c_allocator) catch {
+                    std.debug.print("Failed to create EraserTool\n", .{});
+                    return;
+                };
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
                 osd_show("Eraser");
             },
             .bucket_fill => {
