@@ -4001,7 +4001,11 @@ test "Engine saveThumbnail" {
     engine.setFgColor(255, 0, 0, 255);
     engine.paintStroke(100, 100, 100, 100, 1.0);
 
-    const thumb_path = "test_thumb.png";
+    var rnd_buf: [16]u8 = undefined;
+    std.crypto.random.bytes(&rnd_buf);
+    var buf: [64]u8 = undefined;
+    const hex = std.fmt.bytesToHex(rnd_buf, .lower);
+    const thumb_path = try std.fmt.bufPrint(&buf, "test_thumb_{s}.png", .{hex});
     defer std.fs.cwd().deleteFile(thumb_path) catch {};
 
     try engine.saveThumbnail(thumb_path, 64, 64);
