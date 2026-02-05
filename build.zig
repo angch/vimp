@@ -122,4 +122,35 @@ pub fn build(b: *std.Build) void {
     } else |_| {}
 
     test_step.dependOn(&run_engine_tests.step);
+
+    const visual_regression_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/test_visual_regression.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    visual_regression_tests.linkLibC();
+    visual_regression_tests.linkSystemLibrary("gtk4");
+    visual_regression_tests.linkSystemLibrary("gegl-0.4");
+    visual_regression_tests.linkSystemLibrary("gegl-0.4");
+    visual_regression_tests.linkSystemLibrary("babl-0.1");
+    visual_regression_tests.linkSystemLibrary("libadwaita-1");
+    visual_regression_tests.addIncludePath(b.path("libs/usr/include/gegl-0.4"));
+    visual_regression_tests.addIncludePath(b.path("libs/usr/include/babl-0.1"));
+    visual_regression_tests.addLibraryPath(b.path("libs/usr/lib/x86_64-linux-gnu"));
+    visual_regression_tests.addRPath(b.path("libs/usr/lib/x86_64-linux-gnu"));
+
+    const run_visual_tests = b.addRunArtifact(visual_regression_tests);
+    run_visual_tests.setEnvironmentVariable("GEGL_PATH", gegl_path);
+    run_visual_tests.setEnvironmentVariable("BABL_PATH", babl_path);
+    run_visual_tests.setEnvironmentVariable("LD_LIBRARY_PATH", lib_path);
+    if (std.process.getEnvVarOwned(b.allocator, "DISPLAY")) |disp| {
+        run_visual_tests.setEnvironmentVariable("DISPLAY", disp);
+    } else |_| {}
+    if (std.process.getEnvVarOwned(b.allocator, "HOME")) |home| {
+        run_visual_tests.setEnvironmentVariable("HOME", home);
+    } else |_| {}
+
+    test_step.dependOn(&run_visual_tests.step);
 }

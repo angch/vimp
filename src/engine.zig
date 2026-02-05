@@ -5120,7 +5120,10 @@ test "Engine project save load" {
     engine.toggleLayerVisibility(1); // Hide Layer 2
 
     // 2. Save
-    const project_path = "test_project_save";
+    const rnd = std.crypto.random.int(u64);
+    var buf: [64]u8 = undefined;
+    const project_path = try std.fmt.bufPrint(&buf, "test_project_save_{d}", .{rnd});
+
     // Clean up before/after
     std.fs.cwd().deleteTree(project_path) catch {};
     defer std.fs.cwd().deleteTree(project_path) catch {};

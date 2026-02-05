@@ -3,3 +3,9 @@ tools/
 .zig-cache/
 zig-out/
 libs/
+tests/output/
+tests/failures/
+tests/__snapshots__/
+__pycache__/
+.pytest_cache/
+vimp.log
