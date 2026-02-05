@@ -24,3 +24,14 @@ Use `c.g_signal_connect_data` to connect signals to Zig functions.
   fn myCallback(...) callconv(.c) void { ... }
   ```
 - Use `c.G_CALLBACK` macro equivalent or cast function pointers appropriately.
+
+## Data Conversion & Formats
+
+### Strings: Slices vs C-Strings
+- **Zig Slices to C Strings**: When passing Zig string slices (e.g. from `std.mem.trim`) to C functions like `gtk_editable_set_text`, **ensure they are null-terminated**.
+  - Zig slices are *not* guaranteed to have a null terminator at `slice.ptr + slice.len`.
+  - Use `std.fmt.allocPrintZ` (or `allocPrintSentinel`) to create a temporary null-terminated string (Z-string) if needed before passing to C.
+
+### Texture Formats
+- **GDK to GEGL**: When using `gdk_texture_download` to extract bytes for GEGL, rely on `c.babl_format("cairo-ARGB32")` as the source format.
+  - Rationale: GDK/Cairo often use **BGRA** memory layout on little-endian systems (typical desktop), whereas `R'G'B'A u8` expects RGBA order. Using the explicit Cairo format ensures correct channel mapping.
