@@ -20,6 +20,7 @@ const ToolOptionsPanel = @import("widgets/tool_options_panel.zig").ToolOptionsPa
 const Tool = @import("tools.zig").Tool;
 const ToolInterface = @import("tools/interface.zig").ToolInterface;
 const BrushTool = @import("tools/brush.zig").BrushTool;
+const PencilTool = @import("tools/pencil.zig").PencilTool;
 const Assets = @import("assets.zig");
 const Salvage = @import("salvage.zig").Salvage;
 
@@ -277,8 +278,12 @@ fn tool_toggled(
                 osd_show("Brush");
             },
             .pencil => {
-                engine.setMode(.paint);
-                engine.setBrushType(.square);
+                const tool = PencilTool.create(std.heap.c_allocator) catch {
+                    std.debug.print("Failed to create PencilTool\n", .{});
+                    return;
+                };
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
                 osd_show("Pencil");
             },
             .airbrush => {
