@@ -88,7 +88,7 @@ This project uses **Ralph**, an autonomous coding agent workflow for iterative d
    ```
    Output: `prd.json` with user stories
 
-3. **Run the Ralph agent loop** - paste `ralphlooprunner.md` contents as prompt. The agent:
+3. **Run the Ralph agent loop** - paste `.agent/skills/ralph/LOOP_INSTRUCTIONS.md` contents as prompt. The agent:
    - Reads `prd.json` and `progress.txt`
    - Checks out the feature branch
    - Picks highest-priority story with `passes: false`
@@ -108,7 +108,7 @@ This project uses **Ralph**, an autonomous coding agent workflow for iterative d
 |------|---------|
 | `prd.json` | Current PRD in Ralph format |
 | `progress.txt` | Agent progress log with learnings |
-| `ralphlooprunner.md` | Agent loop instructions (prompt) |
+| `.agent/skills/ralph/LOOP_INSTRUCTIONS.md` | Agent loop instructions (prompt) |
 | `.agent/skills/prd/` | PRD creation skill |
 | `.agent/skills/ralph/` | PRD-to-JSON converter skill |
 | `tasks/*.md` | Archived/completed PRDs |
@@ -133,8 +133,7 @@ vimp/
 │   └── setup_libs.sh      # Download vendored libs
 ├── build.zig              # Zig build configuration
 ├── prd.json               # Current Ralph PRD
-├── progress.txt           # Agent progress log
-└── ralphlooprunner.md     # Ralph agent instructions
+└── progress.txt           # Agent progress log
 ```
 
 ---
