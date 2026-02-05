@@ -4,6 +4,7 @@ const Engine = @import("core.zig").Engine;
 const SvgLoader = @import("../svg_loader.zig");
 const OraMod = @import("../ora_loader.zig");
 const OraLoader = OraMod.OraLoader;
+const XcfLoader = @import("xcf_loader.zig").XcfLoader;
 
 pub fn getPdfPageCount(_: *Engine, path: []const u8) !i32 {
     const temp_graph = c.gegl_node_new();
@@ -478,6 +479,12 @@ pub fn loadOra(self: *Engine, path: []const u8, as_new: bool) !void {
     }
 }
 
+pub fn loadXcf(self: *Engine, path: []const u8) !void {
+    var loader = try XcfLoader.init(std.heap.c_allocator, path);
+    defer loader.deinit();
+    try loader.load(self);
+}
+
 pub fn saveOra(self: *Engine, path: []const u8) !void {
     const allocator = std.heap.c_allocator;
     const rnd = std.time.nanoTimestamp();
@@ -860,4 +867,8 @@ test "Engine generic export" {
     const stat = try file.stat();
     try std.testing.expect(stat.size > 0);
     file.close();
+}
+
+test {
+    _ = XcfLoader;
 }

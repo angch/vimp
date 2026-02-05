@@ -1264,6 +1264,20 @@ fn openFileFromPath(path: [:0]const u8, as_layers: bool, add_to_recent: bool) vo
     const is_pdf = std.ascii.eqlIgnoreCase(ext, ".pdf");
     const is_svg = std.ascii.eqlIgnoreCase(ext, ".svg");
     const is_ora = std.ascii.eqlIgnoreCase(ext, ".ora");
+    const is_xcf = std.ascii.eqlIgnoreCase(ext, ".xcf");
+
+    if (is_xcf) {
+        if (!as_layers) {
+            engine.reset();
+        }
+        var success = true;
+        EngineIO.loadXcf(&engine, path) catch |e| {
+            show_toast("Failed to load XCF: {}", .{e});
+            success = false;
+        };
+        finish_file_open(path, as_layers, success, add_to_recent);
+        return;
+    }
 
     if (is_ora) {
         var success = true;
