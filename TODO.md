@@ -36,3 +36,21 @@
 ## Specialized Features (Priority: Low)
 - [ ] Implement HUD for live dimensions during selection/transform.
 - [ ] PostScript (.ps, .eps) import.
+
+## Testing & Quality Assurance (Proposals)
+> Strategies to improve stability and accessibility verification.
+
+- [ ] **Evaluate AT-SPI based testing (Dogtail/PyATSPI):**
+    - Leverage GNOME's accessibility layer (AT-SPI) to drive the UI for E2E tests.
+    - Allows black-box testing of widgets and user flows without relying on brittle coordinate clicks.
+    - Ensures the application remains accessible to screen readers.
+- [ ] **Evaluate Broadway + Web Automation (Playwright/Selenium):**
+    - Run Vimp with `GDK_BACKEND=broadway` to render the UI in a web browser.
+    - Use mature web testing ecosystems (Playwright, Cypress) to inspect DOM and simulate input.
+    - Potential for cross-platform visual regression testing via browser screenshots.
+- [ ] **Implement Visual Regression Testing:**
+    - Capture canvas output (via `gegl:save` or `gdk_texture_download`) and compare against baseline images.
+    - Essential for verifying rendering correctness of GEGL graph operations.
+- [ ] **UI Analysis & Feedback Tools:**
+    - Integrate `GtkInspector` (accessible via Ctrl+Shift+I or `GTK_DEBUG=interactive`) for runtime widget analysis.
+    - Use `Accerciser` to audit the accessibility tree and verify `ATK_RELATION_LABEL_FOR` properties.
