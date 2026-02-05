@@ -27,6 +27,9 @@ const AirbrushTool = @import("tools/airbrush.zig").AirbrushTool;
 const RectSelectTool = @import("tools/rect_select.zig").RectSelectTool;
 const EllipseSelectTool = @import("tools/ellipse_select.zig").EllipseSelectTool;
 const LassoTool = @import("tools/lasso.zig").LassoTool;
+const RectShapeTool = @import("tools/rect_shape.zig").RectShapeTool;
+const EllipseShapeTool = @import("tools/ellipse_shape.zig").EllipseShapeTool;
+const RoundedRectShapeTool = @import("tools/rounded_rect_shape.zig").RoundedRectShapeTool;
 const Assets = @import("assets.zig");
 const Salvage = @import("salvage.zig").Salvage;
 
@@ -338,12 +341,30 @@ fn tool_toggled(
                 osd_show("Ellipse Select");
             },
             .rect_shape => {
+                const tool = RectShapeTool.create(std.heap.c_allocator) catch {
+                    std.debug.print("Failed to create RectShapeTool\n", .{});
+                    return;
+                };
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
                 osd_show("Rectangle Tool");
             },
             .ellipse_shape => {
+                const tool = EllipseShapeTool.create(std.heap.c_allocator) catch {
+                    std.debug.print("Failed to create EllipseShapeTool\n", .{});
+                    return;
+                };
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
                 osd_show("Ellipse Tool");
             },
             .rounded_rect_shape => {
+                const tool = RoundedRectShapeTool.create(std.heap.c_allocator) catch {
+                    std.debug.print("Failed to create RoundedRectShapeTool\n", .{});
+                    return;
+                };
+                active_tool_interface = tool.interface();
+                active_tool_interface.?.activate(&engine);
                 osd_show("Rounded Rectangle Tool");
             },
             .unified_transform => {
