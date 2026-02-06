@@ -434,22 +434,34 @@ pub fn drawRectangle(ctx: PaintContext, opts: BrushOptions, x: c_int, y: c_int, 
         c.gegl_buffer_set(buf, &rect, 0, format, pixels.ptr, stride);
 
     } else {
-        // Outline
-        var outline_opts = opts;
-        outline_opts.size = thickness; // Use brush size as thickness?
-        // Actually drawRectangle usually creates sharp edges, not round brush strokes.
-        // But reusing paintStroke with square brush approximates it if thickness is brush size.
-        // However, standard drawRect usually means 1px lines or thick lines.
-        // Let's use recursive filled drawRectangle calls for sides to ensure sharp corners.
-
+        // Outline (Non-overlapping)
         // Top
-        try drawRectangle(ctx, opts, rx, ry, rw, thickness, thickness, true);
+        const h_top = @min(thickness, rh);
+        if (h_top > 0) {
+            try drawRectangle(ctx, opts, rx, ry, rw, h_top, h_top, true);
+        }
+
         // Bottom
-        try drawRectangle(ctx, opts, rx, ry + rh - thickness, rw, thickness, thickness, true);
-        // Left
-        try drawRectangle(ctx, opts, rx, ry, thickness, rh, thickness, true);
-        // Right
-        try drawRectangle(ctx, opts, rx + rw - thickness, ry, thickness, rh, thickness, true);
+        const h_bottom = @min(thickness, rh - h_top);
+        if (h_bottom > 0) {
+            try drawRectangle(ctx, opts, rx, ry + rh - h_bottom, rw, h_bottom, h_bottom, true);
+        }
+
+        // Sides
+        const h_sides = rh - h_top - h_bottom;
+        if (h_sides > 0) {
+            // Left
+            const w_left = @min(thickness, rw);
+            if (w_left > 0) {
+                try drawRectangle(ctx, opts, rx, ry + h_top, w_left, h_sides, w_left, true);
+            }
+
+            // Right
+            const w_right = @min(thickness, rw - w_left);
+            if (w_right > 0) {
+                try drawRectangle(ctx, opts, rx + rw - w_right, ry + h_top, w_right, h_sides, w_right, true);
+            }
+        }
     }
 }
 

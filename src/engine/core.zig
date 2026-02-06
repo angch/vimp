@@ -3352,3 +3352,48 @@ test "Engine skew transform" {
         std.debug.print("Skew operation appears unsupported in this environment (pixel didn't move)\n", .{});
     }
 }
+
+test "Engine draw rectangle outline overlap" {
+    var engine: Engine = .{};
+    engine.init();
+    defer engine.deinit();
+    engine.setupGraph();
+    try engine.addLayer("Background");
+
+    // Clear background to transparent
+    try engine.clearActiveLayer();
+
+    // Draw Blue outline with 50% opacity
+    // 0.5 * 255 ~= 127/128.
+    engine.setFgColor(0, 0, 255, 255);
+    engine.brush_opacity = 0.5;
+
+    // Draw at 50,50 size 20x20, thickness 5.
+    // Top: 50,50, 20x5.
+    // Left: 50,50, 5x20.
+    // Overlap at 50,50 (5x5 region).
+    // If double drawn: Alpha will be 0.5 + 0.5(1-0.5) = 0.75 -> ~191.
+    // If single drawn: Alpha 0.5 -> ~127.
+    try engine.drawRectangle(50, 50, 20, 20, 5, false);
+
+    const buf = engine.layers.list.items[0].buffer;
+    const format = c.babl_format("R'G'B'A u8");
+    var corner_pixel: [4]u8 = undefined;
+    var side_pixel: [4]u8 = undefined;
+
+    // Check Corner (50, 50)
+    c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 50, .y = 50, .width = 1, .height = 1 }, 1.0, format, &corner_pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+
+    // Check Side (Bottom edge of top bar, or middle of top bar?)
+    // Top bar is y=50..55. Middle x=60.
+    // Left bar is x=50..55. Middle y=60.
+    // A point solely in Top bar: x=60, y=50.
+    c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 60, .y = 50, .width = 1, .height = 1 }, 1.0, format, &side_pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+
+    // Alpha check
+    // If corner == side, fix works.
+    // If corner > side, fix needed.
+    // Expect Equal for PASSING test (after fix).
+    // But currently should fail.
+    try std.testing.expectEqual(corner_pixel[3], side_pixel[3]);
+}
