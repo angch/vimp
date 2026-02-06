@@ -84,7 +84,7 @@ pub const ColorPalette = struct {
             // Remove button padding/border visuals to look like a swatch
             c.gtk_widget_add_css_class(btn, "flat");
 
-            var css_buf: [128]u8 = undefined;
+            var css_buf: [256]u8 = undefined;
             // Use border to distinguish similar colors from background
             const css = std.fmt.bufPrintZ(&css_buf,
                 "button {{ background: rgb({d},{d},{d}); min-width: 20px; min-height: 20px; padding: 0; margin: 0; border: 1px solid alpha(currentColor, 0.2); }}",

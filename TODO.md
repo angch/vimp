@@ -9,7 +9,7 @@
 - [x] Implement Tool Grouping (Implemented in `src/ui/sidebar.zig` with popovers).
 - [x] Implement Properties Sidebar (Implemented `src/widgets/tool_options_panel.zig`).
 - [ ] Sidebar should be resizable and not be > 20% of the window width.
-- [ ] Default colors in two rows by defaults shows up as black instead of their own color.
+- [x] Default colors in two rows by defaults shows up as black instead of their own color.
 
 ## Code Health & Refactoring (Priority: Medium)
 > Technical debt reduction to enable easier feature development and maintainability.
