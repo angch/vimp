@@ -13,6 +13,8 @@
     - [x] Extract `Command` and Undo/Redo stack to `src/engine/history.zig` with unit tests.
     - [x] Extract painting primitives (Bresenham, Airbrush) to `src/engine/paint.zig` with unit tests.
     - [x] Extract selection logic (Rectangle, Ellipse, Lasso) to `src/engine/selection.zig` with unit tests.
+    - [x] Extract text rendering logic to `src/engine/text.zig`.
+    - [x] Extract graph composition logic to `src/engine/composition.zig`.
 - [x] **Refactor Tool System:** Decouple `src/main.zig` by implementing a polymorphic Tool interface.
     - [x] Define `Tool` interface in `src/tools/interface.zig` (handling `drag_begin`, `update`, `end`, etc.).
     - [x] Move Paint Tools (Brush, Pencil, Airbrush, Eraser, Bucket Fill) to `src/tools/`.

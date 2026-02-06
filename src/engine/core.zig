@@ -8,6 +8,8 @@ const SelectionMod = @import("selection.zig");
 const TransformMod = @import("transform.zig");
 const FiltersMod = @import("filters.zig");
 const PreviewMod = @import("preview.zig");
+const TextMod = @import("text.zig");
+const CompositionMod = @import("composition.zig");
 
 pub const Engine = struct {
     pub const Point = TypesMod.Point;
@@ -588,76 +590,60 @@ pub const Engine = struct {
     pub fn rebuildGraph(self: *Engine) void {
         self.preview_bbox = null;
 
-        for (self.composition_nodes.items) |node| {
-            _ = c.gegl_node_remove_child(self.graph, node);
+        const ctx = PreviewMod.PreviewContext{
+            .mode = self.preview_mode,
+            .radius = self.preview_radius,
+            .angle = self.preview_angle,
+            .pixel_size = self.preview_pixel_size,
+            .transform = self.preview_transform,
+            .unsharp_scale = self.preview_unsharp_scale,
+            .noise_iterations = self.preview_noise_iterations,
+            .oilify_mask_radius = self.preview_oilify_mask_radius,
+            .drop_shadow_x = self.preview_drop_shadow_x,
+            .drop_shadow_y = self.preview_drop_shadow_y,
+            .drop_shadow_radius = self.preview_drop_shadow_radius,
+            .drop_shadow_opacity = self.preview_drop_shadow_opacity,
+            .red_eye_threshold = self.preview_red_eye_threshold,
+            .waves_amplitude = self.preview_waves_amplitude,
+            .waves_phase = self.preview_waves_phase,
+            .waves_wavelength = self.preview_waves_wavelength,
+            .waves_center_x = self.preview_waves_center_x,
+            .waves_center_y = self.preview_waves_center_y,
+            .supernova_x = self.preview_supernova_x,
+            .supernova_y = self.preview_supernova_y,
+            .supernova_radius = self.preview_supernova_radius,
+            .supernova_spokes = self.preview_supernova_spokes,
+            .supernova_color = self.preview_supernova_color,
+            .lighting_x = self.preview_lighting_x,
+            .lighting_y = self.preview_lighting_y,
+            .lighting_z = self.preview_lighting_z,
+            .lighting_intensity = self.preview_lighting_intensity,
+            .lighting_color = self.preview_lighting_color,
+            .split_view_enabled = self.split_view_enabled,
+            .split_x = self.split_x,
+            .canvas_width = self.canvas_width,
+            .canvas_height = self.canvas_height,
+            .floating_buffer = self.floating_buffer,
+            .floating_x = self.floating_x,
+            .floating_y = self.floating_y,
+            .source_layer_buffer = undefined, // Set by CompositionMod.rebuild
+        };
+
+        if (CompositionMod.rebuild(
+            std.heap.c_allocator,
+            self.graph.?,
+            self.base_node,
+            self.layers.items,
+            self.active_layer_idx,
+            ctx,
+            &self.composition_nodes,
+        )) |res| {
+            self.output_node = res.output;
+            self.preview_bbox = res.bbox;
+        } else |err| {
+            std.debug.print("Rebuild graph failed: {}\n", .{err});
+            self.output_node = self.base_node;
         }
-        self.composition_nodes.clearRetainingCapacity();
-
-        var current_input = self.base_node;
-
-        for (self.layers.items, 0..) |layer, i| {
-            if (!layer.visible) continue;
-
-            var source_output = layer.source_node;
-
-            if (i == self.active_layer_idx and self.preview_mode != .none) {
-                const ctx = PreviewMod.PreviewContext{
-                    .mode = self.preview_mode,
-                    .radius = self.preview_radius,
-                    .angle = self.preview_angle,
-                    .pixel_size = self.preview_pixel_size,
-                    .transform = self.preview_transform,
-                    .unsharp_scale = self.preview_unsharp_scale,
-                    .noise_iterations = self.preview_noise_iterations,
-                    .oilify_mask_radius = self.preview_oilify_mask_radius,
-                    .drop_shadow_x = self.preview_drop_shadow_x,
-                    .drop_shadow_y = self.preview_drop_shadow_y,
-                    .drop_shadow_radius = self.preview_drop_shadow_radius,
-                    .drop_shadow_opacity = self.preview_drop_shadow_opacity,
-                    .red_eye_threshold = self.preview_red_eye_threshold,
-                    .waves_amplitude = self.preview_waves_amplitude,
-                    .waves_phase = self.preview_waves_phase,
-                    .waves_wavelength = self.preview_waves_wavelength,
-                    .waves_center_x = self.preview_waves_center_x,
-                    .waves_center_y = self.preview_waves_center_y,
-                    .supernova_x = self.preview_supernova_x,
-                    .supernova_y = self.preview_supernova_y,
-                    .supernova_radius = self.preview_supernova_radius,
-                    .supernova_spokes = self.preview_supernova_spokes,
-                    .supernova_color = self.preview_supernova_color,
-                    .lighting_x = self.preview_lighting_x,
-                    .lighting_y = self.preview_lighting_y,
-                    .lighting_z = self.preview_lighting_z,
-                    .lighting_intensity = self.preview_lighting_intensity,
-                    .lighting_color = self.preview_lighting_color,
-                    .split_view_enabled = self.split_view_enabled,
-                    .split_x = self.split_x,
-                    .canvas_width = self.canvas_width,
-                    .canvas_height = self.canvas_height,
-                    .floating_buffer = self.floating_buffer,
-                    .floating_x = self.floating_x,
-                    .floating_y = self.floating_y,
-                    .source_layer_buffer = layer.buffer,
-                };
-
-                if (PreviewMod.addPreviewOps(std.heap.c_allocator, self.graph.?, source_output, ctx, &self.composition_nodes)) |res| {
-                    source_output = res.output;
-                    self.preview_bbox = res.bbox;
-                } else |err| {
-                    std.debug.print("Failed to add preview ops: {}\n", .{err});
-                }
-            }
-
-            if (c.gegl_node_new_child(self.graph, "operation", "gegl:over", @as(?*anyopaque, null))) |over_node| {
-                _ = c.gegl_node_connect(over_node, "input", current_input, "output");
-                _ = c.gegl_node_connect(over_node, "aux", source_output, "output");
-
-                self.composition_nodes.append(std.heap.c_allocator, over_node) catch {};
-                current_input = over_node;
-            }
-        }
-
-        self.output_node = current_input;
     }
 
     pub fn addLayerInternal(self: *Engine, buffer: *c.GeglBuffer, name: []const u8, visible: bool, locked: bool, index: usize) !void {
@@ -1358,62 +1344,19 @@ pub const Engine = struct {
     }
 
     pub fn drawText(self: *Engine, text: []const u8, x: i32, y: i32, size: i32) !void {
-        const w = self.canvas_width;
-        const h = self.canvas_height;
-        const surface = c.cairo_image_surface_create(c.CAIRO_FORMAT_ARGB32, w, h);
-        if (c.cairo_surface_status(surface) != c.CAIRO_STATUS_SUCCESS) return error.CairoFailed;
-        defer c.cairo_surface_destroy(surface);
+        const new_buffer = try TextMod.renderText(
+            text,
+            x,
+            y,
+            size,
+            self.fg_color,
+            self.bg_color,
+            self.text_opaque,
+            self.canvas_width,
+            self.canvas_height,
+        );
 
-        const cr = c.cairo_create(surface);
-        defer c.cairo_destroy(cr);
-
-        c.cairo_set_operator(cr, c.CAIRO_OPERATOR_CLEAR);
-        c.cairo_paint(cr);
-        c.cairo_set_operator(cr, c.CAIRO_OPERATOR_OVER);
-
-        const layout = c.pango_cairo_create_layout(cr);
-        defer c.g_object_unref(layout);
-
-        c.pango_layout_set_text(layout, text.ptr, @intCast(text.len));
-
-        var desc_str: [64]u8 = undefined;
-        const desc_z = std.fmt.bufPrintZ(&desc_str, "Sans {d}px", .{size}) catch "Sans 12px";
-
-        const desc = c.pango_font_description_from_string(desc_z.ptr);
-        defer c.pango_font_description_free(desc);
-        c.pango_layout_set_font_description(layout, desc);
-
-        if (self.text_opaque) {
-            var ink_rect: c.PangoRectangle = undefined;
-            var logical_rect: c.PangoRectangle = undefined;
-            c.pango_layout_get_pixel_extents(layout, &ink_rect, &logical_rect);
-
-            const bg = self.bg_color;
-            c.cairo_set_source_rgba(cr, @as(f64, @floatFromInt(bg[0])) / 255.0, @as(f64, @floatFromInt(bg[1])) / 255.0, @as(f64, @floatFromInt(bg[2])) / 255.0, @as(f64, @floatFromInt(bg[3])) / 255.0);
-
-            c.cairo_rectangle(cr, @floatFromInt(x + logical_rect.x), @floatFromInt(y + logical_rect.y), @floatFromInt(logical_rect.width), @floatFromInt(logical_rect.height));
-            c.cairo_fill(cr);
-        }
-
-        const fg = self.fg_color;
-        c.cairo_set_source_rgba(cr, @as(f64, @floatFromInt(fg[0])) / 255.0, @as(f64, @floatFromInt(fg[1])) / 255.0, @as(f64, @floatFromInt(fg[2])) / 255.0, @as(f64, @floatFromInt(fg[3])) / 255.0);
-
-        c.cairo_move_to(cr, @floatFromInt(x), @floatFromInt(y));
-        c.pango_cairo_show_layout(cr, layout);
-
-        const bbox = c.GeglRectangle{ .x = 0, .y = 0, .width = w, .height = h };
-        const src_format = c.babl_format("cairo-ARGB32");
-        const layer_format = c.babl_format("R'G'B'A u8");
-        const new_buffer = c.gegl_buffer_new(&bbox, layer_format);
-        if (new_buffer == null) return error.GeglBufferFailed;
-
-        c.cairo_surface_flush(surface);
-        const data = c.cairo_image_surface_get_data(surface);
-        const stride = c.cairo_image_surface_get_stride(surface);
-
-        c.gegl_buffer_set(new_buffer, &bbox, 0, src_format, data, stride);
-
-        try self.addLayerInternal(new_buffer.?, "Text Layer", true, false, self.layers.items.len);
+        try self.addLayerInternal(new_buffer, "Text Layer", true, false, self.layers.items.len);
 
         const cmd = Command{
             .layer = .{ .add = .{ .index = self.layers.items.len - 1, .snapshot = null } },
