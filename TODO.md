@@ -60,3 +60,4 @@
 - [ ] **UI Analysis & Feedback Tools:**
     - Integrate `GtkInspector` (accessible via Ctrl+Shift+I or `GTK_DEBUG=interactive`) for runtime widget analysis.
     - Use `Accerciser` to audit the accessibility tree and verify `ATK_RELATION_LABEL_FOR` properties.
+- [ ] **Evaluate Visual Feedback Guidelines:** Start evaluating guidelines to add to TODO.md to use visual feedback for checking if UI tasks are executing correctly.
