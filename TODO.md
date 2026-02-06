@@ -8,17 +8,18 @@
 ## UI/UX Improvements (Priority: High)
 - [x] Implement Tool Grouping (Implemented in `src/ui/sidebar.zig` with popovers).
 - [x] Implement Properties Sidebar (Implemented `src/widgets/tool_options_panel.zig`).
-- [ ] Sidebar should be resizable and not be > 20% of the window width.
+- [x] Sidebar should be resizable and not be > 20% of the window width (Implemented with GtkPaned constraints).
 - [x] Default colors in two rows by defaults shows up as black instead of their own color.
 
 ## Code Health & Refactoring (Priority: Medium)
 > Technical debt reduction to enable easier feature development and maintainability.
 
-- [ ] **Refactor Engine - Split Modules:** Break down `src/engine.zig` (God Object) into cohesive modules in `src/engine/`.
+- [x] **Refactor Engine - Split Modules:** Break down `src/engine.zig` (God Object) into cohesive modules in `src/engine/`.
     - [x] Extract `Layer` struct and management logic to `src/engine/layers.zig` with unit tests.
     - [x] Extract `Command` and Undo/Redo stack to `src/engine/history.zig` with unit tests.
     - [x] Extract painting primitives (Bresenham, Airbrush) to `src/engine/paint.zig` with unit tests.
     - [x] Extract selection logic (Rectangle, Ellipse, Lasso) to `src/engine/selection.zig` with unit tests.
+    - [x] Extract channel management to `src/engine/channels.zig` with unit tests.
 - [x] **Refactor Tool System:** Decouple `src/main.zig` by implementing a polymorphic Tool interface.
     - [x] Define `Tool` interface in `src/tools/interface.zig` (handling `drag_begin`, `update`, `end`, etc.).
     - [x] Move Paint Tools (Brush, Pencil, Airbrush, Eraser, Bucket Fill) to `src/tools/`.
@@ -31,7 +32,7 @@
     - [x] Extract Header construction to `src/ui/header.zig`.
 
 ## File Format Support (Priority: Medium)
-- [ ] **XCF:** Full layer/channel/path support (Layers and Paths implemented, Channels pending).
+- [x] **XCF:** Full layer/channel/path support (Layers, Channels, and Paths implemented).
 - [x] **PDF Import:** Support opening multiple pages as separate images (implemented via multi-process spawning).
 
 ## Input & Navigation (Priority: Medium)
