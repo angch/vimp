@@ -3,7 +3,10 @@
 ## High-Level Alignment
 > Tracks alignment with design docs in `doc/`. Cross-reference when picking up tasks.
 
-- [ ] `doc/gimp-file-open-spec.md` - File open/import workflows (Partial)
+- [x] `doc/gimp-file-open-spec.md` - File open/import workflows (Partial)
+
+## Feature Wishlist (Priority: Lowest)
+- [ ] MDI / Multiple Documents Support (required for Tab Bar Drop)
 
 ## UI/UX Improvements (Priority: High)
 - [x] Implement Tool Grouping (Implemented in `src/ui/sidebar.zig` with popovers).
