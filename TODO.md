@@ -41,7 +41,7 @@
 
 ## Specialized Features (Priority: Low)
 - [x] Implement HUD for live dimensions during selection/transform (Implemented in `src/main.zig`).
-- [ ] PostScript (.ps, .eps) import.
+- [x] PostScript (.ps, .eps) import (Implemented with explicit checks in `src/main.zig`, delegating to GEGL).
 
 ## Testing & Quality Assurance (Proposals)
 > Strategies to improve stability and accessibility verification.
