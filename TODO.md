@@ -5,7 +5,13 @@
 
 - [ ] `doc/gimp-file-open-spec.md` - File open/import workflows (Partial)
 
-## Code Health & Refactoring (Priority: High)
+## UI/UX Improvements (Priority: High)
+- [x] Implement Tool Grouping (Implemented in `src/ui/sidebar.zig` with popovers).
+- [x] Implement Properties Sidebar (Implemented `src/widgets/tool_options_panel.zig`).
+- [ ] Sidebar should be resizable and not be > 20% of the window width.
+- [ ] Default colors in two rows by defaults shows up as black instead of their own color.
+
+## Code Health & Refactoring (Priority: Medium)
 > Technical debt reduction to enable easier feature development and maintainability.
 
 - [ ] **Refactor Engine - Split Modules:** Break down `src/engine.zig` (God Object) into cohesive modules in `src/engine/`.
@@ -24,19 +30,13 @@
     - [x] Extract Sidebar construction to `src/ui/sidebar.zig`.
     - [x] Extract Header construction to `src/ui/header.zig`.
 
-## File Format Support (Priority: High)
+## File Format Support (Priority: Medium)
 - [ ] **XCF:** Full layer/channel/path support (Layers and Paths implemented, Channels pending).
 - [x] **PDF Import:** Support opening multiple pages as separate images (implemented via multi-process spawning).
 
 ## Input & Navigation (Priority: Medium)
 - [x] Implement pinch-to-zoom gesture support (Verified existing implementation).
 - [ ] Implement two-finger pan gesture support (Verify existing implementation covers all cases).
-
-## UI/UX Improvements (Priority: Medium)
-- [x] Implement Tool Grouping (Implemented in `src/ui/sidebar.zig` with popovers).
-- [x] Implement Properties Sidebar (Implemented `src/widgets/tool_options_panel.zig`).
-- [ ] Sidebar should be resizable and not be > 20% of the window width.
-- [ ] Default colors in two rows by defaults shows up as black instead of their own color.
 
 ## Specialized Features (Priority: Low)
 - [x] Implement HUD for live dimensions during selection/transform (Implemented in `src/main.zig`).
