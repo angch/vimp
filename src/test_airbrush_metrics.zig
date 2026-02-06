@@ -21,7 +21,7 @@ test "Airbrush Density Metric" {
     // Paint once.
     engine.paintStroke(100, 100, 100, 100, 1.0);
 
-    const layer = &engine.layers.items[0];
+    const layer = &engine.layers.list.items[0];
     const buf = layer.buffer;
 
     // Check bounding box 80..120

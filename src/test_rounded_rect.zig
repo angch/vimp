@@ -15,8 +15,8 @@ test "Engine draw rounded rectangle" {
     // Rect range: x=[10, 50), y=[10, 50)
     try engine.drawRoundedRectangle(10, 10, 40, 40, 10, 1, true);
 
-    if (engine.layers.items.len > 0) {
-        const buf = engine.layers.items[0].buffer;
+    if (engine.layers.list.items.len > 0) {
+        const buf = engine.layers.list.items[0].buffer;
         var pixel: [4]u8 = undefined;
         const format = c.babl_format("R'G'B'A u8");
 

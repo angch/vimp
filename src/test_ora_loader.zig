@@ -86,9 +86,9 @@ test "Engine load ORA" {
     // 4. Verify
     try std.testing.expectEqual(engine.canvas_width, 100);
     try std.testing.expectEqual(engine.canvas_height, 100);
-    try std.testing.expectEqual(engine.layers.items.len, 1);
+    try std.testing.expectEqual(engine.layers.list.items.len, 1);
 
-    const layer = &engine.layers.items[0];
+    const layer = &engine.layers.list.items[0];
     const name = std.mem.span(@as([*:0]const u8, @ptrCast(&layer.name)));
     try std.testing.expectEqualStrings("Layer 1", name);
 
@@ -144,9 +144,9 @@ test "Engine save ORA" {
     // 4. Verify
     try std.testing.expectEqual(engine2.canvas_width, 200);
     try std.testing.expectEqual(engine2.canvas_height, 200);
-    try std.testing.expectEqual(engine2.layers.items.len, 1);
+    try std.testing.expectEqual(engine2.layers.list.items.len, 1);
 
-    const layer = &engine2.layers.items[0];
+    const layer = &engine2.layers.list.items[0];
     const name = std.mem.span(@as([*:0]const u8, @ptrCast(&layer.name)));
     try std.testing.expectEqualStrings("Test Layer", name);
 

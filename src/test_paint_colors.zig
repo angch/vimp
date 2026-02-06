@@ -16,7 +16,7 @@ test "Engine paint stroke primary color" {
     // Paint at 100,100 with default (Primary/FG)
     engine.paintStroke(100, 100, 100, 100, 1.0);
 
-    const buf = engine.layers.items[0].buffer;
+    const buf = engine.layers.list.items[0].buffer;
     var pixel: [4]u8 = undefined;
     const rect = c.GeglRectangle{ .x = 100, .y = 100, .width = 1, .height = 1 };
     const format = c.babl_format("R'G'B'A u8");
@@ -41,7 +41,7 @@ test "Engine paint stroke secondary color" {
     // Paint at 100,100 with Secondary (BG)
     engine.paintStrokeWithColor(100, 100, 100, 100, 1.0, engine.bg_color);
 
-    const buf = engine.layers.items[0].buffer;
+    const buf = engine.layers.list.items[0].buffer;
     var pixel: [4]u8 = undefined;
     const rect = c.GeglRectangle{ .x = 100, .y = 100, .width = 1, .height = 1 };
     const format = c.babl_format("R'G'B'A u8");

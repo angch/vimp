@@ -52,8 +52,7 @@ pub const Engine = struct {
 
     graph: ?*c.GeglNode = null,
     output_node: ?*c.GeglNode = null,
-    layers: std.ArrayList(Layer) = undefined,
-    active_layer_idx: usize = 0,
+    layers: LayersMod.Layers = undefined,
 
     base_node: ?*c.GeglNode = null,
     composition_nodes: std.ArrayList(*c.GeglNode) = undefined,
@@ -128,7 +127,7 @@ pub const Engine = struct {
     }
 
     fn initData(self: *Engine) void {
-        self.layers = std.ArrayList(Layer){};
+        self.layers = LayersMod.Layers.init(std.heap.c_allocator);
         self.composition_nodes = std.ArrayList(*c.GeglNode){};
         self.history = HistoryMod.History.init(std.heap.c_allocator);
         self.paths = std.ArrayList(VectorPath){};
@@ -140,7 +139,6 @@ pub const Engine = struct {
         self.base_node = null;
 
         // Reset state
-        self.active_layer_idx = 0;
         self.preview_shape = null;
         self.preview_bbox = null;
         self.preview_mode = .none;
@@ -171,10 +169,7 @@ pub const Engine = struct {
         self.paths.deinit(std.heap.c_allocator);
 
         self.composition_nodes.deinit(std.heap.c_allocator);
-        for (self.layers.items) |layer| {
-            c.g_object_unref(layer.buffer);
-        }
-        self.layers.deinit(std.heap.c_allocator);
+        self.layers.deinit();
 
         if (self.graph) |g| {
             c.g_object_unref(g);
@@ -223,14 +218,14 @@ pub const Engine = struct {
 
     pub fn beginTransaction(self: *Engine) void {
         if (self.current_command != null) return;
-        if (self.active_layer_idx >= self.layers.items.len) return;
+        if (self.layers.active_index >= self.layers.count()) return;
 
-        const layer = &self.layers.items[self.active_layer_idx];
+        const layer = self.layers.getActive().?;
         const before_buf = c.gegl_buffer_dup(layer.buffer);
         if (before_buf == null) return;
 
         const cmd = PaintCommand{
-            .layer_idx = self.active_layer_idx,
+            .layer_idx = self.layers.active_index,
             .before = before_buf.?,
             .after = null,
         };
@@ -239,14 +234,14 @@ pub const Engine = struct {
 
     pub fn beginTransformTransaction(self: *Engine) void {
         if (self.current_command != null) return;
-        if (self.active_layer_idx >= self.layers.items.len) return;
+        if (self.layers.active_index >= self.layers.count()) return;
 
-        const layer = &self.layers.items[self.active_layer_idx];
+        const layer = self.layers.getActive().?;
         const before_buf = c.gegl_buffer_dup(layer.buffer);
         if (before_buf == null) return;
 
         const cmd = PaintCommand{
-            .layer_idx = self.active_layer_idx,
+            .layer_idx = self.layers.active_index,
             .before = before_buf.?,
             .after = null,
         };
@@ -272,8 +267,8 @@ pub const Engine = struct {
         if (self.current_command) |*cmd| {
             switch (cmd.*) {
                 .paint, .transform => |*p_cmd| {
-                    if (p_cmd.layer_idx < self.layers.items.len) {
-                        const layer = &self.layers.items[p_cmd.layer_idx];
+                    if (p_cmd.layer_idx < self.layers.list.items.len) {
+                        const layer = &self.layers.list.items[p_cmd.layer_idx];
                         const after_buf = c.gegl_buffer_dup(layer.buffer);
                         if (after_buf) |ab| {
                             p_cmd.after = ab;
@@ -306,8 +301,8 @@ pub const Engine = struct {
             var mutable_cmd = cmd;
             switch (mutable_cmd) {
                 .paint, .transform => |p_cmd| {
-                    if (p_cmd.layer_idx < self.layers.items.len) {
-                        const layer = &self.layers.items[p_cmd.layer_idx];
+                    if (p_cmd.layer_idx < self.layers.count()) {
+                        const layer = self.layers.get(p_cmd.layer_idx).?;
                         const new_buf = c.gegl_buffer_dup(p_cmd.before);
                         if (new_buf) |b| {
                             c.g_object_unref(layer.buffer);
@@ -376,8 +371,8 @@ pub const Engine = struct {
             var mutable_cmd = cmd;
             switch (mutable_cmd) {
                 .paint, .transform => |p_cmd| {
-                    if (p_cmd.layer_idx < self.layers.items.len) {
-                        const layer = &self.layers.items[p_cmd.layer_idx];
+                    if (p_cmd.layer_idx < self.layers.count()) {
+                        const layer = self.layers.get(p_cmd.layer_idx).?;
                         if (p_cmd.after) |after_buf| {
                             const new_buf = c.gegl_buffer_dup(after_buf);
                             if (new_buf) |b| {
@@ -455,11 +450,11 @@ pub const Engine = struct {
     pub fn beginMoveSelection(self: *Engine, x: f64, y: f64) !void {
         _ = x;
         _ = y;
-        if (self.active_layer_idx >= self.layers.items.len) return;
+        if (self.layers.active_index >= self.layers.count()) return;
         if (self.selection.rect == null) return;
         if (self.preview_mode == .move_selection) return;
 
-        const layer = &self.layers.items[self.active_layer_idx];
+        const layer = self.layers.getActive().?;
         if (layer.locked) return;
 
         self.beginTransaction();
@@ -523,9 +518,9 @@ pub const Engine = struct {
 
     pub fn commitMoveSelection(self: *Engine) !void {
         if (self.preview_mode != .move_selection) return;
-        if (self.active_layer_idx >= self.layers.items.len) return;
+        if (self.layers.active_index >= self.layers.count()) return;
 
-        const layer = &self.layers.items[self.active_layer_idx];
+        const layer = self.layers.getActive().?;
         const layer_buf = layer.buffer;
 
         if (self.floating_buffer) |float_buf| {
@@ -596,12 +591,12 @@ pub const Engine = struct {
 
         var current_input = self.base_node;
 
-        for (self.layers.items, 0..) |layer, i| {
+        for (self.layers.list.items, 0..) |layer, i| {
             if (!layer.visible) continue;
 
             var source_output = layer.source_node;
 
-            if (i == self.active_layer_idx and self.preview_mode != .none) {
+            if (i == self.layers.active_index and self.preview_mode != .none) {
                 const ctx = PreviewMod.PreviewContext{
                     .mode = self.preview_mode,
                     .radius = self.preview_radius,
@@ -662,20 +657,7 @@ pub const Engine = struct {
     }
 
     pub fn addLayerInternal(self: *Engine, buffer: *c.GeglBuffer, name: []const u8, visible: bool, locked: bool, index: usize) !void {
-        const source_node = c.gegl_node_new_child(self.graph, "operation", "gegl:buffer-source", "buffer", buffer, @as(?*anyopaque, null)) orelse return error.GeglNodeFailed;
-
-        var layer = Layer{
-            .buffer = buffer,
-            .source_node = source_node,
-            .visible = visible,
-            .locked = locked,
-        };
-        const len = @min(name.len, layer.name.len - 1);
-        @memcpy(layer.name[0..len], name[0..len]);
-        layer.name[len] = 0;
-
-        try self.layers.insert(std.heap.c_allocator, index, layer);
-        self.active_layer_idx = index;
+        try self.layers.add(self.graph, buffer, name, visible, locked, index);
         self.rebuildGraph();
     }
 
@@ -684,7 +666,7 @@ pub const Engine = struct {
         const format = c.babl_format("R'G'B'A u8");
         const buffer = c.gegl_buffer_new(&extent, format) orelse return error.GeglBufferFailed;
 
-        const index = self.layers.items.len;
+        const index = self.layers.count();
         try self.addLayerInternal(buffer, name, true, false, index);
 
         const cmd = Command{
@@ -696,27 +678,13 @@ pub const Engine = struct {
     }
 
     fn removeLayerInternal(self: *Engine, index: usize) LayerSnapshot {
-        const layer = self.layers.orderedRemove(index);
-        _ = c.gegl_node_remove_child(self.graph, layer.source_node);
-
-        if (self.active_layer_idx >= self.layers.items.len) {
-            if (self.layers.items.len > 0) {
-                self.active_layer_idx = self.layers.items.len - 1;
-            } else {
-                self.active_layer_idx = 0;
-            }
-        }
+        const snapshot = self.layers.remove(self.graph, index);
         self.rebuildGraph();
-        return LayerSnapshot{
-            .buffer = layer.buffer,
-            .name = layer.name,
-            .visible = layer.visible,
-            .locked = layer.locked,
-        };
+        return snapshot;
     }
 
     pub fn removeLayer(self: *Engine, index: usize) void {
-        if (index >= self.layers.items.len) return;
+        if (index >= self.layers.count()) return;
         var snapshot = self.removeLayerInternal(index);
         const cmd = Command{
             .layer = .{ .remove = .{ .index = index, .snapshot = snapshot } },
@@ -728,24 +696,12 @@ pub const Engine = struct {
     }
 
     fn reorderLayerInternal(self: *Engine, from: usize, to: usize) void {
-        const layer = self.layers.orderedRemove(from);
-        self.layers.insert(std.heap.c_allocator, to, layer) catch {
-            self.layers.append(std.heap.c_allocator, layer) catch {};
-            return;
-        };
-
-        if (self.active_layer_idx == from) {
-            self.active_layer_idx = to;
-        } else if (from < self.active_layer_idx and to >= self.active_layer_idx) {
-            self.active_layer_idx -= 1;
-        } else if (from > self.active_layer_idx and to <= self.active_layer_idx) {
-            self.active_layer_idx += 1;
-        }
+        self.layers.reorder(from, to) catch {};
         self.rebuildGraph();
     }
 
     pub fn reorderLayer(self: *Engine, from: usize, to: usize) void {
-        if (from >= self.layers.items.len or to >= self.layers.items.len) return;
+        if (from >= self.layers.count() or to >= self.layers.count()) return;
         if (from == to) return;
         self.reorderLayerInternal(from, to);
         const cmd = Command{
@@ -757,18 +713,16 @@ pub const Engine = struct {
     }
 
     pub fn setActiveLayer(self: *Engine, index: usize) void {
-        if (index < self.layers.items.len) {
-            self.active_layer_idx = index;
-        }
+        self.layers.setActive(index);
     }
 
     fn toggleLayerVisibilityInternal(self: *Engine, index: usize) void {
-        self.layers.items[index].visible = !self.layers.items[index].visible;
+        self.layers.toggleVisibility(index);
         self.rebuildGraph();
     }
 
     pub fn toggleLayerVisibility(self: *Engine, index: usize) void {
-        if (index < self.layers.items.len) {
+        if (index < self.layers.count()) {
             self.toggleLayerVisibilityInternal(index);
             const cmd = Command{
                 .layer = .{ .visibility = .{ .index = index } },
@@ -780,11 +734,11 @@ pub const Engine = struct {
     }
 
     fn toggleLayerLockInternal(self: *Engine, index: usize) void {
-        self.layers.items[index].locked = !self.layers.items[index].locked;
+        self.layers.toggleLock(index);
     }
 
     pub fn toggleLayerLock(self: *Engine, index: usize) void {
-        if (index < self.layers.items.len) {
+        if (index < self.layers.count()) {
             self.toggleLayerLockInternal(index);
             const cmd = Command{
                 .layer = .{ .lock = .{ .index = index } },
@@ -830,8 +784,8 @@ pub const Engine = struct {
     }
 
     pub fn paintStrokeWithColor(self: *Engine, x0: f64, y0: f64, x1: f64, y1: f64, pressure: f64, color: [4]u8) void {
-        if (self.active_layer_idx >= self.layers.items.len) return;
-        const layer = &self.layers.items[self.active_layer_idx];
+        if (self.layers.active_index >= self.layers.list.items.len) return;
+        const layer = &self.layers.list.items[self.layers.active_index];
         if (!layer.visible or layer.locked) return;
 
         const ctx = self.getPaintContext(layer.buffer);
@@ -841,8 +795,8 @@ pub const Engine = struct {
     }
 
     pub fn bucketFillWithColor(self: *Engine, start_x: f64, start_y: f64, color: [4]u8) !void {
-        if (self.active_layer_idx >= self.layers.items.len) return;
-        const layer = &self.layers.items[self.active_layer_idx];
+        if (self.layers.active_index >= self.layers.list.items.len) return;
+        const layer = &self.layers.list.items[self.layers.active_index];
         if (!layer.visible or layer.locked) return;
 
         const ctx = self.getPaintContext(layer.buffer);
@@ -854,8 +808,8 @@ pub const Engine = struct {
     }
 
     pub fn invertColors(self: *Engine) !void {
-        if (self.active_layer_idx >= self.layers.items.len) return;
-        const layer = &self.layers.items[self.active_layer_idx];
+        if (self.layers.active_index >= self.layers.list.items.len) return;
+        const layer = &self.layers.list.items[self.layers.active_index];
         if (layer.locked) return;
 
         self.beginTransaction();
@@ -884,8 +838,8 @@ pub const Engine = struct {
     }
 
     pub fn clearActiveLayer(self: *Engine) !void {
-        if (self.active_layer_idx >= self.layers.items.len) return;
-        const layer = &self.layers.items[self.active_layer_idx];
+        if (self.layers.active_index >= self.layers.list.items.len) return;
+        const layer = &self.layers.list.items[self.layers.active_index];
         if (layer.locked) return;
 
         self.beginTransaction();
@@ -899,8 +853,8 @@ pub const Engine = struct {
     }
 
     pub fn flipHorizontal(self: *Engine) !void {
-        if (self.active_layer_idx >= self.layers.items.len) return;
-        const layer = &self.layers.items[self.active_layer_idx];
+        if (self.layers.active_index >= self.layers.list.items.len) return;
+        const layer = &self.layers.list.items[self.layers.active_index];
         if (layer.locked) return;
 
         self.beginTransaction();
@@ -915,8 +869,8 @@ pub const Engine = struct {
     }
 
     pub fn flipVertical(self: *Engine) !void {
-        if (self.active_layer_idx >= self.layers.items.len) return;
-        const layer = &self.layers.items[self.active_layer_idx];
+        if (self.layers.active_index >= self.layers.list.items.len) return;
+        const layer = &self.layers.list.items[self.layers.active_index];
         if (layer.locked) return;
 
         self.beginTransaction();
@@ -931,8 +885,8 @@ pub const Engine = struct {
     }
 
     fn applyRotation(self: *Engine, degrees: f64) !void {
-        if (self.active_layer_idx >= self.layers.items.len) return;
-        const layer = &self.layers.items[self.active_layer_idx];
+        if (self.layers.active_index >= self.layers.list.items.len) return;
+        const layer = &self.layers.list.items[self.layers.active_index];
         if (layer.locked) return;
 
         self.beginTransaction();
@@ -960,8 +914,8 @@ pub const Engine = struct {
 
     // ... (All apply* methods are same as before, see full paste in thought process)
     pub fn applyGaussianBlur(self: *Engine, radius: f64) !void {
-        if (self.active_layer_idx >= self.layers.items.len) return;
-        const layer = &self.layers.items[self.active_layer_idx];
+        if (self.layers.active_index >= self.layers.list.items.len) return;
+        const layer = &self.layers.list.items[self.layers.active_index];
         if (layer.locked) return;
 
         self.beginTransaction();
@@ -976,8 +930,8 @@ pub const Engine = struct {
     }
 
     pub fn applyMotionBlur(self: *Engine, length: f64, angle: f64) !void {
-        if (self.active_layer_idx >= self.layers.items.len) return;
-        const layer = &self.layers.items[self.active_layer_idx];
+        if (self.layers.active_index >= self.layers.list.items.len) return;
+        const layer = &self.layers.list.items[self.layers.active_index];
         if (layer.locked) return;
 
         self.beginTransaction();
@@ -992,8 +946,8 @@ pub const Engine = struct {
     }
 
     pub fn applyPixelize(self: *Engine, size: f64) !void {
-        if (self.active_layer_idx >= self.layers.items.len) return;
-        const layer = &self.layers.items[self.active_layer_idx];
+        if (self.layers.active_index >= self.layers.list.items.len) return;
+        const layer = &self.layers.list.items[self.layers.active_index];
         if (layer.locked) return;
 
         self.beginTransaction();
@@ -1008,8 +962,8 @@ pub const Engine = struct {
     }
 
     pub fn applyUnsharpMask(self: *Engine, std_dev: f64, scale: f64) !void {
-        if (self.active_layer_idx >= self.layers.items.len) return;
-        const layer = &self.layers.items[self.active_layer_idx];
+        if (self.layers.active_index >= self.layers.list.items.len) return;
+        const layer = &self.layers.list.items[self.layers.active_index];
         if (layer.locked) return;
 
         self.beginTransaction();
@@ -1024,8 +978,8 @@ pub const Engine = struct {
     }
 
     pub fn applyNoiseReduction(self: *Engine, iterations: c_int) !void {
-        if (self.active_layer_idx >= self.layers.items.len) return;
-        const layer = &self.layers.items[self.active_layer_idx];
+        if (self.layers.active_index >= self.layers.list.items.len) return;
+        const layer = &self.layers.list.items[self.layers.active_index];
         if (layer.locked) return;
 
         self.beginTransaction();
@@ -1040,8 +994,8 @@ pub const Engine = struct {
     }
 
     pub fn applyOilify(self: *Engine, mask_radius: f64) !void {
-        if (self.active_layer_idx >= self.layers.items.len) return;
-        const layer = &self.layers.items[self.active_layer_idx];
+        if (self.layers.active_index >= self.layers.list.items.len) return;
+        const layer = &self.layers.list.items[self.layers.active_index];
         if (layer.locked) return;
 
         self.beginTransaction();
@@ -1056,8 +1010,8 @@ pub const Engine = struct {
     }
 
     pub fn applyDropShadow(self: *Engine, x: f64, y: f64, radius: f64, opacity: f64) !void {
-        if (self.active_layer_idx >= self.layers.items.len) return;
-        const layer = &self.layers.items[self.active_layer_idx];
+        if (self.layers.active_index >= self.layers.list.items.len) return;
+        const layer = &self.layers.list.items[self.layers.active_index];
         if (layer.locked) return;
 
         self.beginTransaction();
@@ -1072,8 +1026,8 @@ pub const Engine = struct {
     }
 
     pub fn applyRedEyeRemoval(self: *Engine, threshold: f64) !void {
-        if (self.active_layer_idx >= self.layers.items.len) return;
-        const layer = &self.layers.items[self.active_layer_idx];
+        if (self.layers.active_index >= self.layers.list.items.len) return;
+        const layer = &self.layers.list.items[self.layers.active_index];
         if (layer.locked) return;
 
         self.beginTransaction();
@@ -1088,8 +1042,8 @@ pub const Engine = struct {
     }
 
     pub fn applyWaves(self: *Engine, amplitude: f64, phase: f64, wavelength: f64, center_x: f64, center_y: f64) !void {
-        if (self.active_layer_idx >= self.layers.items.len) return;
-        const layer = &self.layers.items[self.active_layer_idx];
+        if (self.layers.active_index >= self.layers.list.items.len) return;
+        const layer = &self.layers.list.items[self.layers.active_index];
         if (layer.locked) return;
 
         self.beginTransaction();
@@ -1104,8 +1058,8 @@ pub const Engine = struct {
     }
 
     pub fn applySupernova(self: *Engine, x: f64, y: f64, radius: f64, spokes: c_int, color_rgba: [4]u8) !void {
-        if (self.active_layer_idx >= self.layers.items.len) return;
-        const layer = &self.layers.items[self.active_layer_idx];
+        if (self.layers.active_index >= self.layers.list.items.len) return;
+        const layer = &self.layers.list.items[self.layers.active_index];
         if (layer.locked) return;
 
         self.beginTransaction();
@@ -1120,8 +1074,8 @@ pub const Engine = struct {
     }
 
     pub fn applyLighting(self: *Engine, x: f64, y: f64, z: f64, intensity: f64, color_rgba: [4]u8) !void {
-        if (self.active_layer_idx >= self.layers.items.len) return;
-        const layer = &self.layers.items[self.active_layer_idx];
+        if (self.layers.active_index >= self.layers.list.items.len) return;
+        const layer = &self.layers.list.items[self.layers.active_index];
         if (layer.locked) return;
 
         self.beginTransaction();
@@ -1231,8 +1185,8 @@ pub const Engine = struct {
 
 
     pub fn applyTransform(self: *Engine) !void {
-        if (self.active_layer_idx >= self.layers.items.len) return;
-        const layer = &self.layers.items[self.active_layer_idx];
+        if (self.layers.active_index >= self.layers.list.items.len) return;
+        const layer = &self.layers.list.items[self.layers.active_index];
         if (layer.locked) return;
 
         self.beginTransformTransaction();
@@ -1371,17 +1325,17 @@ pub const Engine = struct {
             self.text_opaque,
         );
 
-        try self.addLayerInternal(new_buffer, "Text Layer", true, false, self.layers.items.len);
+        try self.addLayerInternal(new_buffer, "Text Layer", true, false, self.layers.list.items.len);
 
         const cmd = Command{
-            .layer = .{ .add = .{ .index = self.layers.items.len - 1, .snapshot = null } },
+            .layer = .{ .add = .{ .index = self.layers.list.items.len - 1, .snapshot = null } },
         };
         self.history.push(cmd) catch {};
     }
 
     pub fn drawGradient(self: *Engine, x1: c_int, y1: c_int, x2: c_int, y2: c_int) !void {
-        if (self.active_layer_idx >= self.layers.items.len) return;
-        const layer = &self.layers.items[self.active_layer_idx];
+        if (self.layers.active_index >= self.layers.list.items.len) return;
+        const layer = &self.layers.list.items[self.layers.active_index];
         if (!layer.visible or layer.locked) return;
 
         const ctx = self.getPaintContext(layer.buffer);
@@ -1390,8 +1344,8 @@ pub const Engine = struct {
     }
 
     pub fn drawLine(self: *Engine, x1: c_int, y1: c_int, x2: c_int, y2: c_int) !void {
-        if (self.active_layer_idx >= self.layers.items.len) return;
-        const layer = &self.layers.items[self.active_layer_idx];
+        if (self.layers.active_index >= self.layers.list.items.len) return;
+        const layer = &self.layers.list.items[self.layers.active_index];
         if (!layer.visible or layer.locked) return;
 
         const ctx = self.getPaintContext(layer.buffer);
@@ -1400,8 +1354,8 @@ pub const Engine = struct {
     }
 
     pub fn drawCurve(self: *Engine, x1: c_int, y1: c_int, x2: c_int, y2: c_int, cx1: c_int, cy1: c_int, cx2: c_int, cy2: c_int) !void {
-        if (self.active_layer_idx >= self.layers.items.len) return;
-        const layer = &self.layers.items[self.active_layer_idx];
+        if (self.layers.active_index >= self.layers.list.items.len) return;
+        const layer = &self.layers.list.items[self.layers.active_index];
         if (!layer.visible or layer.locked) return;
 
         const ctx = self.getPaintContext(layer.buffer);
@@ -1410,8 +1364,8 @@ pub const Engine = struct {
     }
 
     pub fn drawPolygon(self: *Engine, points: []const Point, thickness: c_int, filled: bool) !void {
-        if (self.active_layer_idx >= self.layers.items.len) return;
-        const layer = &self.layers.items[self.active_layer_idx];
+        if (self.layers.active_index >= self.layers.list.items.len) return;
+        const layer = &self.layers.list.items[self.layers.active_index];
         if (!layer.visible or layer.locked) return;
 
         const ctx = self.getPaintContext(layer.buffer);
@@ -1420,8 +1374,8 @@ pub const Engine = struct {
     }
 
     pub fn drawRectangle(self: *Engine, x: c_int, y: c_int, w: c_int, h: c_int, thickness: c_int, filled: bool) !void {
-        if (self.active_layer_idx >= self.layers.items.len) return;
-        const layer = &self.layers.items[self.active_layer_idx];
+        if (self.layers.active_index >= self.layers.list.items.len) return;
+        const layer = &self.layers.list.items[self.layers.active_index];
         if (!layer.visible or layer.locked) return;
 
         const ctx = self.getPaintContext(layer.buffer);
@@ -1430,8 +1384,8 @@ pub const Engine = struct {
     }
 
     pub fn drawRoundedRectangle(self: *Engine, x: c_int, y: c_int, w: c_int, h: c_int, radius: c_int, thickness: c_int, filled: bool) !void {
-        if (self.active_layer_idx >= self.layers.items.len) return;
-        const layer = &self.layers.items[self.active_layer_idx];
+        if (self.layers.active_index >= self.layers.list.items.len) return;
+        const layer = &self.layers.list.items[self.layers.active_index];
         if (!layer.visible or layer.locked) return;
 
         const ctx = self.getPaintContext(layer.buffer);
@@ -1440,8 +1394,8 @@ pub const Engine = struct {
     }
 
     pub fn drawEllipse(self: *Engine, x: c_int, y: c_int, w: c_int, h: c_int, thickness: c_int, filled: bool) !void {
-        if (self.active_layer_idx >= self.layers.items.len) return;
-        const layer = &self.layers.items[self.active_layer_idx];
+        if (self.layers.active_index >= self.layers.list.items.len) return;
+        const layer = &self.layers.list.items[self.layers.active_index];
         if (!layer.visible or layer.locked) return;
 
         const ctx = self.getPaintContext(layer.buffer);
@@ -1535,8 +1489,8 @@ test "Engine paint color" {
     engine.paintStroke(100, 100, 100, 100, 1.0);
 
     // Read back pixel
-    if (engine.layers.items.len > 0) {
-        const buf = engine.layers.items[0].buffer;
+    if (engine.layers.list.items.len > 0) {
+        const buf = engine.layers.list.items[0].buffer;
         var pixel: [4]u8 = .{ 0, 0, 0, 0 };
         const rect = c.GeglRectangle{ .x = 100, .y = 100, .width = 1, .height = 1 };
         const format = c.babl_format("R'G'B'A u8");
@@ -1562,7 +1516,7 @@ test "Engine multiple layers" {
     // Add Layer 2.
     try engine.addLayer("Layer 2");
     // active layer should be 1.
-    try std.testing.expectEqual(engine.active_layer_idx, 1);
+    try std.testing.expectEqual(engine.layers.active_index, 1);
 
     // Paint BLUE on Layer 2 at 100,100
     engine.setFgColor(0, 0, 255, 255);
@@ -1576,7 +1530,7 @@ test "Engine multiple layers" {
 
     // Verify Layer 2 is Blue
     {
-        const buf = engine.layers.items[1].buffer;
+        const buf = engine.layers.list.items[1].buffer;
         var pixel: [4]u8 = .{ 0, 0, 0, 0 };
         const rect = c.GeglRectangle{ .x = 100, .y = 100, .width = 1, .height = 1 };
         const format = c.babl_format("R'G'B'A u8");
@@ -1586,7 +1540,7 @@ test "Engine multiple layers" {
 
     // Verify Layer 1 is Red
     {
-        const buf = engine.layers.items[0].buffer;
+        const buf = engine.layers.list.items[0].buffer;
         var pixel: [4]u8 = .{ 0, 0, 0, 0 };
         const rect = c.GeglRectangle{ .x = 100, .y = 100, .width = 1, .height = 1 };
         const format = c.babl_format("R'G'B'A u8");
@@ -1658,8 +1612,8 @@ test "Engine brush size" {
     engine.setBrushSize(5);
     engine.paintStroke(100, 100, 100, 100, 1.0);
 
-    if (engine.layers.items.len > 0) {
-        const buf = engine.layers.items[0].buffer;
+    if (engine.layers.list.items.len > 0) {
+        const buf = engine.layers.list.items[0].buffer;
         var pixel: [4]u8 = .{ 0, 0, 0, 0 };
         const rect = c.GeglRectangle{ .x = 102, .y = 102, .width = 1, .height = 1 };
         const format = c.babl_format("R'G'B'A u8");
@@ -1681,8 +1635,8 @@ test "Engine eraser" {
     // 1. Paint Red at 50,50
     engine.paintStroke(50, 50, 50, 50, 1.0);
 
-    if (engine.layers.items.len > 0) {
-        const buf = engine.layers.items[0].buffer;
+    if (engine.layers.list.items.len > 0) {
+        const buf = engine.layers.list.items[0].buffer;
         var pixel: [4]u8 = .{ 0, 0, 0, 0 };
         const rect = c.GeglRectangle{ .x = 50, .y = 50, .width = 1, .height = 1 };
         const format = c.babl_format("R'G'B'A u8");
@@ -1722,8 +1676,8 @@ test "Engine bucket fill" {
     engine.setFgColor(0, 0, 255, 255);
     try engine.bucketFill(20, 20);
 
-    if (engine.layers.items.len > 0) {
-        const buf = engine.layers.items[0].buffer;
+    if (engine.layers.list.items.len > 0) {
+        const buf = engine.layers.list.items[0].buffer;
         var pixel: [4]u8 = undefined;
         var rect = c.GeglRectangle{ .x = 20, .y = 20, .width = 1, .height = 1 };
         const format = c.babl_format("R'G'B'A u8");
@@ -1748,8 +1702,8 @@ test "Engine brush shapes" {
     // 1. Square (Default)
     engine.paintStroke(100, 100, 100, 100, 1.0);
 
-    if (engine.layers.items.len > 0) {
-        const buf = engine.layers.items[0].buffer;
+    if (engine.layers.list.items.len > 0) {
+        const buf = engine.layers.list.items[0].buffer;
         var pixel: [4]u8 = .{ 0, 0, 0, 0 };
         const rect = c.GeglRectangle{ .x = 102, .y = 102, .width = 1, .height = 1 };
         const format = c.babl_format("R'G'B'A u8");
@@ -1779,8 +1733,8 @@ test "Engine selection clipping" {
 
     // 1. Paint inside
     engine.paintStroke(15, 15, 15, 15, 1.0);
-    if (engine.layers.items.len > 0) {
-        const buf = engine.layers.items[0].buffer;
+    if (engine.layers.list.items.len > 0) {
+        const buf = engine.layers.list.items[0].buffer;
         var pixel: [4]u8 = .{ 0, 0, 0, 0 };
         const rect = c.GeglRectangle{ .x = 15, .y = 15, .width = 1, .height = 1 };
         const format = c.babl_format("R'G'B'A u8");
@@ -1847,8 +1801,8 @@ test "Engine undo redo" {
     engine.commitTransaction();
 
     // Check pixel is Red
-    if (engine.layers.items.len > 0) {
-        const buf = engine.layers.items[0].buffer;
+    if (engine.layers.list.items.len > 0) {
+        const buf = engine.layers.list.items[0].buffer;
         var pixel: [4]u8 = .{ 0, 0, 0, 0 };
         const rect = c.GeglRectangle{ .x = 10, .y = 10, .width = 1, .height = 1 };
         const format = c.babl_format("R'G'B'A u8");
@@ -1861,8 +1815,8 @@ test "Engine undo redo" {
     // Undo
     engine.undo();
     // Check pixel is Transparent (original)
-    if (engine.layers.items.len > 0) {
-        const buf = engine.layers.items[0].buffer;
+    if (engine.layers.list.items.len > 0) {
+        const buf = engine.layers.list.items[0].buffer;
         var pixel: [4]u8 = .{ 255, 255, 255, 255 };
         const rect = c.GeglRectangle{ .x = 10, .y = 10, .width = 1, .height = 1 };
         const format = c.babl_format("R'G'B'A u8");
@@ -1875,8 +1829,8 @@ test "Engine undo redo" {
     // Redo
     engine.redo();
     // Check pixel is Red
-    if (engine.layers.items.len > 0) {
-        const buf = engine.layers.items[0].buffer;
+    if (engine.layers.list.items.len > 0) {
+        const buf = engine.layers.list.items[0].buffer;
         var pixel: [4]u8 = .{ 0, 0, 0, 0 };
         const rect = c.GeglRectangle{ .x = 10, .y = 10, .width = 1, .height = 1 };
         const format = c.babl_format("R'G'B'A u8");
@@ -1915,7 +1869,7 @@ test "Engine gaussian blur" {
     // At 56,56 it is Black.
 
     {
-        const buf = engine.layers.items[0].buffer;
+        const buf = engine.layers.list.items[0].buffer;
         var pixel: [4]u8 = undefined;
         const rect = c.GeglRectangle{ .x = 60, .y = 60, .width = 1, .height = 1 };
         const format = c.babl_format("R'G'B'A u8");
@@ -1931,7 +1885,7 @@ test "Engine gaussian blur" {
     // Before blur: White (or close to it) inside, Black outside.
     // After blur: Gray.
     {
-        const buf = engine.layers.items[0].buffer;
+        const buf = engine.layers.list.items[0].buffer;
         var pixel: [4]u8 = undefined;
         // Check a point that was Black but near White
         const rect = c.GeglRectangle{ .x = 58, .y = 58, .width = 1, .height = 1 };
@@ -1988,7 +1942,7 @@ test "Engine layer undo redo" {
     try engine.addLayer("Background");
 
     // 0. Initial state: Background layer only
-    try std.testing.expectEqual(engine.layers.items.len, 1);
+    try std.testing.expectEqual(engine.layers.list.items.len, 1);
     // setupGraph adds "Background", which pushes to undo stack.
     // Let's clear undo stack to start fresh for this test logic
     for (engine.history.undo_stack.items) |*cmd| cmd.deinit();
@@ -1996,34 +1950,34 @@ test "Engine layer undo redo" {
 
     // 1. Add Layer 1
     try engine.addLayer("Layer 1");
-    try std.testing.expectEqual(engine.layers.items.len, 2);
+    try std.testing.expectEqual(engine.layers.list.items.len, 2);
     try std.testing.expectEqual(engine.history.undo_stack.items.len, 1);
 
     // 2. Undo Add (Should remove Layer 1)
     engine.undo();
-    try std.testing.expectEqual(engine.layers.items.len, 1);
+    try std.testing.expectEqual(engine.layers.list.items.len, 1);
     try std.testing.expectEqual(engine.history.undo_stack.items.len, 0);
     try std.testing.expectEqual(engine.history.redo_stack.items.len, 1);
 
     // 3. Redo Add (Should restore Layer 1)
     engine.redo();
-    try std.testing.expectEqual(engine.layers.items.len, 2);
+    try std.testing.expectEqual(engine.layers.list.items.len, 2);
     try std.testing.expectEqual(engine.history.undo_stack.items.len, 1);
     try std.testing.expectEqual(engine.history.redo_stack.items.len, 0);
 
     // 4. Remove Layer 1 (Index 1)
     engine.removeLayer(1);
-    try std.testing.expectEqual(engine.layers.items.len, 1);
+    try std.testing.expectEqual(engine.layers.list.items.len, 1);
     try std.testing.expectEqual(engine.history.undo_stack.items.len, 2); // Add + Remove
 
     // 5. Undo Remove (Should restore Layer 1)
     engine.undo();
-    try std.testing.expectEqual(engine.layers.items.len, 2);
-    try std.testing.expect(std.mem.startsWith(u8, &engine.layers.items[1].name, "Layer 1"));
+    try std.testing.expectEqual(engine.layers.list.items.len, 2);
+    try std.testing.expect(std.mem.startsWith(u8, &engine.layers.list.items[1].name, "Layer 1"));
 
     // 6. Redo Remove (Should remove Layer 1)
     engine.redo();
-    try std.testing.expectEqual(engine.layers.items.len, 1);
+    try std.testing.expectEqual(engine.layers.list.items.len, 1);
 }
 
 test "Engine selection undo redo" {
@@ -2100,7 +2054,7 @@ test "Engine split view blur" {
 
     // Verify Sharp Edges before preview
     {
-        const buf = engine.layers.items[0].buffer;
+        const buf = engine.layers.list.items[0].buffer;
         var pixel: [4]u8 = undefined;
         // x=348 (Outside left) -> Background (0) ? No, buffer starts transparent. Background layer is separate.
         // Wait, Layer 0 is "Background". setupGraph adds "Background".
@@ -2220,8 +2174,8 @@ test "Engine transform apply" {
     try engine.applyTransform();
 
     // Check pixel at 110,110 (Should be Red)
-    if (engine.layers.items.len > 0) {
-        const buf = engine.layers.items[0].buffer;
+    if (engine.layers.list.items.len > 0) {
+        const buf = engine.layers.list.items[0].buffer;
         var pixel: [4]u8 = undefined;
         const rect = c.GeglRectangle{ .x = 110, .y = 110, .width = 1, .height = 1 };
         const format = c.babl_format("R'G'B'A u8");
@@ -2253,7 +2207,7 @@ test "Engine reset and resize" {
     // Reset
     engine.reset();
 
-    try std.testing.expectEqual(engine.layers.items.len, 0);
+    try std.testing.expectEqual(engine.layers.list.items.len, 0);
     try std.testing.expectEqual(engine.canvas_width, 800);
 
     // Resize
@@ -2279,8 +2233,8 @@ test "Engine invert colors" {
     engine.paintStroke(50, 50, 50, 50, 1.0);
 
     // Verify it is White
-    if (engine.layers.items.len > 0) {
-        const buf = engine.layers.items[0].buffer;
+    if (engine.layers.list.items.len > 0) {
+        const buf = engine.layers.list.items[0].buffer;
         var pixel: [4]u8 = undefined;
         const rect = c.GeglRectangle{ .x = 50, .y = 50, .width = 1, .height = 1 };
         const format = c.babl_format("R'G'B'A u8");
@@ -2293,7 +2247,7 @@ test "Engine invert colors" {
         try engine.invertColors();
 
         // Buffer was replaced, get new one
-        const buf2 = engine.layers.items[0].buffer;
+        const buf2 = engine.layers.list.items[0].buffer;
 
         // Verify it is Black (Invert of White is Black)
         // Invert operates on R, G, B. Alpha is usually preserved unless using specific invert op.
@@ -2320,7 +2274,7 @@ test "Engine flip horizontal" {
     const rect = c.GeglRectangle{ .x = 100, .y = 300, .width = 1, .height = 1 };
     const format = c.babl_format("R'G'B'A u8");
     var pixel: [4]u8 = undefined;
-    c.gegl_buffer_get(engine.layers.items[0].buffer, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
+    c.gegl_buffer_get(engine.layers.list.items[0].buffer, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
     try std.testing.expectEqual(pixel[0], 255);
 
     // Flip Horizontal (Canvas 800 width, center 400)
@@ -2328,7 +2282,7 @@ test "Engine flip horizontal" {
     // After flip: dx=+300 -> x=700.
     try engine.flipHorizontal();
 
-    const buf2 = engine.layers.items[0].buffer;
+    const buf2 = engine.layers.list.items[0].buffer;
 
     // Check old pos (should be empty/black)
     c.gegl_buffer_get(buf2, &rect, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
@@ -2374,7 +2328,7 @@ test "Engine rotate 90" {
 
     try engine.rotate90();
 
-    const buf2 = engine.layers.items[0].buffer;
+    const buf2 = engine.layers.list.items[0].buffer;
     const format = c.babl_format("R'G'B'A u8");
     var pixel: [4]u8 = undefined;
 
@@ -2444,7 +2398,7 @@ test "Engine rotate 180" {
 
     try engine.rotate180();
 
-    const buf = engine.layers.items[0].buffer;
+    const buf = engine.layers.list.items[0].buffer;
     const format = c.babl_format("R'G'B'A u8");
     var pixel: [4]u8 = undefined;
 
@@ -2468,7 +2422,7 @@ test "Engine rotate 270" {
     // Rotate 270
     try engine.rotate270();
 
-    const buf = engine.layers.items[0].buffer;
+    const buf = engine.layers.list.items[0].buffer;
     const format = c.babl_format("R'G'B'A u8");
 
     // Check 200, 300 (Left Center)
@@ -2521,7 +2475,7 @@ test "Engine draw rectangle" {
     // 1. Draw Filled Rect
     try engine.drawRectangle(10, 10, 10, 10, 1, true);
 
-    const buf = engine.layers.items[0].buffer;
+    const buf = engine.layers.list.items[0].buffer;
     const format = c.babl_format("R'G'B'A u8");
     var pixel: [4]u8 = undefined;
 
@@ -2564,7 +2518,7 @@ test "Engine draw ellipse" {
     // Radius 5. Center 15, 15.
     try engine.drawEllipse(10, 10, 10, 10, 1, true);
 
-    const buf = engine.layers.items[0].buffer;
+    const buf = engine.layers.list.items[0].buffer;
     const format = c.babl_format("R'G'B'A u8");
     var pixel: [4]u8 = undefined;
 
@@ -2634,7 +2588,7 @@ test "Engine gradient" {
     // Draw Gradient from 100,100 to 200,100
     try engine.drawGradient(100, 100, 200, 100);
 
-    const buf = engine.layers.items[0].buffer;
+    const buf = engine.layers.list.items[0].buffer;
     const format = c.babl_format("R'G'B'A u8");
     var pixel: [4]u8 = undefined;
 
@@ -2678,7 +2632,7 @@ test "Engine draw line" {
     // Draw Line from 10,10 to 20,10
     try engine.drawLine(10, 10, 20, 10);
 
-    const buf = engine.layers.items[0].buffer;
+    const buf = engine.layers.list.items[0].buffer;
     const format = c.babl_format("R'G'B'A u8");
     var pixel: [4]u8 = undefined;
 
@@ -2740,11 +2694,11 @@ test "Engine draw text" {
     try engine.drawText("Hello", 50, 50, 24);
 
     // Should have 2 layers now (Background + Text)
-    try std.testing.expectEqual(engine.layers.items.len, 2);
-    try std.testing.expectEqualStrings("Text Layer", std.mem.span(@as([*:0]const u8, @ptrCast(&engine.layers.items[1].name))));
+    try std.testing.expectEqual(engine.layers.list.items.len, 2);
+    try std.testing.expectEqualStrings("Text Layer", std.mem.span(@as([*:0]const u8, @ptrCast(&engine.layers.list.items[1].name))));
 
     // Check pixels
-    const buf = engine.layers.items[1].buffer;
+    const buf = engine.layers.list.items[1].buffer;
     const format = c.babl_format("R'G'B'A u8");
     var pixel: [4]u8 = undefined;
 
@@ -2780,9 +2734,9 @@ test "Engine draw text opaque" {
     try engine.drawText("I", 50, 50, 24);
 
     // Should have 2 layers now
-    try std.testing.expectEqual(engine.layers.items.len, 2);
+    try std.testing.expectEqual(engine.layers.list.items.len, 2);
 
-    const buf = engine.layers.items[1].buffer;
+    const buf = engine.layers.list.items[1].buffer;
     const format = c.babl_format("R'G'B'A u8");
     var pixel: [4]u8 = undefined;
 
@@ -2813,7 +2767,7 @@ test "Engine motion blur" {
     try engine.applyMotionBlur(10.0, 0.0);
 
     // Verify
-    const buf = engine.layers.items[0].buffer;
+    const buf = engine.layers.list.items[0].buffer;
     const format = c.babl_format("R'G'B'A u8");
     var pixel: [4]u8 = undefined;
 
@@ -2849,8 +2803,8 @@ test "Engine clear layer" {
     engine.paintStroke(100, 100, 100, 100, 1.0);
 
     // Verify Red
-    if (engine.layers.items.len > 0) {
-        const buf = engine.layers.items[0].buffer;
+    if (engine.layers.list.items.len > 0) {
+        const buf = engine.layers.list.items[0].buffer;
         var pixel: [4]u8 = .{ 0, 0, 0, 0 };
         const rect = c.GeglRectangle{ .x = 100, .y = 100, .width = 1, .height = 1 };
         const format = c.babl_format("R'G'B'A u8");
@@ -2865,8 +2819,8 @@ test "Engine clear layer" {
     try engine.clearActiveLayer();
 
     // Verify Blue
-    if (engine.layers.items.len > 0) {
-        const buf = engine.layers.items[0].buffer;
+    if (engine.layers.list.items.len > 0) {
+        const buf = engine.layers.list.items[0].buffer;
         var pixel: [4]u8 = .{ 0, 0, 0, 0 };
         const rect = c.GeglRectangle{ .x = 100, .y = 100, .width = 1, .height = 1 };
         const format = c.babl_format("R'G'B'A u8");
@@ -2928,7 +2882,7 @@ test "Engine pixelize" {
 
     try engine.applyPixelize(10.0);
 
-    const buf = engine.layers.items[0].buffer;
+    const buf = engine.layers.list.items[0].buffer;
     const format = c.babl_format("R'G'B'A u8");
     var p1: [4]u8 = undefined;
     var p2: [4]u8 = undefined;
@@ -2981,7 +2935,7 @@ test "Engine unsharp mask" {
     // But modification of buffer implies success of the op execution.
     // We check if pixels are not exactly as before (though simplistic).
 
-    const buf = engine.layers.items[0].buffer;
+    const buf = engine.layers.list.items[0].buffer;
     const format = c.babl_format("R'G'B'A u8");
     var pixel: [4]u8 = undefined;
 
@@ -3013,7 +2967,7 @@ test "Engine noise reduction" {
     try engine.applyNoiseReduction(3);
 
     // Verify valid buffer state
-    const buf = engine.layers.items[0].buffer;
+    const buf = engine.layers.list.items[0].buffer;
     const format = c.babl_format("R'G'B'A u8");
     var pixel: [4]u8 = undefined;
 
@@ -3042,7 +2996,7 @@ test "Engine oilify" {
     try engine.applyOilify(5.0);
 
     // Verify buffer is valid and pixel at 50,50 is not transparent (non-zero alpha)
-    const buf = engine.layers.items[0].buffer;
+    const buf = engine.layers.list.items[0].buffer;
     const format = c.babl_format("R'G'B'A u8");
     var pixel: [4]u8 = undefined;
 
@@ -3064,7 +3018,7 @@ test "Engine drop shadow" {
     // Apply Drop Shadow: x=10, y=10, radius=0 (sharp), opacity=1.0.
     try engine.applyDropShadow(10.0, 10.0, 0.0, 1.0);
 
-    const buf = engine.layers.items[0].buffer;
+    const buf = engine.layers.list.items[0].buffer;
     const format = c.babl_format("R'G'B'A u8");
     var pixel: [4]u8 = undefined;
 
@@ -3092,7 +3046,7 @@ test "Engine red eye removal" {
     // Apply Red Eye Removal
     try engine.applyRedEyeRemoval(0.5);
 
-    const buf = engine.layers.items[0].buffer;
+    const buf = engine.layers.list.items[0].buffer;
     const format = c.babl_format("R'G'B'A u8");
     var pixel: [4]u8 = undefined;
 
@@ -3122,7 +3076,7 @@ test "Engine waves filter" {
     // Apply Waves
     try engine.applyWaves(30.0, 0.0, 20.0, 0.5, 0.5);
 
-    const buf = engine.layers.items[0].buffer;
+    const buf = engine.layers.list.items[0].buffer;
     const format = c.babl_format("R'G'B'A u8");
     var pixel: [4]u8 = undefined;
 
@@ -3142,7 +3096,7 @@ test "Engine supernova" {
     // Apply Supernova at center (400, 300)
     try engine.applySupernova(400.0, 300.0, 20.0, 100, .{ 100, 100, 255, 255 });
 
-    const buf = engine.layers.items[0].buffer;
+    const buf = engine.layers.list.items[0].buffer;
     const format = c.babl_format("R'G'B'A u8");
     var pixel: [4]u8 = undefined;
 
@@ -3214,7 +3168,7 @@ test "Engine lighting" {
     // Apply Lighting
     try engine.applyLighting(100.0, 100.0, 100.0, 1.0, .{ 255, 255, 255, 255 });
 
-    const buf = engine.layers.items[0].buffer;
+    const buf = engine.layers.list.items[0].buffer;
     var pixel: [4]u8 = undefined;
 
     // Check pixel at 100,100
@@ -3250,7 +3204,7 @@ test "Engine transparent move selection" {
     try engine.beginMoveSelection(0, 0);
 
     {
-        const buf = engine.layers.items[0].buffer;
+        const buf = engine.layers.list.items[0].buffer;
         var pixel: [4]u8 = undefined;
         const rect = c.GeglRectangle{ .x = 60, .y = 60, .width = 1, .height = 1 };
         const format = c.babl_format("R'G'B'A u8");
@@ -3265,7 +3219,7 @@ test "Engine transparent move selection" {
 
     // Manually paint Blue at 90,90 on Layer (destination)
     {
-        const buf = engine.layers.items[0].buffer;
+        const buf = engine.layers.list.items[0].buffer;
         var blue: [4]u8 = .{ 0, 0, 255, 255 };
         const rect = c.GeglRectangle{ .x = 90, .y = 90, .width = 1, .height = 1 };
         const format = c.babl_format("R'G'B'A u8");
@@ -3275,7 +3229,7 @@ test "Engine transparent move selection" {
     try engine.commitMoveSelection();
 
     {
-        const buf = engine.layers.items[0].buffer;
+        const buf = engine.layers.list.items[0].buffer;
         var pixel: [4]u8 = undefined;
         c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 100, .y = 100, .width = 1, .height = 1 }, 1.0, c.babl_format("R'G'B'A u8"), &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
         try std.testing.expectEqual(pixel[0], 255);
@@ -3283,7 +3237,7 @@ test "Engine transparent move selection" {
     }
 
     {
-        const buf = engine.layers.items[0].buffer;
+        const buf = engine.layers.list.items[0].buffer;
         var pixel: [4]u8 = undefined;
         c.gegl_buffer_get(buf, &c.GeglRectangle{ .x = 90, .y = 90, .width = 1, .height = 1 }, 1.0, c.babl_format("R'G'B'A u8"), &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);
         try std.testing.expectEqual(pixel[2], 255);
@@ -3307,8 +3261,8 @@ test "Engine paint opacity" {
     engine.brush_opacity = 0.5;
     engine.paintStroke(100, 100, 100, 100, 1.0);
 
-    if (engine.layers.items.len > 0) {
-        const buf = engine.layers.items[0].buffer;
+    if (engine.layers.list.items.len > 0) {
+        const buf = engine.layers.list.items[0].buffer;
         var pixel: [4]u8 = undefined;
         const rect = c.GeglRectangle{ .x = 100, .y = 100, .width = 1, .height = 1 };
         const format = c.babl_format("R'G'B'A u8");
@@ -3334,7 +3288,7 @@ test "Engine skew transform" {
     engine.paintStroke(100, 0, 100, 100, 1.0);
 
     // Verify initial line
-    const buf = engine.layers.items[0].buffer;
+    const buf = engine.layers.list.items[0].buffer;
     var pixel: [4]u8 = undefined;
     const format = c.babl_format("R'G'B'A u8");
 
@@ -3376,7 +3330,7 @@ test "Engine skew transform" {
     engine.setTransformPreview(.{ .skew_x = 45.0 });
     try engine.applyTransform();
 
-    const buf2 = engine.layers.items[0].buffer;
+    const buf2 = engine.layers.list.items[0].buffer;
 
     // Check old bottom (100, 100) -> Should be transparent
     c.gegl_buffer_get(buf2, &c.GeglRectangle{ .x = 100, .y = 100, .width = 1, .height = 1 }, 1.0, format, &pixel, c.GEGL_AUTO_ROWSTRIDE, c.GEGL_ABYSS_NONE);

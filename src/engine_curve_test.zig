@@ -26,7 +26,7 @@ test "Engine draw curve" {
 
     try engine.drawCurve(0, 0, 100, 0, 0, 50, 100, 50);
 
-    const buf = engine.layers.items[0].buffer;
+    const buf = engine.layers.list.items[0].buffer;
     const format = c.babl_format("R'G'B'A u8");
     var pixel: [4]u8 = undefined;
 

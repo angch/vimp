@@ -163,7 +163,7 @@ fn show_toast_with_action(action: [:0]const u8, target: [:0]const u8, button_lab
 
 fn update_view_mode() void {
     if (main_stack) |stack| {
-        if (engine.layers.items.len > 0) {
+        if (engine.layers.list.items.len > 0) {
             c.gtk_stack_set_visible_child_name(@ptrCast(stack), "canvas");
         } else {
             c.gtk_stack_set_visible_child_name(@ptrCast(stack), "welcome");
@@ -317,7 +317,7 @@ fn draw_func(
             return;
         }
 
-        if (engine.layers.items.len > 0 and canvas_dirty) {
+        if (engine.layers.list.items.len > 0 and canvas_dirty) {
             c.cairo_surface_flush(s);
             const data = c.cairo_image_surface_get_data(s);
             if (data == null) {
@@ -338,7 +338,7 @@ fn draw_func(
 
     if (surface) |s| {
         if (cr) |cr_ctx| {
-            if (engine.layers.items.len > 0) {
+            if (engine.layers.list.items.len > 0) {
                 c.cairo_set_source_surface(cr_ctx, s, 0, 0);
                 c.cairo_paint(cr_ctx);
 
@@ -1227,8 +1227,8 @@ fn finish_file_open(path: [:0]const u8, as_layers: bool, success: bool, add_to_r
 
     if (success and !as_layers) {
         // If replacing content, set canvas size to first layer
-        if (engine.layers.items.len > 0) {
-            const layer = &engine.layers.items[0];
+        if (engine.layers.list.items.len > 0) {
+            const layer = &engine.layers.list.items[0];
             const extent = c.gegl_buffer_get_extent(layer.buffer);
             engine.setCanvasSize(extent.*.width, extent.*.height);
         }
@@ -1616,15 +1616,15 @@ test "openFileFromPath integration" {
 
     // 1. Open New
     openFileFromPath(test_file, false);
-    try std.testing.expectEqual(@as(usize, 1), engine.layers.items.len);
-    try std.testing.expectEqualStrings("test_drop.png", std.mem.span(@as([*:0]const u8, @ptrCast(&engine.layers.items[0].name))));
+    try std.testing.expectEqual(@as(usize, 1), engine.layers.list.items.len);
+    try std.testing.expectEqualStrings("test_drop.png", std.mem.span(@as([*:0]const u8, @ptrCast(&engine.layers.list.items[0].name))));
 
     // 2. Add as Layer
     openFileFromPath(test_file, true);
-    try std.testing.expectEqual(@as(usize, 2), engine.layers.items.len);
+    try std.testing.expectEqual(@as(usize, 2), engine.layers.list.items.len);
     // The second layer name might be "test_drop.png" or similar
     // Note: layers are appended. Items[0] is bottom (first loaded), items[1] is top (second loaded).
-    try std.testing.expectEqualStrings("test_drop.png", std.mem.span(@as([*:0]const u8, @ptrCast(&engine.layers.items[1].name))));
+    try std.testing.expectEqualStrings("test_drop.png", std.mem.span(@as([*:0]const u8, @ptrCast(&engine.layers.list.items[1].name))));
 }
 
 fn about_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
@@ -1936,11 +1936,11 @@ fn refresh_layers_ui() void {
         }
 
         // Add layers (reversed: Top layer first)
-        var i: usize = engine.layers.items.len;
+        var i: usize = engine.layers.list.items.len;
         while (i > 0) {
             i -= 1;
             const idx = i;
-            const layer = &engine.layers.items[idx];
+            const layer = &engine.layers.list.items[idx];
             const user_data: ?*anyopaque = if (idx == 0) null else @ptrFromInt(idx);
 
             const row = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 5);
@@ -1994,7 +1994,7 @@ fn layer_add_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.Calli
 }
 
 fn layer_remove_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    engine.removeLayer(engine.active_layer_idx);
+    engine.removeLayer(engine.layers.active_index);
     refresh_layers_ui();
     refresh_undo_ui();
     update_view_mode();
@@ -2003,8 +2003,8 @@ fn layer_remove_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.Ca
 }
 
 fn layer_up_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    const idx = engine.active_layer_idx;
-    if (idx + 1 < engine.layers.items.len) {
+    const idx = engine.layers.active_index;
+    if (idx + 1 < engine.layers.list.items.len) {
         engine.reorderLayer(idx, idx + 1);
         refresh_layers_ui();
         refresh_undo_ui();
@@ -2014,7 +2014,7 @@ fn layer_up_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.Callin
 }
 
 fn layer_down_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    const idx = engine.active_layer_idx;
+    const idx = engine.layers.active_index;
     if (idx > 0) {
         engine.reorderLayer(idx, idx - 1);
         refresh_layers_ui();
@@ -2029,8 +2029,8 @@ fn layer_selected(_: *c.GtkListBox, row: ?*c.GtkListBoxRow, _: ?*anyopaque) call
         const index_in_list = c.gtk_list_box_row_get_index(r);
         if (index_in_list >= 0) {
             const k: usize = @intCast(index_in_list);
-            if (k < engine.layers.items.len) {
-                const layer_idx = engine.layers.items.len - 1 - k;
+            if (k < engine.layers.list.items.len) {
+                const layer_idx = engine.layers.list.items.len - 1 - k;
                 engine.setActiveLayer(layer_idx);
             }
         }
@@ -2112,7 +2112,7 @@ fn drop_func(
             const span = std.mem.span(@as([*:0]const u8, @ptrCast(p)));
 
             // Logic: If layers exist AND we have a window to show dialog on -> Ask User
-            if (engine.layers.items.len > 0 and window != null) {
+            if (engine.layers.list.items.len > 0 and window != null) {
                 const allocator = std.heap.c_allocator;
                 // Copy path
                 const path_copy = allocator.dupeZ(u8, span) catch {
@@ -2144,7 +2144,7 @@ fn drop_func(
 
                 c.gtk_window_present(@ptrCast(dialog));
             } else {
-                const as_layers = (engine.layers.items.len > 0);
+                const as_layers = (engine.layers.list.items.len > 0);
                 openFileFromPath(span, as_layers, true);
             }
 
@@ -2246,7 +2246,7 @@ fn refresh_recent_ui() void {
 
 fn autosave_callback(user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) c.gboolean {
     _ = user_data;
-    if (engine.layers.items.len == 0) return 1; // Keep running but don't save empty
+    if (engine.layers.list.items.len == 0) return 1; // Keep running but don't save empty
 
     const cache_dir_c = c.g_get_user_cache_dir();
     if (cache_dir_c == null) return 1;
