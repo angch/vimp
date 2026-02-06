@@ -37,7 +37,7 @@
 
 ## Input & Navigation (Priority: Medium)
 - [x] Implement pinch-to-zoom gesture support (Verified existing implementation).
-- [ ] Implement two-finger pan gesture support (Verify existing implementation covers all cases).
+- [x] Implement two-finger pan gesture support (Verified and fixed sensitivity for touchpads).
 
 ## Specialized Features (Priority: Low)
 - [x] Implement HUD for live dimensions during selection/transform (Implemented in `src/main.zig`).

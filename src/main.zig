@@ -852,11 +852,12 @@ fn scroll_func(
         osd_show(txt);
     } else {
         // Pan
-        // Scroll down (positive dy) -> Move View Down (increase ViewY) -> Content moves Up?
-        // Standard Web/Doc: Scroll Down -> Content moves Up.
-        // ViewY increases.
-        // Speed factor
-        const speed = 20.0;
+        // Check unit (Wheel vs Surface)
+        // Surface unit means high-resolution touchpad/trackpoint events (pixels)
+        // Wheel unit means discrete steps
+        const unit = c.gtk_event_controller_scroll_get_unit(controller);
+        const speed: f64 = if (unit == c.GDK_SCROLL_UNIT_WHEEL) 20.0 else 1.0;
+
         view_x += dx * speed;
         view_y += dy * speed;
         canvas_dirty = true;
