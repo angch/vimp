@@ -21,6 +21,7 @@ const ToolOptionsPanel = @import("widgets/tool_options_panel.zig").ToolOptionsPa
 const Sidebar = @import("ui/sidebar.zig").Sidebar;
 const SidebarCallbacks = @import("ui/sidebar.zig").SidebarCallbacks;
 const Header = @import("ui/header.zig").Header;
+const CanvasUI = @import("ui/canvas.zig");
 const Tool = @import("tools.zig").Tool;
 const ToolInterface = @import("tools/interface.zig").ToolInterface;
 const ToolFactory = @import("tools/factory.zig").ToolFactory;
@@ -31,30 +32,20 @@ const Salvage = @import("salvage.zig").Salvage;
 var engine: Engine = .{};
 var recent_manager: RecentManager = undefined;
 var recent_colors_manager: RecentColorsManager = undefined;
-var surface: ?*c.cairo_surface_t = null;
-var prev_x: f64 = 0;
-var prev_y: f64 = 0;
-var drag_button: c_uint = 0;
-var mouse_x: f64 = 0;
-var mouse_y: f64 = 0;
 var current_tool: Tool = .brush;
 
-var ants_offset: f64 = 0.0;
-var ants_timer_id: c_uint = 0;
 var autosave_timer_id: c_uint = 0;
 
 var thumbnail_ctx: ThumbnailWindow.ThumbnailContext = undefined;
 
 var recent_flow_box: ?*c.GtkWidget = null;
-var drawing_area: ?*c.GtkWidget = null;
 
-var transform_action_bar: ?*c.GtkWidget = null;
 var main_stack: ?*c.GtkWidget = null;
 var toast_overlay: ?*c.AdwToastOverlay = null;
 
 var sidebar_ui: *Sidebar = undefined;
 var header_ui: *Header = undefined;
-var active_tool_interface: ?ToolInterface = null;
+var canvas_ui: ?*CanvasUI.Canvas = null;
 var cli_page_number: i32 = -1;
 
 fn handle_local_options(
@@ -192,792 +183,10 @@ fn refresh_undo_ui() void {
     }
 }
 
-// Drag State
-var is_dragging_interaction: bool = false;
-var is_moving_selection: bool = false;
-
-// View State
-var view_scale: f64 = 1.0;
-var view_x: f64 = 0.0;
-var view_y: f64 = 0.0;
-var show_pixel_grid: bool = true;
-
-// Zoom Gesture State
-var zoom_base_scale: f64 = 1.0;
-var zoom_base_view_x: f64 = 0.0;
-var zoom_base_view_y: f64 = 0.0;
-var zoom_base_cx: f64 = 0.0;
-var zoom_base_cy: f64 = 0.0;
-
-const OsdState = struct {
-    label: ?*c.GtkWidget = null,
-    revealer: ?*c.GtkWidget = null,
-    timeout_id: c_uint = 0,
-};
-
-var osd_state: OsdState = .{};
-var canvas_dirty: bool = true;
-
-fn ants_timer_callback(user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) c.gboolean {
-    _ = user_data;
-    ants_offset += 1.0;
-    if (ants_offset >= 8.0) ants_offset -= 8.0;
-    queue_draw();
-    return 1;
+fn reset_transform_ui_wrapper() void {
+    if (sidebar_ui.tool_options_panel) |p| p.resetTransformUI();
 }
 
-fn drawDimensions(cr: *c.cairo_t, sx: f64, sy: f64, w: c_int, h: c_int) void {
-    var buf: [64]u8 = undefined;
-    const txt = std.fmt.bufPrintZ(&buf, "{d} x {d}", .{ @abs(w), @abs(h) }) catch return;
-
-    c.cairo_save(cr);
-    c.cairo_set_font_size(cr, 12.0);
-    c.cairo_select_font_face(cr, "Sans", c.CAIRO_FONT_SLANT_NORMAL, c.CAIRO_FONT_WEIGHT_BOLD);
-
-    var extents: c.cairo_text_extents_t = undefined;
-    c.cairo_text_extents(cr, txt.ptr, &extents);
-
-    const pad = 6.0;
-    const rect_w = extents.width + pad * 2.0;
-    const rect_h = extents.height + pad * 2.0;
-
-    const x = sx + 15.0;
-    const y = sy + 15.0;
-
-    // Draw background
-    c.cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.7);
-
-    // Simple rounded rect manual path
-    const r = 4.0;
-    const degrees = std.math.pi / 180.0;
-    c.cairo_new_sub_path(cr);
-    c.cairo_arc(cr, x + rect_w - r, y + r, r, -90.0 * degrees, 0.0 * degrees);
-    c.cairo_arc(cr, x + rect_w - r, y + rect_h - r, r, 0.0 * degrees, 90.0 * degrees);
-    c.cairo_arc(cr, x + r, y + rect_h - r, r, 90.0 * degrees, 180.0 * degrees);
-    c.cairo_arc(cr, x + r, y + r, r, 180.0 * degrees, 270.0 * degrees);
-    c.cairo_close_path(cr);
-    c.cairo_fill(cr);
-
-    // Draw text
-    c.cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
-    // Center text in box
-    // Box center: x + rect_w/2, y + rect_h/2.
-    // Text center: width/2, height/2? No, bearing.
-    // Let's rely on simple padding from top-left of box.
-    // Text origin is baseline.
-    // y + pad + height of font? extents.height is tight bounds.
-    // Let's use extents.height + pad.
-    c.cairo_move_to(cr, x + pad, y + pad + extents.height);
-    c.cairo_show_text(cr, txt.ptr);
-
-    c.cairo_restore(cr);
-}
-
-fn draw_func(
-    widget: [*c]c.GtkDrawingArea,
-    cr: ?*c.cairo_t,
-    width: c_int,
-    height: c_int,
-    user_data: ?*anyopaque,
-) callconv(std.builtin.CallingConvention.c) void {
-    _ = user_data;
-    _ = widget;
-
-    if (surface) |s| {
-        const s_width = c.cairo_image_surface_get_width(s);
-        const s_height = c.cairo_image_surface_get_height(s);
-        if (s_width != width or s_height != height) {
-            c.cairo_surface_destroy(s);
-            surface = null;
-            canvas_dirty = true;
-        }
-    }
-
-    if (surface == null) {
-        if (width > 0 and height > 0) {
-            const s = c.cairo_image_surface_create(c.CAIRO_FORMAT_ARGB32, width, height);
-            if (c.cairo_surface_status(s) != c.CAIRO_STATUS_SUCCESS) {
-                std.debug.print("Failed to create surface: {}\n", .{c.cairo_surface_status(s)});
-                c.cairo_surface_destroy(s);
-                return;
-            }
-            surface = s;
-            canvas_dirty = true;
-        } else {
-            return;
-        }
-    }
-
-    // US-003: Render from GEGL
-    if (surface) |s| {
-        // Verify surface is still valid
-        if (c.cairo_surface_status(s) != c.CAIRO_STATUS_SUCCESS) {
-            c.cairo_surface_destroy(s);
-            surface = null;
-            return;
-        }
-
-        if (engine.layers.list.items.len > 0 and canvas_dirty) {
-            c.cairo_surface_flush(s);
-            const data = c.cairo_image_surface_get_data(s);
-            if (data == null) {
-                std.debug.print("Surface data is null\n", .{});
-                return;
-            }
-
-            const stride = c.cairo_image_surface_get_stride(s);
-            const s_width = c.cairo_image_surface_get_width(s);
-            const s_height = c.cairo_image_surface_get_height(s);
-
-            engine.blitView(s_width, s_height, data, stride, view_scale, view_x, view_y);
-
-            c.cairo_surface_mark_dirty(s);
-            canvas_dirty = false;
-        }
-    }
-
-    if (surface) |s| {
-        if (cr) |cr_ctx| {
-            if (engine.layers.list.items.len > 0) {
-                c.cairo_set_source_surface(cr_ctx, s, 0, 0);
-                c.cairo_paint(cr_ctx);
-
-                // Draw Pixel Grid
-                if (show_pixel_grid) {
-                    CanvasUtils.drawPixelGrid(cr_ctx, @floatFromInt(width), @floatFromInt(height), view_scale, view_x, view_y);
-                }
-            } else {
-                // Empty State
-                c.cairo_set_source_rgb(cr_ctx, 0.15, 0.15, 0.15); // Dark Gray
-                c.cairo_paint(cr_ctx);
-
-                c.cairo_set_source_rgb(cr_ctx, 0.6, 0.6, 0.6); // Light Gray Text
-                c.cairo_select_font_face(cr_ctx, "Sans", c.CAIRO_FONT_SLANT_NORMAL, c.CAIRO_FONT_WEIGHT_BOLD);
-                c.cairo_set_font_size(cr_ctx, 20.0);
-
-                var extents: c.cairo_text_extents_t = undefined;
-                const msg = "No Active Image";
-                c.cairo_text_extents(cr_ctx, msg, &extents);
-                const x = (@as(f64, @floatFromInt(width)) / 2.0) - (extents.width / 2.0 + extents.x_bearing);
-                const y = (@as(f64, @floatFromInt(height)) / 2.0) - (extents.height / 2.0 + extents.y_bearing);
-
-                c.cairo_move_to(cr_ctx, x, y);
-                c.cairo_show_text(cr_ctx, msg);
-            }
-
-            // Tool Overlay
-            if (active_tool_interface) |tool| {
-                tool.drawOverlay(cr_ctx, view_scale, view_x, view_y);
-            }
-
-            // Draw Selection Overlay
-            if (engine.selection.rect) |sel| {
-                const r: f64 = @floatFromInt(sel.x);
-                const g: f64 = @floatFromInt(sel.y);
-                const w: f64 = @floatFromInt(sel.width);
-                const h: f64 = @floatFromInt(sel.height);
-
-                // Convert to Screen Coordinates
-                const sx = r * view_scale - view_x;
-                const sy = g * view_scale - view_y;
-                const sw = w * view_scale;
-                const sh = h * view_scale;
-
-                c.cairo_save(cr_ctx);
-
-                if (engine.selection.mode == .ellipse) {
-                    var matrix: c.cairo_matrix_t = undefined;
-                    c.cairo_get_matrix(cr_ctx, &matrix);
-
-                    c.cairo_translate(cr_ctx, sx + sw / 2.0, sy + sh / 2.0);
-                    c.cairo_scale(cr_ctx, sw / 2.0, sh / 2.0);
-                    c.cairo_arc(cr_ctx, 0.0, 0.0, 1.0, 0.0, 2.0 * std.math.pi);
-
-                    c.cairo_set_matrix(cr_ctx, &matrix);
-                } else if (engine.selection.mode == .lasso) {
-                    if (engine.selection.points.items.len > 0) {
-                        const first = engine.selection.points.items[0];
-                        const fx = first.x * view_scale - view_x;
-                        const fy = first.y * view_scale - view_y;
-                        c.cairo_move_to(cr_ctx, fx, fy);
-
-                        for (engine.selection.points.items[1..]) |p| {
-                            const px = p.x * view_scale - view_x;
-                            const py = p.y * view_scale - view_y;
-                            c.cairo_line_to(cr_ctx, px, py);
-                        }
-                        c.cairo_close_path(cr_ctx);
-                    }
-                } else {
-                    c.cairo_rectangle(cr_ctx, sx, sy, sw, sh);
-                }
-
-                if (is_dragging_interaction) {
-                    drawDimensions(cr_ctx, sx + sw, sy + sh, sel.width, sel.height);
-                }
-
-                // Marching ants
-                const dash: [2]f64 = .{ 4.0, 4.0 };
-                c.cairo_set_dash(cr_ctx, &dash, 2, ants_offset);
-                c.cairo_set_source_rgb(cr_ctx, 1.0, 1.0, 1.0); // White
-                c.cairo_set_line_width(cr_ctx, 1.0);
-                c.cairo_stroke_preserve(cr_ctx);
-
-                c.cairo_set_source_rgb(cr_ctx, 0.0, 0.0, 0.0); // Black contrast
-                c.cairo_set_dash(cr_ctx, &dash, 2, ants_offset + 4.0); // Offset
-                c.cairo_stroke(cr_ctx);
-                c.cairo_restore(cr_ctx);
-
-                // Start animation if not running
-                if (ants_timer_id == 0) {
-                    ants_timer_id = c.g_timeout_add(100, @ptrCast(&ants_timer_callback), null);
-                }
-            } else {
-                // Stop animation if running
-                if (ants_timer_id != 0) {
-                    _ = c.g_source_remove(ants_timer_id);
-                    ants_timer_id = 0;
-                }
-            }
-
-            // Draw Transform Preview HUD
-            if (current_tool == .unified_transform and engine.preview_mode == .transform) {
-                if (engine.preview_bbox) |bbox| {
-                    const r: f64 = @floatFromInt(bbox.x);
-                    const g: f64 = @floatFromInt(bbox.y);
-                    const w: f64 = @floatFromInt(bbox.width);
-                    const h: f64 = @floatFromInt(bbox.height);
-
-                    const sx = r * view_scale - view_x;
-                    const sy = g * view_scale - view_y;
-                    const sw = w * view_scale;
-                    const sh = h * view_scale;
-
-                    c.cairo_save(cr_ctx);
-                    c.cairo_rectangle(cr_ctx, sx, sy, sw, sh);
-
-                    const dash = [_]f64{ 4.0, 4.0 };
-                    c.cairo_set_dash(cr_ctx, &dash, 2, 0.0);
-                    c.cairo_set_line_width(cr_ctx, 1.0);
-
-                    // Contrast stroke (Black on White)
-                    c.cairo_set_source_rgb(cr_ctx, 1.0, 1.0, 1.0); // White
-                    c.cairo_stroke_preserve(cr_ctx);
-
-                    c.cairo_set_source_rgb(cr_ctx, 0.0, 0.0, 0.0); // Black
-                    c.cairo_set_dash(cr_ctx, &dash, 2, 4.0); // Offset
-                    c.cairo_stroke(cr_ctx);
-
-                    c.cairo_restore(cr_ctx);
-
-                    drawDimensions(cr_ctx, sx + sw, sy + sh, bbox.width, bbox.height);
-                }
-            }
-
-            // Draw Shape Preview
-            if (engine.preview_shape) |shape| {
-                if (shape.type == .rectangle) {
-                    const r: f64 = @floatFromInt(shape.x);
-                    const g: f64 = @floatFromInt(shape.y);
-                    const w: f64 = @floatFromInt(shape.width);
-                    const h: f64 = @floatFromInt(shape.height);
-
-                    const sx = r * view_scale - view_x;
-                    const sy = g * view_scale - view_y;
-                    const sw = w * view_scale;
-                    const sh = h * view_scale;
-
-                    c.cairo_save(cr_ctx);
-                    c.cairo_rectangle(cr_ctx, sx, sy, sw, sh);
-
-                    const fg = engine.fg_color;
-                    c.cairo_set_source_rgba(cr_ctx, @as(f64, @floatFromInt(fg[0])) / 255.0, @as(f64, @floatFromInt(fg[1])) / 255.0, @as(f64, @floatFromInt(fg[2])) / 255.0, @as(f64, @floatFromInt(fg[3])) / 255.0);
-
-                    if (shape.filled) {
-                        c.cairo_fill(cr_ctx);
-                    } else {
-                        const thickness = @as(f64, @floatFromInt(shape.thickness)) * view_scale;
-                        c.cairo_set_line_width(cr_ctx, thickness);
-                        c.cairo_stroke(cr_ctx);
-                    }
-
-                    if (is_dragging_interaction) {
-                        drawDimensions(cr_ctx, sx + sw, sy + sh, shape.width, shape.height);
-                    }
-
-                    c.cairo_restore(cr_ctx);
-                } else if (shape.type == .ellipse) {
-                    const r: f64 = @floatFromInt(shape.x);
-                    const g: f64 = @floatFromInt(shape.y);
-                    const w: f64 = @floatFromInt(shape.width);
-                    const h: f64 = @floatFromInt(shape.height);
-
-                    const sx = r * view_scale - view_x;
-                    const sy = g * view_scale - view_y;
-                    const sw = w * view_scale;
-                    const sh = h * view_scale;
-
-                    c.cairo_save(cr_ctx);
-                    c.cairo_translate(cr_ctx, sx + sw / 2.0, sy + sh / 2.0);
-                    c.cairo_scale(cr_ctx, sw / 2.0, sh / 2.0);
-                    c.cairo_arc(cr_ctx, 0.0, 0.0, 1.0, 0.0, 2.0 * std.math.pi);
-                    c.cairo_restore(cr_ctx);
-
-                    c.cairo_save(cr_ctx);
-                    const fg = engine.fg_color;
-                    c.cairo_set_source_rgba(cr_ctx, @as(f64, @floatFromInt(fg[0])) / 255.0, @as(f64, @floatFromInt(fg[1])) / 255.0, @as(f64, @floatFromInt(fg[2])) / 255.0, @as(f64, @floatFromInt(fg[3])) / 255.0);
-
-                    if (shape.filled) {
-                        c.cairo_fill(cr_ctx);
-                    } else {
-                        const thickness = @as(f64, @floatFromInt(shape.thickness)) * view_scale;
-                        c.cairo_set_line_width(cr_ctx, thickness);
-                        c.cairo_stroke(cr_ctx);
-                    }
-
-                    if (is_dragging_interaction) {
-                        drawDimensions(cr_ctx, sx + sw, sy + sh, shape.width, shape.height);
-                    }
-
-                    c.cairo_restore(cr_ctx);
-                } else if (shape.type == .rounded_rectangle) {
-                    const r: f64 = @floatFromInt(shape.x);
-                    const g: f64 = @floatFromInt(shape.y);
-                    const w: f64 = @floatFromInt(shape.width);
-                    const h: f64 = @floatFromInt(shape.height);
-                    const radius: f64 = @floatFromInt(shape.radius);
-
-                    const sx = r * view_scale - view_x;
-                    const sy = g * view_scale - view_y;
-                    const sw = w * view_scale;
-                    const sh = h * view_scale;
-                    const sr = radius * view_scale;
-
-                    c.cairo_save(cr_ctx);
-
-                    // Rounded rect path
-                    const degrees = std.math.pi / 180.0;
-                    c.cairo_new_sub_path(cr_ctx);
-                    c.cairo_arc(cr_ctx, sx + sw - sr, sy + sr, sr, -90.0 * degrees, 0.0 * degrees);
-                    c.cairo_arc(cr_ctx, sx + sw - sr, sy + sh - sr, sr, 0.0 * degrees, 90.0 * degrees);
-                    c.cairo_arc(cr_ctx, sx + sr, sy + sh - sr, sr, 90.0 * degrees, 180.0 * degrees);
-                    c.cairo_arc(cr_ctx, sx + sr, sy + sr, sr, 180.0 * degrees, 270.0 * degrees);
-                    c.cairo_close_path(cr_ctx);
-
-                    const fg = engine.fg_color;
-                    c.cairo_set_source_rgba(cr_ctx, @as(f64, @floatFromInt(fg[0])) / 255.0, @as(f64, @floatFromInt(fg[1])) / 255.0, @as(f64, @floatFromInt(fg[2])) / 255.0, @as(f64, @floatFromInt(fg[3])) / 255.0);
-
-                    if (shape.filled) {
-                        c.cairo_fill(cr_ctx);
-                    } else {
-                        const thickness = @as(f64, @floatFromInt(shape.thickness)) * view_scale;
-                        c.cairo_set_line_width(cr_ctx, thickness);
-                        c.cairo_stroke(cr_ctx);
-                    }
-
-                    if (is_dragging_interaction) {
-                        drawDimensions(cr_ctx, sx + sw, sy + sh, shape.width, shape.height);
-                    }
-
-                    c.cairo_restore(cr_ctx);
-                } else if (shape.type == .line) {
-                    const r: f64 = @floatFromInt(shape.x);
-                    const g: f64 = @floatFromInt(shape.y);
-                    const r2: f64 = @floatFromInt(shape.x2);
-                    const g2: f64 = @floatFromInt(shape.y2);
-
-                    const sx = r * view_scale - view_x;
-                    const sy = g * view_scale - view_y;
-                    const sx2 = r2 * view_scale - view_x;
-                    const sy2 = g2 * view_scale - view_y;
-
-                    c.cairo_save(cr_ctx);
-                    c.cairo_move_to(cr_ctx, sx, sy);
-                    c.cairo_line_to(cr_ctx, sx2, sy2);
-
-                    c.cairo_set_source_rgb(cr_ctx, 0.0, 0.0, 0.0);
-                    c.cairo_set_line_width(cr_ctx, 1.0);
-                    c.cairo_stroke_preserve(cr_ctx);
-
-                    c.cairo_set_source_rgb(cr_ctx, 1.0, 1.0, 1.0);
-                    var dash: [2]f64 = .{ 4.0, 4.0 };
-                    c.cairo_set_dash(cr_ctx, &dash, 2, 4.0);
-                    c.cairo_stroke(cr_ctx);
-
-                    // Endpoints
-                    c.cairo_arc(cr_ctx, sx, sy, 3.0, 0.0, 2.0 * std.math.pi);
-                    c.cairo_fill(cr_ctx);
-                    c.cairo_arc(cr_ctx, sx2, sy2, 3.0, 0.0, 2.0 * std.math.pi);
-                    c.cairo_stroke(cr_ctx);
-
-                    c.cairo_restore(cr_ctx);
-                } else if (shape.type == .curve) {
-                    const x1: f64 = @floatFromInt(shape.x);
-                    const y1: f64 = @floatFromInt(shape.y);
-                    const x2: f64 = @floatFromInt(shape.x2);
-                    const y2: f64 = @floatFromInt(shape.y2);
-                    const cx1: f64 = @floatFromInt(shape.cx1);
-                    const cy1: f64 = @floatFromInt(shape.cy1);
-                    const cx2: f64 = @floatFromInt(shape.cx2);
-                    const cy2: f64 = @floatFromInt(shape.cy2);
-
-                    const sx1 = x1 * view_scale - view_x;
-                    const sy1 = y1 * view_scale - view_y;
-                    const sx2 = x2 * view_scale - view_x;
-                    const sy2 = y2 * view_scale - view_y;
-                    const scx1 = cx1 * view_scale - view_x;
-                    const scy1 = cy1 * view_scale - view_y;
-                    const scx2 = cx2 * view_scale - view_x;
-                    const scy2 = cy2 * view_scale - view_y;
-
-                    c.cairo_save(cr_ctx);
-
-                    // Draw Curve
-                    c.cairo_move_to(cr_ctx, sx1, sy1);
-                    c.cairo_curve_to(cr_ctx, scx1, scy1, scx2, scy2, sx2, sy2);
-
-                    const fg = engine.fg_color;
-                    c.cairo_set_source_rgba(cr_ctx, @as(f64, @floatFromInt(fg[0])) / 255.0, @as(f64, @floatFromInt(fg[1])) / 255.0, @as(f64, @floatFromInt(fg[2])) / 255.0, @as(f64, @floatFromInt(fg[3])) / 255.0);
-                    c.cairo_set_line_width(cr_ctx, 1.0);
-                    c.cairo_stroke(cr_ctx);
-
-                    // Draw Control Handles
-                    c.cairo_set_source_rgb(cr_ctx, 0.5, 0.5, 0.5);
-                    c.cairo_set_line_width(cr_ctx, 0.5);
-                    var dash: [2]f64 = .{ 2.0, 2.0 };
-                    c.cairo_set_dash(cr_ctx, &dash, 2, 0.0);
-
-                    // P1 -> CP1
-                    c.cairo_move_to(cr_ctx, sx1, sy1);
-                    c.cairo_line_to(cr_ctx, scx1, scy1);
-                    c.cairo_stroke(cr_ctx);
-
-                    // P4 -> CP2
-                    c.cairo_move_to(cr_ctx, sx2, sy2);
-                    c.cairo_line_to(cr_ctx, scx2, scy2);
-                    c.cairo_stroke(cr_ctx);
-
-                    // Draw Control Points
-                    c.cairo_set_dash(cr_ctx, &dash, 0, 0.0); // Reset dash
-                    c.cairo_arc(cr_ctx, scx1, scy1, 3.0, 0.0, 2.0 * std.math.pi);
-                    c.cairo_fill(cr_ctx);
-                    c.cairo_arc(cr_ctx, scx2, scy2, 3.0, 0.0, 2.0 * std.math.pi);
-                    c.cairo_fill(cr_ctx);
-
-                    c.cairo_restore(cr_ctx);
-                } else if (shape.type == .polygon) {
-                    if (shape.points) |pts| {
-                        if (pts.len > 0) {
-                            c.cairo_save(cr_ctx);
-
-                            const first = pts[0];
-                            const sx = first.x * view_scale - view_x;
-                            const sy = first.y * view_scale - view_y;
-                            c.cairo_move_to(cr_ctx, sx, sy);
-
-                            var i: usize = 1;
-                            while (i < pts.len) : (i += 1) {
-                                const p = pts[i];
-                                const px = p.x * view_scale - view_x;
-                                const py = p.y * view_scale - view_y;
-                                c.cairo_line_to(cr_ctx, px, py);
-                            }
-
-                            const fg = engine.fg_color;
-                            c.cairo_set_source_rgba(cr_ctx, @as(f64, @floatFromInt(fg[0])) / 255.0, @as(f64, @floatFromInt(fg[1])) / 255.0, @as(f64, @floatFromInt(fg[2])) / 255.0, @as(f64, @floatFromInt(fg[3])) / 255.0);
-
-                            if (shape.filled) {
-                                c.cairo_close_path(cr_ctx);
-                                c.cairo_fill(cr_ctx);
-                            } else {
-                                const thickness = @as(f64, @floatFromInt(shape.thickness)) * view_scale;
-                                c.cairo_set_line_width(cr_ctx, thickness);
-                                c.cairo_stroke(cr_ctx);
-                            }
-                            c.cairo_restore(cr_ctx);
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-fn motion_func(
-    controller: *c.GtkEventControllerMotion,
-    x: f64,
-    y: f64,
-    user_data: ?*anyopaque,
-) callconv(std.builtin.CallingConvention.c) void {
-    _ = controller;
-    _ = user_data;
-    mouse_x = x;
-    mouse_y = y;
-
-    if (active_tool_interface) |tool| {
-        const c_x = (view_x + x) / view_scale;
-        const c_y = (view_y + y) / view_scale;
-        tool.motion(&engine, c_x, c_y);
-        queue_draw();
-    }
-}
-
-fn key_pressed_func(
-    controller: *c.GtkEventControllerKey,
-    keyval: c_uint,
-    keycode: c_uint,
-    state: c.GdkModifierType,
-    user_data: ?*anyopaque,
-) callconv(std.builtin.CallingConvention.c) c.gboolean {
-    _ = controller;
-    _ = keycode;
-    _ = state;
-    _ = user_data;
-
-    const step = 20.0;
-    // GDK_KEY_Left = 0xff51, Up = 0xff52, Right = 0xff53, Down = 0xff54
-    switch (keyval) {
-        0xff51 => { // Left
-            view_x -= step;
-            canvas_dirty = true;
-            queue_draw();
-            return 1;
-        },
-        0xff52 => { // Up
-            view_y -= step;
-            canvas_dirty = true;
-            queue_draw();
-            return 1;
-        },
-        0xff53 => { // Right
-            view_x += step;
-            canvas_dirty = true;
-            queue_draw();
-            return 1;
-        },
-        0xff54 => { // Down
-            view_y += step;
-            canvas_dirty = true;
-            queue_draw();
-            return 1;
-        },
-        else => return 0,
-    }
-}
-
-fn zoom_begin(
-    controller: *c.GtkGestureZoom,
-    sequence: ?*c.GdkEventSequence,
-    user_data: ?*anyopaque,
-) callconv(std.builtin.CallingConvention.c) void {
-    _ = sequence;
-    _ = user_data;
-    zoom_base_scale = view_scale;
-    zoom_base_view_x = view_x;
-    zoom_base_view_y = view_y;
-
-    var cx: f64 = 0;
-    var cy: f64 = 0;
-    _ = c.gtk_gesture_get_bounding_box_center(@ptrCast(controller), &cx, &cy);
-    zoom_base_cx = cx;
-    zoom_base_cy = cy;
-}
-
-fn zoom_update(
-    gesture: *c.GtkGesture,
-    sequence: ?*c.GdkEventSequence,
-    user_data: ?*anyopaque,
-) callconv(std.builtin.CallingConvention.c) void {
-    _ = sequence;
-    _ = user_data;
-    // Get current scale delta
-    const scale = c.gtk_gesture_zoom_get_scale_delta(@ptrCast(gesture));
-
-    // Get current bounding box center
-    var cx: f64 = 0;
-    var cy: f64 = 0;
-    _ = c.gtk_gesture_get_bounding_box_center(gesture, &cx, &cy);
-
-    // Calculate Zoom relative to INITIAL center (zoom_base_cx/cy)
-    const res = CanvasUtils.calculateZoom(zoom_base_scale, zoom_base_view_x, zoom_base_view_y, zoom_base_cx, zoom_base_cy, scale);
-
-    // Limit scale
-    if (res.scale < 0.1 or res.scale > 50.0) return;
-
-    // Apply Pan Delta: (curr_cx - start_cx)
-    // view_x = calculated_view_x - pan_delta_x
-    view_scale = res.scale;
-    view_x = res.view_x - (cx - zoom_base_cx);
-    view_y = res.view_y - (cy - zoom_base_cy);
-    canvas_dirty = true;
-
-    // OSD
-    var buf: [32]u8 = undefined;
-    const pct: i32 = @intFromFloat(view_scale * 100.0);
-    const txt = std.fmt.bufPrint(&buf, "Zoom: {d}%", .{pct}) catch "Zoom";
-    osd_show(txt);
-
-    queue_draw();
-}
-
-fn scroll_func(
-    controller: *c.GtkEventControllerScroll,
-    dx: f64,
-    dy: f64,
-    user_data: ?*anyopaque,
-) callconv(std.builtin.CallingConvention.c) c.gboolean {
-    _ = user_data;
-    // Check modifiers (Ctrl for Zoom)
-    const state = c.gtk_event_controller_get_current_event_state(@ptrCast(controller));
-    const is_ctrl = (state & c.GDK_CONTROL_MASK) != 0;
-
-    if (is_ctrl) {
-        // Zoom at mouse cursor
-        // Zoom factor
-        const zoom_factor: f64 = if (dy > 0) 0.9 else 1.1; // Scroll down = Zoom out
-
-        const res = CanvasUtils.calculateZoom(view_scale, view_x, view_y, mouse_x, mouse_y, zoom_factor);
-
-        // Limit scale
-        if (res.scale < 0.1 or res.scale > 50.0) return 0;
-
-        view_scale = res.scale;
-        view_x = res.view_x;
-        view_y = res.view_y;
-        canvas_dirty = true;
-
-        var buf: [32]u8 = undefined;
-        const pct: i32 = @intFromFloat(view_scale * 100.0);
-        const txt = std.fmt.bufPrint(&buf, "Zoom: {d}%", .{pct}) catch "Zoom";
-        osd_show(txt);
-    } else {
-        // Pan
-        // Check unit (Wheel vs Surface)
-        // Surface unit means high-resolution touchpad/trackpoint events (pixels)
-        // Wheel unit means discrete steps
-        const unit = c.gtk_event_controller_scroll_get_unit(controller);
-        const speed: f64 = if (unit == c.GDK_SCROLL_UNIT_WHEEL) 20.0 else 1.0;
-
-        view_x += dx * speed;
-        view_y += dy * speed;
-        canvas_dirty = true;
-    }
-
-    queue_draw();
-
-    return 1; // Handled
-}
-
-fn drag_begin(
-    gesture: ?*c.GtkGestureDrag,
-    x: f64,
-    y: f64,
-    user_data: ?*anyopaque,
-) callconv(std.builtin.CallingConvention.c) void {
-    prev_x = x;
-    prev_y = y;
-    is_dragging_interaction = true;
-
-    if (user_data != null) {
-        const ud = user_data.?;
-        // alignCast might panic if ud is not aligned to *GtkWidget (8 bytes usually)
-        // ud comes from @ptrCast(@alignCast(drawing_area)) which should be aligned.
-        const widget: *c.GtkWidget = @ptrCast(@alignCast(ud));
-        _ = c.gtk_widget_grab_focus(widget);
-
-        // Check button safely
-        var button: c_uint = 0;
-        if (gesture) |g| {
-            button = c.gtk_gesture_single_get_current_button(@ptrCast(g));
-        }
-        drag_button = button;
-
-        if (active_tool_interface) |tool| {
-            const state = c.gtk_event_controller_get_current_event_state(@ptrCast(gesture));
-            const c_x = (view_x + x) / view_scale;
-            const c_y = (view_y + y) / view_scale;
-            tool.start(&engine, c_x, c_y, button, state);
-            canvas_dirty = true;
-            c.gtk_widget_queue_draw(widget);
-            return;
-        }
-    }
-}
-
-fn drag_update(
-    gesture: ?*c.GtkGestureDrag,
-    offset_x: f64,
-    offset_y: f64,
-    user_data: ?*anyopaque,
-) callconv(std.builtin.CallingConvention.c) void {
-    if (user_data == null) return;
-    const widget: *c.GtkWidget = @ptrCast(@alignCast(user_data));
-
-    // Check which button is pressed
-    // gtk_gesture_single_get_current_button(GTK_GESTURE_SINGLE(gesture))
-    const button = c.gtk_gesture_single_get_current_button(@ptrCast(gesture));
-
-    // Get start point
-    var start_sx: f64 = 0;
-    var start_sy: f64 = 0;
-    _ = c.gtk_gesture_drag_get_start_point(gesture, &start_sx, &start_sy);
-
-    const current_x = start_sx + offset_x;
-    const current_y = start_sy + offset_y;
-
-    if (button == 2) {
-        // Pan (Middle Mouse)
-        const dx = current_x - prev_x;
-        const dy = current_y - prev_y;
-
-        view_x -= dx;
-        view_y -= dy;
-        canvas_dirty = true;
-
-        queue_draw();
-    } else if (active_tool_interface) |tool| {
-        const state = c.gtk_event_controller_get_current_event_state(@ptrCast(gesture));
-        const c_x = (view_x + current_x) / view_scale;
-        const c_y = (view_y + current_y) / view_scale;
-        tool.update(&engine, c_x, c_y, state);
-        canvas_dirty = true;
-        c.gtk_widget_queue_draw(widget);
-        prev_x = current_x;
-        prev_y = current_y;
-    }
-
-    prev_x = current_x;
-    prev_y = current_y;
-}
-
-fn drag_end(
-    gesture: ?*c.GtkGestureDrag,
-    offset_x: f64,
-    offset_y: f64,
-    user_data: ?*anyopaque,
-) callconv(std.builtin.CallingConvention.c) void {
-    is_dragging_interaction = false;
-
-    if (active_tool_interface) |tool| {
-        const state = c.gtk_event_controller_get_current_event_state(@ptrCast(gesture));
-        var start_sx: f64 = 0;
-        var start_sy: f64 = 0;
-        _ = c.gtk_gesture_drag_get_start_point(gesture, &start_sx, &start_sy);
-        const current_x = start_sx + offset_x;
-        const current_y = start_sy + offset_y;
-        const c_x = (view_x + current_x) / view_scale;
-        const c_y = (view_y + current_y) / view_scale;
-
-        tool.end(&engine, c_x, c_y, state);
-        refresh_undo_ui();
-        canvas_dirty = true;
-        if (user_data) |ud| {
-            const widget: *c.GtkWidget = @ptrCast(@alignCast(ud));
-            c.gtk_widget_queue_draw(widget);
-        }
-        return;
-    }
-}
 
 fn new_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     engine.addLayer("Background") catch |err| {
@@ -987,7 +196,7 @@ fn new_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(
     refresh_layers_ui();
     refresh_undo_ui();
     update_view_mode();
-    canvas_dirty = true;
+    if (canvas_ui) |ui| ui.canvas_dirty = true;
     queue_draw();
 }
 
@@ -1239,7 +448,7 @@ fn finish_file_open(path: [:0]const u8, as_layers: bool, success: bool, add_to_r
     refresh_layers_ui();
     refresh_undo_ui();
     update_view_mode();
-    canvas_dirty = true;
+    if (canvas_ui) |ui| ui.canvas_dirty = true;
     queue_draw();
 }
 
@@ -1693,7 +902,7 @@ fn salvage_activated(_: *c.GSimpleAction, parameter: ?*c.GVariant, _: ?*anyopaqu
         refresh_layers_ui();
         refresh_undo_ui();
         update_view_mode();
-        canvas_dirty = true;
+        if (canvas_ui) |ui| ui.canvas_dirty = true;
         queue_draw();
 
         show_toast("File salvaged successfully.", .{});
@@ -1704,7 +913,7 @@ fn undo_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv
     engine.undo();
     refresh_layers_ui(); // Layers might change
     update_view_mode();
-    canvas_dirty = true;
+    if (canvas_ui) |ui| ui.canvas_dirty = true;
     queue_draw();
     refresh_undo_ui();
 }
@@ -1713,7 +922,7 @@ fn redo_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv
     engine.redo();
     refresh_layers_ui(); // Layers might change
     update_view_mode();
-    canvas_dirty = true;
+    if (canvas_ui) |ui| ui.canvas_dirty = true;
     queue_draw();
     refresh_undo_ui();
 }
@@ -1726,28 +935,28 @@ fn refresh_header_ui() void {
 fn blur_small_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     engine.setPreviewBlur(5.0);
     refresh_header_ui();
-    canvas_dirty = true;
+    if (canvas_ui) |ui| ui.canvas_dirty = true;
     queue_draw();
 }
 
 fn blur_medium_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     engine.setPreviewBlur(10.0);
     refresh_header_ui();
-    canvas_dirty = true;
+    if (canvas_ui) |ui| ui.canvas_dirty = true;
     queue_draw();
 }
 
 fn blur_large_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     engine.setPreviewBlur(20.0);
     refresh_header_ui();
-    canvas_dirty = true;
+    if (canvas_ui) |ui| ui.canvas_dirty = true;
     queue_draw();
 }
 
 fn refresh_ui_callback() void {
     refresh_header_ui();
     refresh_undo_ui();
-    canvas_dirty = true;
+    if (canvas_ui) |ui| ui.canvas_dirty = true;
     queue_draw();
 }
 
@@ -1811,7 +1020,7 @@ fn apply_preview_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque)
         show_toast("Commit preview failed: {}", .{err});
     };
     refresh_header_ui();
-    canvas_dirty = true;
+    if (canvas_ui) |ui| ui.canvas_dirty = true;
     queue_draw();
     refresh_undo_ui();
 }
@@ -1819,7 +1028,7 @@ fn apply_preview_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque)
 fn discard_preview_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     engine.cancelPreview();
     refresh_header_ui();
-    canvas_dirty = true;
+    if (canvas_ui) |ui| ui.canvas_dirty = true;
     queue_draw();
 }
 
@@ -1829,7 +1038,7 @@ fn invert_colors_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque)
         return;
     };
     refresh_undo_ui();
-    canvas_dirty = true;
+    if (canvas_ui) |ui| ui.canvas_dirty = true;
     queue_draw();
 }
 
@@ -1839,7 +1048,7 @@ fn clear_image_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) c
         return;
     };
     refresh_undo_ui();
-    canvas_dirty = true;
+    if (canvas_ui) |ui| ui.canvas_dirty = true;
     queue_draw();
 }
 
@@ -1849,7 +1058,7 @@ fn flip_horizontal_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaqu
         return;
     };
     refresh_undo_ui();
-    canvas_dirty = true;
+    if (canvas_ui) |ui| ui.canvas_dirty = true;
     queue_draw();
 }
 
@@ -1859,7 +1068,7 @@ fn flip_vertical_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque)
         return;
     };
     refresh_undo_ui();
-    canvas_dirty = true;
+    if (canvas_ui) |ui| ui.canvas_dirty = true;
     queue_draw();
 }
 
@@ -1869,7 +1078,7 @@ fn rotate_90_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) cal
         return;
     };
     refresh_undo_ui();
-    canvas_dirty = true;
+    if (canvas_ui) |ui| ui.canvas_dirty = true;
     queue_draw();
 }
 
@@ -1879,7 +1088,7 @@ fn rotate_180_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) ca
         return;
     };
     refresh_undo_ui();
-    canvas_dirty = true;
+    if (canvas_ui) |ui| ui.canvas_dirty = true;
     queue_draw();
 }
 
@@ -1889,7 +1098,7 @@ fn rotate_270_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) ca
         return;
     };
     refresh_undo_ui();
-    canvas_dirty = true;
+    if (canvas_ui) |ui| ui.canvas_dirty = true;
     queue_draw();
 }
 
@@ -1897,7 +1106,7 @@ fn canvas_size_callback(width: c_int, height: c_int, user_data: ?*anyopaque) voi
     _ = user_data;
     engine.setCanvasSize(width, height);
     refresh_undo_ui();
-    canvas_dirty = true;
+    if (canvas_ui) |ui| ui.canvas_dirty = true;
     queue_draw();
 }
 
@@ -1934,25 +1143,20 @@ fn command_palette_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*
 
 fn show_grid_change_state(action: *c.GSimpleAction, value: *c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     const enabled = c.g_variant_get_boolean(value) != 0;
-    show_pixel_grid = enabled;
+    if (canvas_ui) |ui| ui.setShowGrid(enabled);
     c.g_simple_action_set_state(action, value);
-    canvas_dirty = true;
-    queue_draw();
 }
 
 fn split_view_change_state(action: *c.GSimpleAction, value: *c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     const enabled = c.g_variant_get_boolean(value) != 0;
-    engine.setSplitView(enabled);
+    if (canvas_ui) |ui| ui.setSplitView(enabled);
     c.g_simple_action_set_state(action, value);
-    canvas_dirty = true;
-    queue_draw();
 }
 
 fn queue_draw() void {
-    if (drawing_area) |w| {
-        c.gtk_widget_queue_draw(w);
+    if (canvas_ui) |ui| {
+        ui.queueDraw();
     }
-    ThumbnailWindow.refresh();
 }
 
 fn refresh_layers_ui() void {
@@ -2004,7 +1208,7 @@ fn refresh_layers_ui() void {
 fn layer_visibility_toggled(_: *c.GtkCheckButton, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     const idx = @intFromPtr(user_data);
     engine.toggleLayerVisibility(idx);
-    canvas_dirty = true;
+    if (canvas_ui) |ui| ui.canvas_dirty = true;
     queue_draw();
     refresh_undo_ui();
 }
@@ -2019,7 +1223,7 @@ fn layer_add_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.Calli
     engine.addLayer("New Layer") catch return;
     refresh_layers_ui();
     refresh_undo_ui();
-    canvas_dirty = true;
+    if (canvas_ui) |ui| ui.canvas_dirty = true;
     queue_draw();
 }
 
@@ -2028,7 +1232,7 @@ fn layer_remove_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.Ca
     refresh_layers_ui();
     refresh_undo_ui();
     update_view_mode();
-    canvas_dirty = true;
+    if (canvas_ui) |ui| ui.canvas_dirty = true;
     queue_draw();
 }
 
@@ -2038,7 +1242,7 @@ fn layer_up_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.Callin
         engine.reorderLayer(idx, idx + 1);
         refresh_layers_ui();
         refresh_undo_ui();
-        canvas_dirty = true;
+        if (canvas_ui) |ui| ui.canvas_dirty = true;
         queue_draw();
     }
 }
@@ -2049,7 +1253,7 @@ fn layer_down_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.Call
         engine.reorderLayer(idx, idx - 1);
         refresh_layers_ui();
         refresh_undo_ui();
-        canvas_dirty = true;
+        if (canvas_ui) |ui| ui.canvas_dirty = true;
         queue_draw();
     }
 }
@@ -2067,29 +1271,6 @@ fn layer_selected(_: *c.GtkListBox, row: ?*c.GtkListBoxRow, _: ?*anyopaque) call
     }
 }
 
-fn osd_hide_callback(user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) c.gboolean {
-    _ = user_data;
-    if (osd_state.revealer) |rev| {
-        c.gtk_revealer_set_reveal_child(@ptrCast(rev), 0);
-    }
-    osd_state.timeout_id = 0;
-    return 0; // G_SOURCE_REMOVE
-}
-
-fn osd_show(text: []const u8) void {
-    if (osd_state.label == null or osd_state.revealer == null) return;
-
-    var buf: [128]u8 = undefined;
-    const slice = std.fmt.bufPrintZ(&buf, "{s}", .{text}) catch return;
-    c.gtk_label_set_text(@ptrCast(osd_state.label), slice.ptr);
-
-    c.gtk_revealer_set_reveal_child(@ptrCast(osd_state.revealer), 1);
-
-    if (osd_state.timeout_id != 0) {
-        _ = c.g_source_remove(osd_state.timeout_id);
-    }
-    osd_state.timeout_id = c.g_timeout_add(1500, @ptrCast(&osd_hide_callback), null);
-}
 
 const DropConfirmContext = struct {
     path: [:0]u8,
@@ -2314,7 +1495,7 @@ fn recovery_response(
         refresh_layers_ui();
         refresh_undo_ui();
         update_view_mode();
-        canvas_dirty = true;
+        if (canvas_ui) |ui| ui.canvas_dirty = true;
         queue_draw();
     } else if (std.mem.eql(u8, resp_span, "discard")) {
         std.fs.cwd().deleteTree(ctx.path) catch {};
@@ -2374,53 +1555,11 @@ fn check_autosave(window: *c.GtkWindow) void {
 }
 
 fn zoom_in_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    if (drawing_area) |area| {
-        const w: f64 = @floatFromInt(c.gtk_widget_get_width(area));
-        const h: f64 = @floatFromInt(c.gtk_widget_get_height(area));
-        const center_x = w / 2.0;
-        const center_y = h / 2.0;
-
-        const res = CanvasUtils.calculateZoom(view_scale, view_x, view_y, center_x, center_y, 1.1);
-
-        if (res.scale < 0.1 or res.scale > 50.0) return;
-
-        view_scale = res.scale;
-        view_x = res.view_x;
-        view_y = res.view_y;
-        canvas_dirty = true;
-
-        var buf: [32]u8 = undefined;
-        const pct: i32 = @intFromFloat(view_scale * 100.0);
-        const txt = std.fmt.bufPrint(&buf, "Zoom: {d}%", .{pct}) catch "Zoom";
-        osd_show(txt);
-
-        queue_draw();
-    }
+    if (canvas_ui) |ui| ui.zoomIn();
 }
 
 fn zoom_out_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    if (drawing_area) |area| {
-        const w: f64 = @floatFromInt(c.gtk_widget_get_width(area));
-        const h: f64 = @floatFromInt(c.gtk_widget_get_height(area));
-        const center_x = w / 2.0;
-        const center_y = h / 2.0;
-
-        const res = CanvasUtils.calculateZoom(view_scale, view_x, view_y, center_x, center_y, 0.9);
-
-        if (res.scale < 0.1 or res.scale > 50.0) return;
-
-        view_scale = res.scale;
-        view_x = res.view_x;
-        view_y = res.view_y;
-        canvas_dirty = true;
-
-        var buf: [32]u8 = undefined;
-        const pct: i32 = @intFromFloat(view_scale * 100.0);
-        const txt = std.fmt.bufPrint(&buf, "Zoom: {d}%", .{pct}) catch "Zoom";
-        osd_show(txt);
-
-        queue_draw();
-    }
+    if (canvas_ui) |ui| ui.zoomOut();
 }
 
 fn rebuild_recent_colors_wrapper(_: ?*anyopaque) callconv(std.builtin.CallingConvention.c) c.gboolean {
@@ -2502,30 +1641,12 @@ fn on_edit_colors_clicked(
     c.gtk_window_present(@ptrCast(dialog));
 }
 
-fn transform_apply_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    engine.applyTransform() catch |err| {
-        show_toast("Apply transform failed: {}", .{err});
-    };
-    if (sidebar_ui.tool_options_panel) |p| p.resetTransformUI();
-
-    canvas_dirty = true;
-    queue_draw();
-    refresh_undo_ui();
-}
-
-fn transform_cancel_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    engine.cancelPreview();
-    if (sidebar_ui.tool_options_panel) |p| p.resetTransformUI();
-
-    canvas_dirty = true;
-    queue_draw();
-}
 
 fn on_text_tool_complete() void {
     refresh_layers_ui();
     refresh_undo_ui();
     update_view_mode();
-    canvas_dirty = true;
+    if (canvas_ui) |ui| ui.canvas_dirty = true;
     queue_draw();
 }
 
@@ -2544,19 +1665,13 @@ fn tool_toggled(
     user_data: ?*anyopaque,
 ) callconv(std.builtin.CallingConvention.c) void {
     if (c.gtk_toggle_button_get_active(button) == 1) {
-        if (active_tool_interface) |iface| {
-            iface.deactivate(&engine);
-            iface.destroy(std.heap.c_allocator);
-        }
-        active_tool_interface = null;
-
         const tool_ptr = @as(*Tool, @ptrCast(@alignCast(user_data)));
         current_tool = tool_ptr.*;
         std.debug.print("Tool switched to: {}\n", .{current_tool});
 
         const is_transform = (current_tool == .unified_transform);
         if (sidebar_ui.tool_options_panel) |p| p.update(current_tool);
-        if (transform_action_bar) |b| c.gtk_widget_set_visible(b, if (is_transform) 1 else 0);
+        if (canvas_ui) |ui| ui.updateTransformActionBar(is_transform);
 
         var ctx = ToolCreationContext{
             .window = null,
@@ -2572,10 +1687,13 @@ fn tool_toggled(
         }
 
         if (ToolFactory.createTool(std.heap.c_allocator, current_tool, ctx)) |tool| {
-            active_tool_interface = tool;
-            active_tool_interface.?.activate(&engine);
-            const name = ToolFactory.getToolName(current_tool);
-            osd_show(name);
+            if (canvas_ui) |ui| {
+                ui.setActiveTool(tool);
+                const name = ToolFactory.getToolName(current_tool);
+                ui.showOSD(name);
+            } else {
+                tool.destroy(std.heap.c_allocator);
+            }
         } else |err| {
             std.debug.print("Failed to create tool: {}\n", .{err});
         }
@@ -2887,107 +2005,31 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.adw_status_page_set_child(@ptrCast(welcome_page), welcome_box);
     _ = c.gtk_stack_add_named(@ptrCast(stack), welcome_page, "welcome");
 
-    // Overlay (Canvas)
-    const overlay = c.gtk_overlay_new();
-    _ = c.gtk_stack_add_named(@ptrCast(stack), overlay, "canvas");
+    const canvas_callbacks = CanvasUI.CanvasCallbacks{
+        .refresh_undo_ui = &refresh_undo_ui,
+        .reset_transform_ui = &reset_transform_ui_wrapper,
+    };
 
-    // Drawing Area
-    const area = c.gtk_drawing_area_new();
-    drawing_area = area;
-    c.gtk_widget_set_hexpand(area, 1);
-    c.gtk_widget_set_vexpand(area, 1);
-    c.gtk_widget_set_focusable(area, 1);
-    c.gtk_drawing_area_set_draw_func(@ptrCast(area), draw_func, null, null);
-    c.gtk_overlay_set_child(@ptrCast(overlay), area);
+    canvas_ui = CanvasUI.Canvas.create(std.heap.c_allocator, &engine, canvas_callbacks) catch |err| {
+        std.debug.print("Failed to create canvas: {}\n", .{err});
+        return;
+    };
+    _ = c.gtk_stack_add_named(@ptrCast(stack), canvas_ui.?.widget, "canvas");
 
     // Init Thumbnail Context
     thumbnail_ctx = .{
         .engine = &engine,
-        .view_x = &view_x,
-        .view_y = &view_y,
-        .view_scale = &view_scale,
-        .main_drawing_area = area,
+        .view_x = &canvas_ui.?.view_x,
+        .view_y = &canvas_ui.?.view_y,
+        .view_scale = &canvas_ui.?.view_scale,
+        .main_drawing_area = canvas_ui.?.drawing_area,
         .queue_draw_main = &queue_draw,
     };
 
-    // OSD Widget
-    const osd_revealer = c.gtk_revealer_new();
-    c.gtk_widget_set_valign(osd_revealer, c.GTK_ALIGN_END);
-    c.gtk_widget_set_halign(osd_revealer, c.GTK_ALIGN_CENTER);
-    c.gtk_widget_set_margin_bottom(osd_revealer, 40);
-    c.gtk_revealer_set_transition_type(@ptrCast(osd_revealer), c.GTK_REVEALER_TRANSITION_TYPE_CROSSFADE);
-
-    const osd_box = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 0);
-    c.gtk_widget_add_css_class(osd_box, "osd");
-    c.gtk_revealer_set_child(@ptrCast(osd_revealer), osd_box);
-
-    const osd_label = c.gtk_label_new("");
-    c.gtk_box_append(@ptrCast(osd_box), osd_label);
-
-    c.gtk_overlay_add_overlay(@ptrCast(overlay), osd_revealer);
-
-    // Transform Action Bar
-    const t_action_bar = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 10);
-    transform_action_bar = t_action_bar;
-    c.gtk_widget_set_visible(t_action_bar, 0);
-    c.gtk_widget_set_valign(t_action_bar, c.GTK_ALIGN_START);
-    c.gtk_widget_set_halign(t_action_bar, c.GTK_ALIGN_CENTER);
-    c.gtk_widget_set_margin_top(t_action_bar, 20);
-    c.gtk_widget_add_css_class(t_action_bar, "osd");
-
-    const t_apply = c.gtk_button_new_with_mnemonic("_Apply");
-    c.gtk_widget_add_css_class(t_apply, "suggested-action");
-    c.gtk_widget_set_tooltip_text(t_apply, "Apply Transformation");
-    c.gtk_box_append(@ptrCast(t_action_bar), t_apply);
-    _ = c.g_signal_connect_data(t_apply, "clicked", @ptrCast(&transform_apply_clicked), null, null, 0);
-
-    const t_cancel = c.gtk_button_new_with_mnemonic("_Cancel");
-    c.gtk_widget_set_tooltip_text(t_cancel, "Cancel Transformation");
-    c.gtk_box_append(@ptrCast(t_action_bar), t_cancel);
-    _ = c.g_signal_connect_data(t_cancel, "clicked", @ptrCast(&transform_cancel_clicked), null, null, 0);
-
-    c.gtk_overlay_add_overlay(@ptrCast(overlay), t_action_bar);
-
-    // Store in global state
-    osd_state.label = osd_label;
-    osd_state.revealer = osd_revealer;
-
-    // Drop Target
+    // Drop Target (Attach to canvas drawing area)
     const drop_target = c.gtk_drop_target_new(c.g_file_get_type(), c.GDK_ACTION_COPY);
     _ = c.g_signal_connect_data(drop_target, "drop", @ptrCast(&drop_func), window, null, 0);
-    c.gtk_widget_add_controller(area, @ptrCast(drop_target));
-
-    // Gestures
-    const drag = c.gtk_gesture_drag_new();
-    // Allow Middle Click (Button 2)
-    c.gtk_gesture_single_set_button(@ptrCast(drag), 0); // 0 = all buttons
-    c.gtk_widget_add_controller(area, @ptrCast(drag));
-
-    _ = c.g_signal_connect_data(drag, "drag-begin", @ptrCast(&drag_begin), @ptrCast(area), null, 0);
-    _ = c.g_signal_connect_data(drag, "drag-update", @ptrCast(&drag_update), @ptrCast(area), null, 0);
-    _ = c.g_signal_connect_data(drag, "drag-end", @ptrCast(&drag_end), @ptrCast(area), null, 0);
-
-    // Motion Controller (for mouse tracking)
-    const motion = c.gtk_event_controller_motion_new();
-    c.gtk_widget_add_controller(area, @ptrCast(motion));
-    _ = c.g_signal_connect_data(motion, "motion", @ptrCast(&motion_func), null, null, 0);
-
-    // Scroll Gesture
-    const scroll_flags = c.GTK_EVENT_CONTROLLER_SCROLL_VERTICAL | c.GTK_EVENT_CONTROLLER_SCROLL_HORIZONTAL;
-    const scroll = c.gtk_event_controller_scroll_new(scroll_flags);
-    c.gtk_widget_add_controller(area, @ptrCast(scroll));
-    _ = c.g_signal_connect_data(scroll, "scroll", @ptrCast(&scroll_func), area, null, 0);
-
-    // Zoom Gesture
-    const zoom = c.gtk_gesture_zoom_new();
-    c.gtk_widget_add_controller(area, @ptrCast(zoom));
-    _ = c.g_signal_connect_data(zoom, "begin", @ptrCast(&zoom_begin), null, null, 0);
-    _ = c.g_signal_connect_data(zoom, "update", @ptrCast(&zoom_update), null, null, 0);
-
-    // Key Controller (Panning)
-    const key_controller = c.gtk_event_controller_key_new();
-    c.gtk_widget_add_controller(area, @ptrCast(key_controller));
-    _ = c.g_signal_connect_data(key_controller, "key-pressed", @ptrCast(&key_pressed_func), null, null, 0);
+    c.gtk_widget_add_controller(canvas_ui.?.drawing_area, @ptrCast(drop_target));
 
     // Refresh Layers UI initially
     refresh_layers_ui();
