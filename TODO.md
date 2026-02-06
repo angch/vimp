@@ -35,6 +35,8 @@
 ## UI/UX Improvements (Priority: Medium)
 - [x] Implement Tool Grouping (Implemented in `src/ui/sidebar.zig` with popovers).
 - [x] Implement Properties Sidebar (Implemented `src/widgets/tool_options_panel.zig`).
+- [ ] Sidebar should be resizable and not be > 20% of the window width.
+- [ ] Default colors in two rows by defaults shows up as black instead of their own color.
 
 ## Specialized Features (Priority: Low)
 - [x] Implement HUD for live dimensions during selection/transform (Implemented in `src/main.zig`).
