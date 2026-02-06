@@ -483,7 +483,7 @@ pub const XcfLoader = struct {
             try self.seek(saved);
         }
 
-        try engine.addLayerInternal(buffer.?, name, visible, false, engine.layers.items.len);
+        try engine.addLayerInternal(buffer.?, name, visible, false, engine.layers.list.items.len);
     }
 
     fn loadHierarchy(self: *XcfLoader, buffer: *c.GeglBuffer) !void {
@@ -653,7 +653,7 @@ test "XcfLoader integration" {
 
         try loader.load(&engine);
 
-        try std.testing.expect(engine.layers.items.len > 0);
+        try std.testing.expect(engine.layers.list.items.len > 0);
 
         // gimp-2-6-file.xcf might have paths. Let's print the count.
         std.debug.print("Loaded XCF paths: {d}\n", .{engine.paths.items.len});

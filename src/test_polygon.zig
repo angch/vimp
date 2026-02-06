@@ -21,7 +21,7 @@ test "Engine drawPolygon filled" {
 
     try engine.drawPolygon(points.items, 1, true);
 
-    const buf = engine.layers.items[0].buffer;
+    const buf = engine.layers.list.items[0].buffer;
     const format = c.babl_format("R'G'B'A u8");
     var pixel: [4]u8 = undefined;
 
@@ -53,7 +53,7 @@ test "Engine drawPolygon outline" {
 
     try engine.drawPolygon(points.items, 1, false);
 
-    const buf = engine.layers.items[0].buffer;
+    const buf = engine.layers.list.items[0].buffer;
     const format = c.babl_format("R'G'B'A u8");
     var pixel: [4]u8 = undefined;
 

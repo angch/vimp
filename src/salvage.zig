@@ -48,11 +48,11 @@ pub const Salvage = struct {
 
         // Add to engine
         const basename = std.fs.path.basename(path);
-        try engine.addLayerInternal(buffer.?, basename, true, false, engine.layers.items.len);
+        try engine.addLayerInternal(buffer.?, basename, true, false, engine.layers.list.items.len);
 
         // Push Undo
         const cmd = Engine.Command{
-            .layer = .{ .add = .{ .index = engine.layers.items.len - 1, .snapshot = null } },
+            .layer = .{ .add = .{ .index = engine.layers.list.items.len - 1, .snapshot = null } },
         };
         engine.history.push(cmd) catch {};
     }

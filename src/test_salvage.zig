@@ -33,9 +33,9 @@ test "Salvage recoverFile" {
     try Salvage.recoverFile(&engine, filename);
 
     // Verify Layer Added
-    try std.testing.expectEqual(engine.layers.items.len, 1);
+    try std.testing.expectEqual(engine.layers.list.items.len, 1);
 
-    const layer = &engine.layers.items[0];
+    const layer = &engine.layers.list.items[0];
     const extent = c.gegl_buffer_get_extent(layer.buffer);
     try std.testing.expectEqual(extent.*.width, 64);
     try std.testing.expectEqual(extent.*.height, 64);

@@ -101,7 +101,7 @@ pub fn loadPdf(self: *Engine, path: []const u8, params: Engine.PdfImportParams) 
         }
 
         const name = std.fmt.bufPrintZ(&buf, "{s} - Page {d}", .{ basename, current_page }) catch "Page";
-        const index = self.layers.items.len;
+        const index = self.layers.list.items.len;
         try self.addLayerInternal(new_buffer.?, name, true, false, index);
 
         const cmd = Engine.Command{
@@ -175,7 +175,7 @@ pub fn loadSvg(self: *Engine, path: []const u8, params: Engine.SvgImportParams) 
     }
 
     const basename = std.fs.path.basename(path);
-    const index = self.layers.items.len;
+    const index = self.layers.list.items.len;
     try self.addLayerInternal(new_buffer.?, basename, true, false, index);
 
     const cmd = Engine.Command{
@@ -211,7 +211,7 @@ pub fn loadFromFile(self: *Engine, path: []const u8) !void {
     }
 
     const basename = std.fs.path.basename(path);
-    const index = self.layers.items.len;
+    const index = self.layers.list.items.len;
 
     try self.addLayerInternal(new_buffer.?, basename, true, false, index);
 
@@ -350,7 +350,7 @@ pub fn saveProject(self: *Engine, path: []const u8) !void {
         layer_meta_list.deinit(allocator);
     }
 
-    for (self.layers.items, 0..) |layer, i| {
+    for (self.layers.list.items, 0..) |layer, i| {
         const filename = try std.fmt.allocPrint(allocator, "layer_{d}.png", .{i});
         const full_path = try std.fs.path.joinZ(allocator, &[_][]const u8{ abs_path, filename });
         defer allocator.free(full_path);
@@ -429,7 +429,7 @@ pub fn loadProject(self: *Engine, path: []const u8) !void {
             continue;
         }
 
-        const index = self.layers.items.len;
+        const index = self.layers.list.items.len;
         try self.addLayerInternal(new_buffer.?, l.name, l.visible, l.locked, index);
     }
 }
@@ -474,7 +474,7 @@ pub fn loadOra(self: *Engine, path: []const u8, as_new: bool) !void {
 
         _ = c.gegl_node_process(write);
 
-        const index = self.layers.items.len;
+        const index = self.layers.list.items.len;
         try self.addLayerInternal(new_buffer.?, l.name, l.visible, false, index);
     }
 }
@@ -520,7 +520,7 @@ pub fn saveOra(self: *Engine, path: []const u8) !void {
         ora_layers.deinit(allocator);
     }
 
-    for (self.layers.items, 0..) |layer, i| {
+    for (self.layers.list.items, 0..) |layer, i| {
         const fname = try std.fmt.allocPrint(allocator, "layer{d}.png", .{i});
         defer allocator.free(fname);
         const src_rel = try std.fs.path.join(allocator, &[_][]const u8{ "data", fname });
@@ -592,9 +592,9 @@ test "Engine load from file" {
 
     try loadFromFile(&engine, filename);
 
-    try std.testing.expectEqual(engine.layers.items.len, 1);
+    try std.testing.expectEqual(engine.layers.list.items.len, 1);
 
-    const layer = &engine.layers.items[0];
+    const layer = &engine.layers.list.items[0];
     const name = std.mem.span(@as([*:0]const u8, @ptrCast(&layer.name)));
     try std.testing.expectEqualStrings(name, "test_engine_load.png");
 
@@ -626,8 +626,8 @@ test "Engine load Svg" {
         const params = Engine.SvgImportParams{ .width = 0, .height = 0 };
         try loadSvg(&engine, abs_path, params);
 
-        try std.testing.expectEqual(engine.layers.items.len, 1);
-        const layer = &engine.layers.items[0];
+        try std.testing.expectEqual(engine.layers.list.items.len, 1);
+        const layer = &engine.layers.list.items[0];
         const extent = c.gegl_buffer_get_extent(layer.buffer);
         // Expect 100x100
         try std.testing.expectEqual(extent.*.width, 100);
@@ -641,8 +641,8 @@ test "Engine load Svg" {
         const params = Engine.SvgImportParams{ .width = 200, .height = 200 };
         try loadSvg(&engine, abs_path, params);
 
-        try std.testing.expectEqual(engine.layers.items.len, 1);
-        const layer = &engine.layers.items[0];
+        try std.testing.expectEqual(engine.layers.list.items.len, 1);
+        const layer = &engine.layers.list.items[0];
         const extent = c.gegl_buffer_get_extent(layer.buffer);
         // Expect 200x200
         try std.testing.expectEqual(extent.*.width, 200);
@@ -685,8 +685,8 @@ test "Engine load Pdf" {
     };
     try loadPdf(&engine, filename, params);
 
-    try std.testing.expectEqual(engine.layers.items.len, 1);
-    const layer = &engine.layers.items[0];
+    try std.testing.expectEqual(engine.layers.list.items.len, 1);
+    const layer = &engine.layers.list.items[0];
     const extent = c.gegl_buffer_get_extent(layer.buffer);
     // 100x100 at 72 PPI
     try std.testing.expectEqual(extent.*.width, 100);
@@ -823,25 +823,25 @@ test "Engine project save load" {
 
     // 3. Reset
     engine.reset();
-    try std.testing.expectEqual(engine.layers.items.len, 0);
+    try std.testing.expectEqual(engine.layers.list.items.len, 0);
 
     // 4. Load
     try loadProject(&engine, project_path);
 
     // 5. Verify
-    try std.testing.expectEqual(engine.layers.items.len, 2);
+    try std.testing.expectEqual(engine.layers.list.items.len, 2);
 
     // Layer 0 (Original "Layer 1" - bottom?)
     // addLayer appends. "Layer 1" is index 0. "Layer 2" is index 1.
     // loadProject should preserve order.
 
     // Check Layer 0
-    const l0 = &engine.layers.items[0];
+    const l0 = &engine.layers.list.items[0];
     try std.testing.expectEqualStrings("Layer 1", std.mem.span(@as([*:0]const u8, @ptrCast(&l0.name))));
     try std.testing.expect(l0.visible); // Default visible
 
     // Check Layer 1
-    const l1 = &engine.layers.items[1];
+    const l1 = &engine.layers.list.items[1];
     try std.testing.expectEqualStrings("Layer 2", std.mem.span(@as([*:0]const u8, @ptrCast(&l1.name))));
     try std.testing.expect(!l1.visible); // Was hidden
 }
