@@ -164,6 +164,7 @@ pub fn showOpenDialog(
     c.gtk_file_filter_add_pattern(filter_imgs, "*.png");
     c.gtk_file_filter_add_pattern(filter_imgs, "*.jpg");
     c.gtk_file_filter_add_pattern(filter_imgs, "*.jpeg");
+    c.gtk_file_filter_add_pattern(filter_imgs, "*.jpe");
     c.gtk_file_filter_add_pattern(filter_imgs, "*.webp");
     c.gtk_file_filter_add_pattern(filter_imgs, "*.gif");
     c.gtk_file_filter_add_pattern(filter_imgs, "*.tif");
@@ -236,6 +237,7 @@ pub fn showOpenDialog(
     c.gtk_file_filter_set_name(filter_jpg, "JPEG Image");
     c.gtk_file_filter_add_pattern(filter_jpg, "*.jpg");
     c.gtk_file_filter_add_pattern(filter_jpg, "*.jpeg");
+    c.gtk_file_filter_add_pattern(filter_jpg, "*.jpe");
     c.gtk_file_chooser_add_filter(@ptrCast(chooser_widget), filter_jpg);
 
     const filter_webp = c.gtk_file_filter_new();

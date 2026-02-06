@@ -221,7 +221,7 @@ fn generate_thumbnail(path: [:0]const u8) void {
     };
     defer std.heap.c_allocator.free(thumb_path);
 
-    EngineIO.saveThumbnail(&engine, thumb_path, 96, 96) catch |e| {
+    EngineIO.saveThumbnail(&engine, thumb_path, 128, 128) catch |e| {
         std.debug.print("Failed to save thumbnail: {}\n", .{e});
     };
 }
@@ -1413,7 +1413,7 @@ fn refresh_recent_ui() void {
                         const tp_z = std.fmt.allocPrintSentinel(std.heap.c_allocator, "{s}", .{tp}, 0) catch null;
                         if (tp_z) |z| {
                             icon_widget = c.gtk_image_new_from_file(z);
-                            c.gtk_image_set_pixel_size(@ptrCast(icon_widget), 96);
+                            c.gtk_image_set_pixel_size(@ptrCast(icon_widget), 128);
                             std.heap.c_allocator.free(z);
                             has_thumb = true;
                         }
@@ -1423,7 +1423,7 @@ fn refresh_recent_ui() void {
 
                 if (!has_thumb) {
                     icon_widget = c.gtk_image_new_from_icon_name("image-x-generic-symbolic");
-                    c.gtk_image_set_pixel_size(@ptrCast(icon_widget), 96);
+                    c.gtk_image_set_pixel_size(@ptrCast(icon_widget), 128);
                 }
                 c.gtk_box_append(@ptrCast(row_box), icon_widget);
 
