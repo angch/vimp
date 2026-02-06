@@ -1,6 +1,6 @@
 # Agent Protocol
 
-1.  **Task Selection**: Check `TODO.md` or `prd.json` for active tasks.
+1.  **Task Selection**: Check `TODO.md` for active tasks.
 2.  **Implementation**:
     - Modify source code in `src/`.
     - Create/Update tests in `src/` to verify changes.
@@ -10,7 +10,6 @@
     - Verify GUI changes visually if possible (though agents often can't see, running the code ensures no crashes).
 4.  **Documentation**:
     - Update documentation with any new findings, gotchas, or architectural decisions.
-    - Update `progress.txt` if working in the Ralph loop.
 
 ## Known Issues / Gotchas
 - GEGL plugin loading can be tricky in test environments. `build.zig` attempts to set it up correctly.

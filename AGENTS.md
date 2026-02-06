@@ -36,9 +36,8 @@ Vimp is a GIMP-like application built with **Zig**, **GTK4**, and **GEGL**. It a
 - [GNOME HIG Analysis](doc/gnome-hig-analysis.md) - UI design guidelines.
 
 ## 5. Agent Workflow
-- [Ralph Loop Instructions](.agent/skills/ralph/LOOP_INSTRUCTIONS.md) - The prompt for the autonomous agent loop.
-- [PRD Creation](.agent/skills/prd/SKILL.md) - Creating feature specs.
-- [Ralph PRD Conversion](.agent/skills/ralph/SKILL.md) - Converting specs to JSON.
+- [Feature Planning](.agent/skills/prd/SKILL.md) - Guidelines for creating Product Requirements Documents (PRDs).
+- [Task Management](TODO.md) - The central source of truth for project progress. Agents should update this file as they complete tasks.
 
 ## 5. Critical Learnings & Gotchas
 - **Zig std.ArrayList**: In this environment (Zig 0.15.2), `std.ArrayList(T)` behaves like an unmanaged list. It must be initialized with `{}` (e.g. `var list = std.ArrayList(T){}`) and methods like `append` require passing the allocator explicitly (e.g. `list.append(allocator, item)`).

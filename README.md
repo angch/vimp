@@ -61,58 +61,19 @@ zig build run
 
 ## Agentic Development Workflow
 
-This project uses **Ralph**, an autonomous coding agent workflow for iterative development.
+Vimp is developed using an **agent-centric** approach. While we don't follow a rigid loop, we use agents to:
 
-### How It Works
+-   **Plan Features**: Creating Product Requirements Documents (PRDs) for new functionality.
+-   **Implement Stories**: Breaking down features into actionable tasks and implementing them iteratively.
+-   **Verify Correctness**: Using automated tests and manual walkthroughs to ensure high quality.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  1. Create PRD        →  tasks/prd-[feature].md                 │
-│  2. Convert to JSON   →  prd.json                               │
-│  3. Run Ralph Loop    →  Agent implements stories one-by-one    │
-│  4. Merge to main     →  git merge ralph/[feature]              │
-└─────────────────────────────────────────────────────────────────┘
-```
+### Core Development Skills
 
-### Step-by-Step
+The project defines several "skills" for agents to ensure consistency:
 
-1. **Create a PRD** using the `prd` skill:
-   ```
-   Load the prd skill and create a PRD for [feature description]
-   ```
-   Output: `tasks/prd-[feature-name].md`
-
-2. **Convert PRD to Ralph format** using the `ralph` skill:
-   ```
-   Load the ralph skill and convert tasks/prd-[feature-name].md to prd.json
-   ```
-   Output: `prd.json` with user stories
-
-3. **Run the Ralph agent loop** - paste `.agent/skills/ralph/LOOP_INSTRUCTIONS.md` contents as prompt. The agent:
-   - Reads `prd.json` and `progress.txt`
-   - Checks out the feature branch
-   - Picks highest-priority story with `passes: false`
-   - Implements it, runs checks, commits
-   - Updates `prd.json` and `progress.txt`
-   - Repeat until all stories pass
-
-4. **Merge completed feature**:
-   ```bash
-   git switch main
-   git merge ralph/[feature-name]
-   ```
-
-### Key Files
-
-| File | Purpose |
-|------|---------|
-| `prd.json` | Current PRD in Ralph format |
-| `progress.txt` | Agent progress log with learnings |
-| `.agent/skills/ralph/LOOP_INSTRUCTIONS.md` | Agent loop instructions (prompt) |
-| `.agent/skills/prd/` | PRD creation skill |
-| `.agent/skills/ralph/` | PRD-to-JSON converter skill |
-| `tasks/*.md` | Archived/completed PRDs |
-| `archive/` | Historical prd.json + progress.txt |
+-   [`gegl`](.agent/skills/gegl/SKILL.md): Guidelines for using GEGL in Vimp.
+-   [`gtk4_ui`](.agent/skills/gtk4_ui/SKILL.md): Best practices for GTK4 UI development.
+-   [`zig_gtk_interop`](.agent/skills/zig_gtk_interop/SKILL.md): Safety patterns for Zig and C interop.
 
 ---
 
@@ -121,19 +82,17 @@ This project uses **Ralph**, an autonomous coding agent workflow for iterative d
 ```
 vimp/
 ├── src/                    # Zig source code
-│   ├── main.zig           # Entry point
+│   ├── main.zig           # UI Entry point
 │   ├── engine.zig         # Image engine (GEGL integration)
+│   ├── engine/            # Refactored engine modules
+│   ├── tools/             # Tool implementations
+│   ├── ui/                # UI components
 │   └── c.zig              # C interop definitions
 ├── libs/                   # Vendored GEGL/Babl libraries
 ├── doc/                    # Documentation & analysis
-├── tasks/                  # PRD markdown files
-├── scripts/               
-│   └── setup_dev_machine.sh  # Dev environment setup
-├── tools/
-│   └── setup_libs.sh      # Download vendored libs
+├── .agent/                 # Agent-specific instructions and skills
 ├── build.zig              # Zig build configuration
-├── prd.json               # Current Ralph PRD
-└── progress.txt           # Agent progress log
+└── TODO.md                # Project roadmap and tasks
 ```
 
 ---

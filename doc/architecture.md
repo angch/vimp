@@ -10,13 +10,14 @@ Handles the GEGL graph, buffers, and image operations.
 
 ## Directory Structure
 - `src/main.zig`: Application entry point and GUI logic.
-- `src/engine.zig`: Image processing engine (wrapper around GEGL).
+- `src/engine/`: Refactored image processing engine modules.
+- `src/tools/`: Tool implementations.
+- `src/ui/`: UI components (sidebar, header, etc.).
 - `src/c.zig`: C import definitions (GTK, GEGL, Babl, Adwaita).
-- `src/widgets/`: GTK4 widget implementations (ported from GIMP).
+- `src/widgets/`: GTK4 widget implementations.
 - `build.zig`: Build configuration and test definitions.
 - `scripts/`: Utility scripts (setup, vendoring).
-- `libs/`: Vendored libraries (GEGL/Babl) - *Do not modify manually unless necessary*.
-- `tasks/` & `prd.json`: Ralph Agent workflow files.
+- `libs/`: Vendored libraries (GEGL/Babl).
 - `ref/gimp`: Clone of the GIMP repository for reference and tests. **Ignored by git**.
 
 ## Architecture Analysis
