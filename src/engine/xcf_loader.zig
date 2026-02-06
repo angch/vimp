@@ -733,7 +733,7 @@ test "XcfLoader channels" {
     var engine = Engine{};
     engine.init();
     defer engine.deinit();
-    // engine.setupGraph(); // Not strictly needed for loading data structures
+    engine.setupGraph(); // Not strictly needed for loading data structures, but prevents null graph errors
 
     // We need a mock file or we can construct one?
     // Constructing an XCF in memory is hard.

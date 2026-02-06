@@ -586,6 +586,8 @@ pub const Engine = struct {
     }
 
     pub fn rebuildGraph(self: *Engine) void {
+        if (self.graph == null) return;
+
         self.preview_bbox = null;
 
         for (self.composition_nodes.items) |node| {
