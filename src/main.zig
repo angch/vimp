@@ -83,7 +83,7 @@ fn open_func(
             const path = c.g_file_get_path(f);
             if (path) |p| {
                 const span = std.mem.span(@as([*:0]const u8, @ptrCast(p)));
-                openFileFromPath(span, false, true);
+                openFileFromPath(span, false, true, null);
                 c.g_free(p);
             }
         }
@@ -1043,7 +1043,7 @@ fn download_callback(source: ?*c.GObject, result: ?*c.GAsyncResult, user_data: ?
             // Convert path to sentinel-terminated for openFileFromPath
             const path_z = std.fmt.allocPrintSentinel(std.heap.c_allocator, "{s}", .{path}, 0) catch return;
             defer std.heap.c_allocator.free(path_z);
-            openFileFromPath(path_z, false, false);
+            openFileFromPath(path_z, false, false, null);
         } else {
             show_toast("Download failed (empty file)", .{});
         }
@@ -1136,7 +1136,7 @@ fn raw_conversion_callback(source: ?*c.GObject, result: ?*c.GAsyncResult, user_d
     if (c.g_subprocess_wait_check_finish(@ptrCast(source), result, &err) != 0) {
         // Success
         // Open the temp file
-        openFileFromPath(ctx.temp_path, ctx.as_layers, false);
+        openFileFromPath(ctx.temp_path, ctx.as_layers, false, null);
 
         // Clean up temp file
         std.fs.deleteFileAbsolute(ctx.temp_path) catch |e| {
@@ -1331,13 +1331,28 @@ fn on_svg_import(user_data: ?*anyopaque, path: [:0]const u8, params: ?Engine.Svg
     }
 }
 
-fn openFileFromPath(path: [:0]const u8, as_layers: bool, add_to_recent: bool) void {
+fn openFileFromPath(path: [:0]const u8, as_layers: bool, add_to_recent: bool, forced_loader: ?[:0]const u8) void {
     const ext = std.fs.path.extension(path);
-    const is_pdf = std.ascii.eqlIgnoreCase(ext, ".pdf");
-    const is_svg = std.ascii.eqlIgnoreCase(ext, ".svg");
-    const is_ora = std.ascii.eqlIgnoreCase(ext, ".ora");
-    const is_xcf = std.ascii.eqlIgnoreCase(ext, ".xcf");
-    const is_ps = std.ascii.eqlIgnoreCase(ext, ".ps") or std.ascii.eqlIgnoreCase(ext, ".eps");
+    var is_pdf = std.ascii.eqlIgnoreCase(ext, ".pdf");
+    var is_svg = std.ascii.eqlIgnoreCase(ext, ".svg");
+    var is_ora = std.ascii.eqlIgnoreCase(ext, ".ora");
+    var is_xcf = std.ascii.eqlIgnoreCase(ext, ".xcf");
+    var is_ps = std.ascii.eqlIgnoreCase(ext, ".ps") or std.ascii.eqlIgnoreCase(ext, ".eps");
+    var is_raw = RawLoader.isRawFile(path);
+
+    // Override by loader
+    if (forced_loader) |l| {
+        is_pdf = std.mem.eql(u8, l, "pdf");
+        is_svg = std.mem.eql(u8, l, "svg");
+        is_ora = std.mem.eql(u8, l, "ora");
+        is_xcf = std.mem.eql(u8, l, "xcf");
+        is_ps = std.mem.eql(u8, l, "ps");
+        is_raw = std.mem.eql(u8, l, "raw");
+        // "gegl" falls through to default loadFromFile
+        if (std.mem.eql(u8, l, "gegl")) {
+             is_pdf = false; is_svg = false; is_ora = false; is_xcf = false; is_ps = false; is_raw = false;
+        }
+    }
 
     if (is_xcf) {
         if (!as_layers) {
@@ -1375,7 +1390,7 @@ fn openFileFromPath(path: [:0]const u8, as_layers: bool, add_to_recent: bool) vo
         return;
     }
 
-    if (RawLoader.isRawFile(path)) {
+    if (is_raw) {
         convertRawAndOpen(path, as_layers, add_to_recent);
         return;
     }
@@ -1449,12 +1464,12 @@ fn openFileFromPath(path: [:0]const u8, as_layers: bool, add_to_recent: bool) vo
     finish_file_open(path, as_layers, load_success, add_to_recent);
 }
 
-fn on_file_chosen(user_data: ?*anyopaque, path: ?[:0]const u8) void {
+fn on_file_chosen(user_data: ?*anyopaque, path: ?[:0]const u8, loader: ?[:0]const u8) void {
     const ctx: *OpenContext = @ptrCast(@alignCast(user_data));
     defer std.heap.c_allocator.destroy(ctx);
 
     if (path) |p| {
-        openFileFromPath(p, ctx.as_layers, true);
+        openFileFromPath(p, ctx.as_layers, true, loader);
     }
 }
 
@@ -2094,9 +2109,9 @@ fn drop_response(
     const resp_span = std.mem.span(response);
 
     if (std.mem.eql(u8, resp_span, "new")) {
-        openFileFromPath(ctx.path, false, true);
+        openFileFromPath(ctx.path, false, true, null);
     } else if (std.mem.eql(u8, resp_span, "layer")) {
-        openFileFromPath(ctx.path, true, true);
+        openFileFromPath(ctx.path, true, true, null);
     }
     // "cancel" or others do nothing but cleanup
 
@@ -2160,7 +2175,7 @@ fn drop_func(
                 c.gtk_window_present(@ptrCast(dialog));
             } else {
                 const as_layers = (engine.layers.list.items.len > 0);
-                openFileFromPath(span, as_layers, true);
+                openFileFromPath(span, as_layers, true, null);
             }
 
             c.g_free(p);
@@ -2178,7 +2193,7 @@ fn on_recent_child_activated(_: *c.GtkFlowBox, child: *c.GtkFlowBoxChild, _: ?*a
         const path: [*c]const u8 = @ptrCast(p);
         const span = std.mem.span(path);
         // Ensure we don't block if open takes time, but openFileFromPath is synchronous currently except for dialogs
-        openFileFromPath(span, false, true);
+        openFileFromPath(span, false, true, null);
     }
 }
 
