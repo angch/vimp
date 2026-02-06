@@ -5,9 +5,9 @@ fn sidebar_toggled(
     _: *c.GtkButton,
     user_data: ?*anyopaque,
 ) callconv(std.builtin.CallingConvention.c) void {
-    const split_view: *c.AdwOverlaySplitView = @ptrCast(@alignCast(user_data));
-    const is_shown = c.adw_overlay_split_view_get_show_sidebar(split_view);
-    c.adw_overlay_split_view_set_show_sidebar(split_view, if (is_shown != 0) 0 else 1);
+    const sidebar_widget: *c.GtkWidget = @ptrCast(@alignCast(user_data));
+    const is_visible = c.gtk_widget_get_visible(sidebar_widget);
+    c.gtk_widget_set_visible(sidebar_widget, if (is_visible != 0) 0 else 1);
 }
 
 pub const Header = struct {
@@ -16,7 +16,7 @@ pub const Header = struct {
     discard_btn: *c.GtkWidget,
     allocator: std.mem.Allocator,
 
-    pub fn create(allocator: std.mem.Allocator, split_view: *c.AdwOverlaySplitView) !*Header {
+    pub fn create(allocator: std.mem.Allocator, sidebar_widget: *c.GtkWidget) !*Header {
         const self = try allocator.create(Header);
         self.allocator = allocator;
 
@@ -27,9 +27,7 @@ pub const Header = struct {
         const sidebar_btn = c.gtk_button_new_from_icon_name("sidebar-show-symbolic");
         c.gtk_widget_set_tooltip_text(sidebar_btn, "Toggle Sidebar");
         c.adw_header_bar_pack_start(@ptrCast(header_bar), sidebar_btn);
-        _ = c.g_signal_connect_data(sidebar_btn, "clicked", @ptrCast(&sidebar_toggled), split_view, null, 0);
-        // Only show button when collapsed
-        _ = c.g_object_bind_property(@ptrCast(split_view), "collapsed", @ptrCast(sidebar_btn), "visible", c.G_BINDING_SYNC_CREATE);
+        _ = c.g_signal_connect_data(sidebar_btn, "clicked", @ptrCast(&sidebar_toggled), sidebar_widget, null, 0);
 
         // Primary Actions (Start)
         const new_btn = c.gtk_button_new_from_icon_name("document-new-symbolic");

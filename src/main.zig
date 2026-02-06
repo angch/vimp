@@ -2552,6 +2552,77 @@ fn tool_toggled(
     }
 }
 
+fn on_paned_notify_position(
+    paned: *c.GtkPaned,
+    _: *c.GParamSpec,
+    _: ?*anyopaque,
+) callconv(std.builtin.CallingConvention.c) void {
+    const width = c.gtk_widget_get_width(@ptrCast(@alignCast(paned)));
+    if (width <= 0) return;
+
+    var min_w: c_int = 0;
+    var min_h: c_int = 0;
+    const sidebar = c.gtk_paned_get_start_child(paned);
+    if (sidebar) |s| {
+        c.gtk_widget_get_size_request(s, &min_w, &min_h);
+    }
+    if (min_w < 0) min_w = 0;
+
+    const constraint_max = @divTrunc(width, 5); // 20%
+    const effective_max = if (constraint_max > min_w) constraint_max else min_w;
+
+    const pos = c.gtk_paned_get_position(paned);
+
+    if (pos > effective_max) {
+        _ = c.g_signal_handlers_block_matched(
+            @ptrCast(paned),
+            c.G_SIGNAL_MATCH_FUNC | c.G_SIGNAL_MATCH_DATA,
+            0,
+            0,
+            null,
+            @ptrCast(@constCast(&on_paned_notify_position)),
+            null,
+        );
+        c.gtk_paned_set_position(paned, effective_max);
+        _ = c.g_signal_handlers_unblock_matched(
+            @ptrCast(paned),
+            c.G_SIGNAL_MATCH_FUNC | c.G_SIGNAL_MATCH_DATA,
+            0,
+            0,
+            null,
+            @ptrCast(@constCast(&on_paned_notify_position)),
+            null,
+        );
+    }
+}
+
+fn on_paned_size_allocate(
+    paned: *c.GtkPaned,
+    width: c_int,
+    _: c_int,
+    _: c_int,
+    _: ?*anyopaque,
+) callconv(std.builtin.CallingConvention.c) void {
+    if (width <= 0) return;
+
+    var min_w: c_int = 0;
+    var min_h: c_int = 0;
+    const sidebar = c.gtk_paned_get_start_child(paned);
+    if (sidebar) |s| {
+        c.gtk_widget_get_size_request(s, &min_w, &min_h);
+    }
+    if (min_w < 0) min_w = 0;
+
+    const constraint_max = @divTrunc(width, 5); // 20%
+    const effective_max = if (constraint_max > min_w) constraint_max else min_w;
+
+    const pos = c.gtk_paned_get_position(paned);
+
+    if (pos > effective_max) {
+        c.gtk_paned_set_position(paned, effective_max);
+    }
+}
+
 fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     _ = user_data;
 
@@ -2674,15 +2745,13 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     toast_overlay = @ptrCast(t_overlay);
     c.adw_toolbar_view_set_content(@ptrCast(toolbar_view), t_overlay);
 
-    // AdwOverlaySplitView
-    const split_view = c.adw_overlay_split_view_new();
-    c.adw_toast_overlay_set_child(@ptrCast(t_overlay), split_view);
+    // GtkPaned
+    const paned = c.gtk_paned_new(c.GTK_ORIENTATION_HORIZONTAL);
+    c.adw_toast_overlay_set_child(@ptrCast(t_overlay), paned);
 
-    header_ui = Header.create(std.heap.c_allocator, @ptrCast(split_view)) catch |err| {
-        std.debug.print("Failed to create header: {}\n", .{err});
-        return;
-    };
-    c.adw_toolbar_view_add_top_bar(@ptrCast(toolbar_view), header_ui.widget);
+    // Connect constraints
+    _ = c.g_signal_connect_data(paned, "notify::position", @ptrCast(&on_paned_notify_position), null, null, 0);
+    _ = c.g_signal_connect_data(paned, "size-allocate", @ptrCast(&on_paned_size_allocate), null, null, 0);
 
     const callbacks = SidebarCallbacks{
         .tool_toggled = @ptrCast(&tool_toggled),
@@ -2704,8 +2773,17 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     };
     sidebar_ui.activateDefaultTool();
 
-    // Set as sidebar in split view
-    c.adw_overlay_split_view_set_sidebar(@ptrCast(split_view), sidebar_ui.widget);
+    header_ui = Header.create(std.heap.c_allocator, sidebar_ui.widget) catch |err| {
+        std.debug.print("Failed to create header: {}\n", .{err});
+        return;
+    };
+    c.adw_toolbar_view_add_top_bar(@ptrCast(toolbar_view), header_ui.widget);
+
+    // Set sidebar as start child
+    c.gtk_paned_set_start_child(@ptrCast(paned), sidebar_ui.widget);
+    c.gtk_paned_set_resize_start_child(@ptrCast(paned), 1);
+    c.gtk_paned_set_shrink_start_child(@ptrCast(paned), 0);
+    c.gtk_paned_set_position(@ptrCast(paned), 200);
 
     // Main Content (Right / Content Pane)
     const content = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 0);
@@ -2713,7 +2791,9 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.gtk_widget_add_css_class(content, "content");
 
     // Set as content in split view
-    c.adw_overlay_split_view_set_content(@ptrCast(split_view), content);
+    c.gtk_paned_set_end_child(@ptrCast(paned), content);
+    c.gtk_paned_set_resize_end_child(@ptrCast(paned), 1);
+    c.gtk_paned_set_shrink_end_child(@ptrCast(paned), 0);
 
     // Stack
     const stack = c.gtk_stack_new();

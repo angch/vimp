@@ -163,7 +163,7 @@ pub const Sidebar = struct {
 
         // Sidebar (Left / Sidebar Pane)
         const sidebar = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 10);
-        c.gtk_widget_set_size_request(sidebar, 200, -1);
+        c.gtk_widget_set_size_request(sidebar, 160, -1);
         c.gtk_widget_add_css_class(sidebar, "sidebar");
         self.widget = sidebar;
 
