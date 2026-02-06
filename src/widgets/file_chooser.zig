@@ -2,7 +2,7 @@ const std = @import("std");
 const c = @import("../c.zig").c;
 const RawLoader = @import("../raw_loader.zig").RawLoader;
 
-pub const OpenCallback = *const fn (user_data: ?*anyopaque, path: ?[:0]const u8) void;
+pub const OpenCallback = *const fn (user_data: ?*anyopaque, path: ?[:0]const u8, loader: ?[:0]const u8) void;
 
 const DialogContext = struct {
     callback: OpenCallback,
@@ -37,22 +37,33 @@ fn response_cb(dialog: *c.GtkDialog, response_id: c_int, user_data: ?*anyopaque)
     if (response_id == c.GTK_RESPONSE_ACCEPT) {
         const chooser: *c.GtkFileChooser = @ptrCast(ctx.chooser_widget);
         const file = c.gtk_file_chooser_get_file(chooser);
+
+        // Get loader choice
+        const choice_id = c.gtk_file_chooser_get_choice(chooser, "loader");
+        var loader: ?[:0]const u8 = null;
+        if (choice_id) |id| {
+            const span = std.mem.span(id);
+            if (!std.mem.eql(u8, span, "auto")) {
+                loader = span;
+            }
+        }
+
         if (file) |f| {
             const path = c.g_file_get_path(f);
             if (path) |p| {
                 const span = std.mem.span(p);
-                ctx.callback(ctx.user_data, span);
+                ctx.callback(ctx.user_data, span, loader);
                 c.g_free(p);
             } else {
-                ctx.callback(ctx.user_data, null);
+                ctx.callback(ctx.user_data, null, null);
             }
             c.g_object_unref(f);
         } else {
-            ctx.callback(ctx.user_data, null);
+            ctx.callback(ctx.user_data, null, null);
         }
     } else {
         // Cancelled or closed
-        ctx.callback(ctx.user_data, null);
+        ctx.callback(ctx.user_data, null, null);
     }
 
     // Cleanup
@@ -93,6 +104,38 @@ pub fn showOpenDialog(
     c.gtk_widget_set_hexpand(chooser_widget, 1);
     c.gtk_widget_set_vexpand(chooser_widget, 1);
     c.gtk_box_append(@ptrCast(hbox), chooser_widget);
+
+    // Add "Open As" Choice
+    var options = [_][*c]const u8{
+        "auto",
+        "raw",
+        "pdf",
+        "svg",
+        "xcf",
+        "ora",
+        "ps",
+        "gegl",
+        null
+    };
+    var labels = [_][*c]const u8{
+        "Automatic (By Extension)",
+        "Camera RAW Data",
+        "PDF Document",
+        "SVG Image",
+        "GIMP XCF Image",
+        "OpenRaster Image",
+        "PostScript Document",
+        "GEGL Import (Generic)",
+        null
+    };
+
+    c.gtk_file_chooser_add_choice(
+        @ptrCast(chooser_widget),
+        "loader",
+        "Open As",
+        @ptrCast(&options),
+        @ptrCast(&labels)
+    );
 
     // Preview Column (VBox)
     const preview_box = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 10);
