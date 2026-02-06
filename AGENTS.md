@@ -18,6 +18,7 @@ Vimp is a GIMP-like application built with **Zig**, **GTK4**, and **GEGL**. It a
 *Strategies for verifying functionality.*
 
 - [Headless UI Testing](doc/testing.md) - Using Broadway + Playwright for E2E verification.
+- [Visual Feedback Guidelines](doc/testing_visual_feedback.md) - Guidelines for verifying rendering and UI interactions.
 - **Binary Execution**: Run `zig build run -- --help` to verify the binary executes and links correctly without runtime errors. Do this before committing code.
 
 ## 4. Documentation
