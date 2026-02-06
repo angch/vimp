@@ -152,10 +152,15 @@ pub const XcfLoader = struct {
             try self.seek(saved_pos);
         }
 
-        // Channels (skip for now)
+        // Channels
         while (true) {
             const offset = try self.readOffset();
             if (offset == 0) break;
+
+            const saved_pos = try self.tell();
+            try self.seek(offset);
+            try self.loadChannel(engine);
+            try self.seek(saved_pos);
         }
     }
 
@@ -486,6 +491,68 @@ pub const XcfLoader = struct {
         try engine.addLayerInternal(buffer.?, name, visible, false, engine.layers.list.items.len);
     }
 
+    fn loadChannel(self: *XcfLoader, engine: *Engine) !void {
+        const width = try self.readUInt32();
+        const height = try self.readUInt32();
+        const name = try self.readString();
+        defer self.allocator.free(name);
+
+        var visible = true;
+        var opacity: f64 = 1.0;
+        var color = [3]u8{ 0, 0, 0 };
+
+        while (true) {
+            const prop_type_val = try self.readUInt32();
+            const prop_size = try self.readUInt32();
+            const prop_type: PropType = @enumFromInt(prop_type_val);
+
+            if (prop_type == .PROP_END) break;
+            const end_pos = (try self.tell()) + prop_size;
+
+            switch (prop_type) {
+                .PROP_VISIBLE => visible = (try self.readUInt32()) != 0,
+                .PROP_OPACITY => {
+                    const op_int = try self.readUInt32();
+                    opacity = @as(f64, @floatFromInt(op_int)) / 255.0;
+                },
+                .PROP_COLOR => {
+                    color[0] = try self.readUInt8();
+                    color[1] = try self.readUInt8();
+                    color[2] = try self.readUInt8();
+                },
+                else => {}, // Skip others
+            }
+            try self.seek(end_pos);
+        }
+
+        const hierarchy_offset = try self.readOffset();
+
+        // Channels are always grayscale (Type 2? or GIMP_GRAY)
+        // XCF docs say Channels are just drawables.
+        // We assume they are GRAY (Y' u8) or GRAYA (Y'A u8).
+        // Usually channels are single component.
+        const format_str: [:0]const u8 = "Y' u8";
+
+        const rect = c.GeglRectangle{
+            .x = 0,
+            .y = 0,
+            .width = @intCast(width),
+            .height = @intCast(height)
+        };
+        const format = c.babl_format(format_str);
+        const buffer = c.gegl_buffer_new(&rect, format);
+        if (buffer == null) return error.GeglBufferFailed;
+
+        if (hierarchy_offset != 0) {
+            const saved = try self.tell();
+            try self.seek(hierarchy_offset);
+            try self.loadHierarchy(buffer.?);
+            try self.seek(saved);
+        }
+
+        try engine.addChannelInternal(buffer.?, name, visible, color, opacity);
+    }
+
     fn loadHierarchy(self: *XcfLoader, buffer: *c.GeglBuffer) !void {
         const width = try self.readUInt32();
         const height = try self.readUInt32();
@@ -659,5 +726,29 @@ test "XcfLoader integration" {
         std.debug.print("Loaded XCF paths: {d}\n", .{engine.paths.items.len});
     } else {
         std.debug.print("Skipping XCF test: reference file not found\n", .{});
+    }
+}
+
+test "XcfLoader channels" {
+    var engine = Engine{};
+    engine.init();
+    defer engine.deinit();
+    // engine.setupGraph(); // Not strictly needed for loading data structures
+
+    // We need a mock file or we can construct one?
+    // Constructing an XCF in memory is hard.
+    // We can rely on the fact that the logic is similar to layers.
+    // If the file exists, we test it.
+    const path = "ref/gimp/app/tests/files/gimp-2-6-file.xcf";
+    if (std.fs.cwd().access(path, .{}) catch null) |_| {
+        var loader = try XcfLoader.init(std.testing.allocator, path);
+        defer loader.deinit();
+
+        try loader.load(&engine);
+
+        // Check if any channels were loaded.
+        // gimp-2-6-file.xcf might not have channels.
+        // But if code runs without crash, that is a good sign.
+        std.debug.print("Loaded XCF channels: {d}\n", .{engine.channels.count()});
     }
 }

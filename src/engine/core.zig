@@ -1,6 +1,7 @@
 const std = @import("std");
 const c = @import("../c.zig").c;
 const LayersMod = @import("layers.zig");
+const ChannelsMod = @import("channels.zig");
 const HistoryMod = @import("history.zig");
 const TypesMod = @import("types.zig");
 const PaintMod = @import("paint.zig");
@@ -53,6 +54,7 @@ pub const Engine = struct {
     graph: ?*c.GeglNode = null,
     output_node: ?*c.GeglNode = null,
     layers: LayersMod.Layers = undefined,
+    channels: ChannelsMod.Channels = undefined,
 
     base_node: ?*c.GeglNode = null,
     composition_nodes: std.ArrayList(*c.GeglNode) = undefined,
@@ -128,6 +130,7 @@ pub const Engine = struct {
 
     fn initData(self: *Engine) void {
         self.layers = LayersMod.Layers.init(std.heap.c_allocator);
+        self.channels = ChannelsMod.Channels.init(std.heap.c_allocator);
         self.composition_nodes = std.ArrayList(*c.GeglNode){};
         self.history = HistoryMod.History.init(std.heap.c_allocator);
         self.paths = std.ArrayList(VectorPath){};
@@ -170,6 +173,7 @@ pub const Engine = struct {
 
         self.composition_nodes.deinit(std.heap.c_allocator);
         self.layers.deinit();
+        self.channels.deinit();
 
         if (self.graph) |g| {
             c.g_object_unref(g);
@@ -659,6 +663,10 @@ pub const Engine = struct {
     pub fn addLayerInternal(self: *Engine, buffer: *c.GeglBuffer, name: []const u8, visible: bool, locked: bool, index: usize) !void {
         try self.layers.add(self.graph, buffer, name, visible, locked, index);
         self.rebuildGraph();
+    }
+
+    pub fn addChannelInternal(self: *Engine, buffer: *c.GeglBuffer, name: []const u8, visible: bool, color: [3]u8, opacity: f64) !void {
+        try self.channels.add(buffer, name, visible, color, opacity);
     }
 
     pub fn addLayer(self: *Engine, name: []const u8) !void {
