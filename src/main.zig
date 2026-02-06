@@ -137,9 +137,6 @@ pub fn main() !void {
     _ = status;
 }
 
-
-
-
 fn show_toast(comptime fmt: []const u8, args: anytype) void {
     if (toast_overlay) |overlay| {
         const msg_z = std.fmt.allocPrintSentinel(std.heap.c_allocator, fmt, args, 0) catch return;
@@ -194,8 +191,6 @@ fn refresh_undo_ui() void {
         }
     }
 }
-
-
 
 // Drag State
 var is_dragging_interaction: bool = false;
@@ -1220,7 +1215,6 @@ fn convertRawAndOpen(path: [:0]const u8, as_layers: bool, add_to_recent: bool) v
         allocator.destroy(ctx);
     }
 }
-
 
 fn finish_file_open(path: [:0]const u8, as_layers: bool, success: bool, add_to_recent: bool) void {
     if (success and add_to_recent) {
@@ -2250,7 +2244,6 @@ fn refresh_recent_ui() void {
     }
 }
 
-
 fn autosave_callback(user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) c.gboolean {
     _ = user_data;
     if (engine.layers.items.len == 0) return 1; // Keep running but don't save empty
@@ -2709,6 +2702,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
         std.debug.print("Failed to create sidebar: {}\n", .{err});
         return;
     };
+    sidebar_ui.activateDefaultTool();
 
     // Set as sidebar in split view
     c.adw_overlay_split_view_set_sidebar(@ptrCast(split_view), sidebar_ui.widget);

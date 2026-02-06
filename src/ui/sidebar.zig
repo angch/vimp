@@ -115,6 +115,7 @@ pub const Sidebar = struct {
     undo_list_box: ?*c.GtkWidget = null,
     tool_options_panel: ?*ToolOptionsPanel = null,
     color_btn: ?*c.GtkWidget = null,
+    default_tool_btn: ?*c.GtkWidget = null,
 
     // Tool state
     active_selection_tool: Tool = .rect_select,
@@ -186,7 +187,7 @@ pub const Sidebar = struct {
         };
         const paint_group_btn = try self.createToolGroup(&self.active_paint_tool, &paint_entries, null);
         self.appendTool(tools_container, paint_group_btn, &tools_row_box, &tools_in_row);
-        c.gtk_toggle_button_set_active(@ptrCast(paint_group_btn), 1);
+        self.default_tool_btn = paint_group_btn;
 
         // Eraser
         const eraser_btn = self.createToolButton(&self.eraser_tool, Assets.eraser_png, null, "Eraser", @ptrCast(paint_group_btn));
@@ -325,6 +326,12 @@ pub const Sidebar = struct {
         self.undo_list_box = undo_list;
 
         return self;
+    }
+
+    pub fn activateDefaultTool(self: *Sidebar) void {
+        if (self.default_tool_btn) |btn| {
+            c.gtk_toggle_button_set_active(@ptrCast(btn), 1);
+        }
     }
 
     fn appendTool(self: *Sidebar, container: *c.GtkWidget, btn: *c.GtkWidget, row_ref: *?*c.GtkWidget, count_ref: *usize) void {
