@@ -25,7 +25,7 @@
     - [x] Extract Header construction to `src/ui/header.zig`.
 
 ## File Format Support (Priority: High)
-- [ ] **XCF:** Full layer/channel/path support (currently basic flattened load).
+- [ ] **XCF:** Full layer/channel/path support (Layers and Paths implemented, Channels pending).
 - [x] **PDF Import:** Support opening multiple pages as separate images (implemented via multi-process spawning).
 
 ## Input & Navigation (Priority: Medium)

@@ -54,6 +54,20 @@ pub const XcfLoader = struct {
         return @bitCast(val);
     }
 
+    fn readFloatArray(self: *XcfLoader, buf: []f32) !void {
+        var raw_buf = try self.allocator.alloc(u8, buf.len * 4);
+        defer self.allocator.free(raw_buf);
+
+        const n = try self.file.readAll(raw_buf);
+        if (n < raw_buf.len) return error.EndOfStream;
+
+        var i: usize = 0;
+        while (i < buf.len) : (i += 1) {
+            const val = std.mem.readInt(u32, raw_buf[i * 4 ..][0..4], .big);
+            buf[i] = @bitCast(val);
+        }
+    }
+
     fn readString(self: *XcfLoader) ![]u8 {
         const len = try self.readUInt32();
         if (len == 0) return try self.allocator.alloc(u8, 0);
@@ -125,7 +139,7 @@ pub const XcfLoader = struct {
         engine.setCanvasSizeInternal(@intCast(width), @intCast(height));
 
         // Read Properties
-        try self.readProps(null); // Image props
+        try self.readProps(engine, null); // Image props
 
         // Read Layer Offsets
         while (true) {
@@ -145,7 +159,7 @@ pub const XcfLoader = struct {
         }
     }
 
-    fn readProps(self: *XcfLoader, layer: ?*Engine.Layer) !void {
+    fn readProps(self: *XcfLoader, engine: *Engine, layer: ?*Engine.Layer) !void {
         while (true) {
             const prop_type_val = try self.readUInt32();
             const prop_size = try self.readUInt32();
@@ -187,7 +201,13 @@ pub const XcfLoader = struct {
                     self.compression = @enumFromInt(comp);
                 },
                 .PROP_MODE => {
-                     try self.seek(end_pos);
+                    try self.seek(end_pos);
+                },
+                .PROP_VECTORS => {
+                    try self.loadVectors(engine, prop_size);
+                },
+                .PROP_PATHS => {
+                    try self.loadOldPaths(engine, prop_size);
                 },
                 else => {
                     try self.seek(end_pos);
@@ -195,6 +215,207 @@ pub const XcfLoader = struct {
             }
             try self.seek(end_pos);
         }
+    }
+
+    fn loadVectors(self: *XcfLoader, engine: *Engine, prop_size: u32) !void {
+        const start_pos = try self.tell();
+        const end_pos = start_pos + prop_size;
+
+        const version = try self.readUInt32();
+        if (version != 1) {
+            try self.seek(end_pos);
+            return;
+        }
+
+        const active_index = try self.readUInt32();
+        _ = active_index;
+        const num_paths = try self.readUInt32();
+
+        var i: u32 = 0;
+        while (i < num_paths) : (i += 1) {
+            try self.loadVector(engine);
+        }
+
+        if ((try self.tell()) != end_pos) {
+            try self.seek(end_pos);
+        }
+    }
+
+    fn loadVector(self: *XcfLoader, engine: *Engine) !void {
+        const name = try self.readString();
+        const tattoo = try self.readUInt32();
+        _ = tattoo;
+        const visible = try self.readUInt32();
+        _ = visible;
+        const linked = try self.readUInt32();
+        _ = linked;
+        const num_parasites = try self.readUInt32();
+        const num_strokes = try self.readUInt32();
+
+        var j: u32 = 0;
+        while (j < num_parasites) : (j += 1) {
+            const p_name = try self.readString();
+            self.allocator.free(p_name);
+            const flags = try self.readUInt32();
+            _ = flags;
+            const size = try self.readUInt32();
+            try self.seek((try self.tell()) + size);
+        }
+
+        var path_str = std.ArrayList(u8){};
+        defer path_str.deinit(self.allocator);
+
+        j = 0;
+        while (j < num_strokes) : (j += 1) {
+            const stroke_type = try self.readUInt32();
+            const closed = try self.readUInt32();
+            const num_axes = try self.readUInt32();
+            const num_control_points = try self.readUInt32();
+
+            if (stroke_type == 1) {
+                var points = std.ArrayList(f32){};
+                defer points.deinit(self.allocator);
+
+                var pt_idx: u32 = 0;
+                while (pt_idx < num_control_points) : (pt_idx += 1) {
+                    const p_type = try self.readUInt32();
+                    _ = p_type;
+                    var coords: [6]f32 = undefined;
+                    if (num_axes > 6) return error.InvalidData;
+
+                    try self.readFloatArray(coords[0..num_axes]);
+                    try points.append(self.allocator, coords[0]);
+                    try points.append(self.allocator, coords[1]);
+                }
+
+                if (points.items.len >= 2) {
+                    try std.fmt.format(path_str.writer(self.allocator), "M {d} {d} ", .{ points.items[0], points.items[1] });
+
+                    var idx: usize = 2;
+                    while (idx + 5 < points.items.len) : (idx += 6) {
+                        try std.fmt.format(path_str.writer(self.allocator), "C {d} {d} {d} {d} {d} {d} ", .{
+                            points.items[idx],     points.items[idx + 1],
+                            points.items[idx + 2], points.items[idx + 3],
+                            points.items[idx + 4], points.items[idx + 5],
+                        });
+                    }
+                }
+
+                if (closed != 0) {
+                    try path_str.appendSlice(self.allocator, "Z ");
+                }
+            } else {
+                var k: u32 = 0;
+                while (k < num_control_points) : (k += 1) {
+                    _ = try self.readUInt32();
+                    try self.seek((try self.tell()) + num_axes * 4);
+                }
+            }
+        }
+
+        const path_z = try path_str.toOwnedSliceSentinel(self.allocator, 0);
+        defer self.allocator.free(path_z);
+
+        const gpath = c.gegl_path_new();
+        if (gpath) |gp| {
+            c.gegl_path_parse_string(gp, path_z.ptr);
+            const name_engine = try std.heap.c_allocator.dupe(u8, name);
+            try engine.paths.append(std.heap.c_allocator, .{
+                .name = name_engine,
+                .path = gp,
+            });
+        }
+        self.allocator.free(name);
+    }
+
+    fn loadOldPaths(self: *XcfLoader, engine: *Engine, prop_size: u32) !void {
+        const start_pos = try self.tell();
+        const end_pos = start_pos + prop_size;
+
+        const last_selected_row = try self.readUInt32();
+        _ = last_selected_row;
+        const num_paths = try self.readUInt32();
+
+        var i: u32 = 0;
+        while (i < num_paths) : (i += 1) {
+            try self.loadOldPath(engine);
+        }
+
+        if ((try self.tell()) != end_pos) {
+            try self.seek(end_pos);
+        }
+    }
+
+    fn loadOldPath(self: *XcfLoader, engine: *Engine) !void {
+        const name = try self.readString();
+        const locked = try self.readUInt32();
+        _ = locked;
+        const state = try self.readUInt8();
+        _ = state;
+        const closed = try self.readUInt32();
+        const num_points = try self.readUInt32();
+        const version = try self.readUInt32();
+
+        if (version == 2) {
+            _ = try self.readUInt32();
+        } else if (version == 3) {
+            _ = try self.readUInt32();
+            _ = try self.readUInt32();
+        }
+
+        var path_str = std.ArrayList(u8){};
+        defer path_str.deinit(self.allocator);
+
+        var points = std.ArrayList(f32){};
+        defer points.deinit(self.allocator);
+
+        var k: u32 = 0;
+        while (k < num_points) : (k += 1) {
+            const p_type = try self.readInt32();
+            _ = p_type;
+
+            var x: f32 = 0;
+            var y: f32 = 0;
+
+            if (version == 1) {
+                x = @floatFromInt(try self.readInt32());
+                y = @floatFromInt(try self.readInt32());
+            } else {
+                x = try self.readFloat();
+                y = try self.readFloat();
+            }
+            try points.append(self.allocator, x);
+            try points.append(self.allocator, y);
+        }
+
+        if (points.items.len >= 2) {
+            try std.fmt.format(path_str.writer(self.allocator), "M {d} {d} ", .{ points.items[0], points.items[1] });
+            var idx: usize = 2;
+            while (idx + 5 < points.items.len) : (idx += 6) {
+                try std.fmt.format(path_str.writer(self.allocator), "C {d} {d} {d} {d} {d} {d} ", .{
+                    points.items[idx],     points.items[idx + 1],
+                    points.items[idx + 2], points.items[idx + 3],
+                    points.items[idx + 4], points.items[idx + 5],
+                });
+            }
+        }
+        if (closed != 0) {
+            try path_str.appendSlice(self.allocator, "Z ");
+        }
+
+        const path_z = try path_str.toOwnedSliceSentinel(self.allocator, 0);
+        defer self.allocator.free(path_z);
+
+        const gpath = c.gegl_path_new();
+        if (gpath) |gp| {
+            c.gegl_path_parse_string(gp, path_z.ptr);
+            const name_engine = try std.heap.c_allocator.dupe(u8, name);
+            try engine.paths.append(std.heap.c_allocator, .{
+                .name = name_engine,
+                .path = gp,
+            });
+        }
+        self.allocator.free(name);
     }
 
     fn loadLayer(self: *XcfLoader, engine: *Engine) !void {
@@ -433,6 +654,9 @@ test "XcfLoader integration" {
         try loader.load(&engine);
 
         try std.testing.expect(engine.layers.items.len > 0);
+
+        // gimp-2-6-file.xcf might have paths. Let's print the count.
+        std.debug.print("Loaded XCF paths: {d}\n", .{engine.paths.items.len});
     } else {
         std.debug.print("Skipping XCF test: reference file not found\n", .{});
     }
