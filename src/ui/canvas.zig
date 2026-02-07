@@ -17,6 +17,8 @@ pub const Canvas = struct {
     osd_label: *c.GtkWidget,
     osd_revealer: *c.GtkWidget,
     transform_action_bar: *c.GtkWidget,
+    drop_revealer: *c.GtkWidget,
+    drop_label: *c.GtkWidget,
 
     // References
     engine: *Engine,
@@ -59,6 +61,8 @@ pub const Canvas = struct {
             .osd_label = undefined,
             .osd_revealer = undefined,
             .transform_action_bar = undefined,
+            .drop_revealer = undefined,
+            .drop_label = undefined,
             .engine = engine,
             .callbacks = callbacks,
         };
@@ -95,6 +99,33 @@ pub const Canvas = struct {
         c.gtk_box_append(@ptrCast(osd_box), osd_label);
 
         c.gtk_overlay_add_overlay(@ptrCast(overlay), osd_revealer);
+
+        // Drop Overlay
+        const drop_revealer = c.gtk_revealer_new();
+        self.drop_revealer = drop_revealer;
+        c.gtk_widget_set_valign(drop_revealer, c.GTK_ALIGN_CENTER);
+        c.gtk_widget_set_halign(drop_revealer, c.GTK_ALIGN_CENTER);
+        c.gtk_revealer_set_transition_type(@ptrCast(drop_revealer), c.GTK_REVEALER_TRANSITION_TYPE_CROSSFADE);
+        c.gtk_widget_set_can_target(drop_revealer, 0); // Allow clicks through
+
+        const drop_box = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 10);
+        c.gtk_widget_add_css_class(drop_box, "osd");
+        c.gtk_widget_set_margin_top(drop_box, 20);
+        c.gtk_widget_set_margin_bottom(drop_box, 20);
+        c.gtk_widget_set_margin_start(drop_box, 20);
+        c.gtk_widget_set_margin_end(drop_box, 20);
+        c.gtk_revealer_set_child(@ptrCast(drop_revealer), drop_box);
+
+        const drop_icon = c.gtk_image_new_from_icon_name("document-open-symbolic");
+        c.gtk_image_set_pixel_size(@ptrCast(drop_icon), 64);
+        c.gtk_box_append(@ptrCast(drop_box), drop_icon);
+
+        const drop_label = c.gtk_label_new("Drop Image Here");
+        self.drop_label = drop_label;
+        c.gtk_widget_add_css_class(drop_label, "title-1");
+        c.gtk_box_append(@ptrCast(drop_box), drop_label);
+
+        c.gtk_overlay_add_overlay(@ptrCast(overlay), drop_revealer);
 
         // Transform Action Bar
         const t_action_bar = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 10);
@@ -235,6 +266,17 @@ pub const Canvas = struct {
 
     pub fn updateTransformActionBar(self: *Canvas, is_transform_tool: bool) void {
         c.gtk_widget_set_visible(self.transform_action_bar, if (is_transform_tool) 1 else 0);
+    }
+
+    pub fn showDropOverlay(self: *Canvas, text: []const u8) void {
+        var buf: [128]u8 = undefined;
+        const slice = std.fmt.bufPrintZ(&buf, "{s}", .{text}) catch return;
+        c.gtk_label_set_text(@ptrCast(self.drop_label), slice.ptr);
+        c.gtk_revealer_set_reveal_child(@ptrCast(self.drop_revealer), 1);
+    }
+
+    pub fn hideDropOverlay(self: *Canvas) void {
+        c.gtk_revealer_set_reveal_child(@ptrCast(self.drop_revealer), 0);
     }
 
     // Callbacks implementation
