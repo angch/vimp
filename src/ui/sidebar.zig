@@ -2,17 +2,11 @@ const std = @import("std");
 const c = @import("../c.zig").c;
 const Engine = @import("../engine.zig").Engine;
 const Tool = @import("../tools.zig").Tool;
+const ToolFactory = @import("../tools.zig").ToolFactory;
 const ToolOptionsPanel = @import("../widgets/tool_options_panel.zig").ToolOptionsPanel;
 const ColorPalette = @import("../widgets/color_palette.zig").ColorPalette;
 const Assets = @import("../assets.zig");
 const RecentColorsManager = @import("../recent_colors.zig").RecentColorsManager;
-
-pub const ToolEntry = struct {
-    tool: Tool,
-    icon_data: ?[]const u8 = null,
-    icon_name: ?[:0]const u8 = null,
-    tooltip: [:0]const u8,
-};
 
 pub const SidebarCallbacks = struct {
     tool_toggled: c.GCallback,
@@ -24,9 +18,6 @@ const ToolGroupItemContext = struct {
     main_btn: *c.GtkWidget,
     active_tool_ref: *Tool,
     tool: Tool,
-    icon_data: ?[]const u8,
-    icon_name: ?[:0]const u8,
-    tooltip: [:0]const u8,
     popover: *c.GtkPopover,
     callback: c.GCallback,
 };
@@ -44,23 +35,23 @@ fn on_group_item_clicked(_: *c.GtkButton, user_data: ?*anyopaque) callconv(std.b
     ctx.active_tool_ref.* = ctx.tool;
 
     var img: *c.GtkWidget = undefined;
-    if (ctx.icon_data) |data| {
+    if (ToolFactory.getToolIconData(ctx.tool)) |data| {
         img = Assets.getIconWidget(data, 24);
-    } else if (ctx.icon_name) |name| {
-        img = c.gtk_image_new_from_icon_name(name);
-        c.gtk_widget_set_size_request(img, 24, 24);
     } else {
         img = c.gtk_image_new_from_icon_name("image-missing-symbolic");
         c.gtk_widget_set_size_request(img, 24, 24);
     }
 
     c.gtk_button_set_child(@ptrCast(ctx.main_btn), img);
-    c.gtk_widget_set_tooltip_text(ctx.main_btn, ctx.tooltip);
+
+    const tooltip = ToolFactory.getToolTooltip(ctx.tool);
+    c.gtk_widget_set_tooltip_text(ctx.main_btn, tooltip.ptr);
 
     const is_active = c.gtk_toggle_button_get_active(@ptrCast(ctx.main_btn)) != 0;
     if (!is_active) {
         c.gtk_toggle_button_set_active(@ptrCast(ctx.main_btn), 1);
     } else {
+        // Force update by calling the callback manually
         const FuncType = *const fn (*c.GtkToggleButton, ?*anyopaque) callconv(.c) void;
         const func: FuncType = @ptrCast(ctx.callback);
         func(@ptrCast(ctx.main_btn), ctx.active_tool_ref);
@@ -132,6 +123,7 @@ pub const Sidebar = struct {
     engine: *Engine,
     recent_colors_manager: *RecentColorsManager,
     callbacks: SidebarCallbacks,
+
     allocator: std.mem.Allocator,
 
     pub fn create(allocator: std.mem.Allocator, engine: *Engine, recent_colors_manager: *RecentColorsManager, callbacks: SidebarCallbacks, window: *c.GtkWindow) !*Sidebar {
@@ -160,59 +152,54 @@ pub const Sidebar = struct {
         var tools_row_box: ?*c.GtkWidget = null;
         var tools_in_row: usize = 0;
 
-        const paint_entries = [_]ToolEntry{
-            .{ .tool = .brush, .icon_data = Assets.brush_png, .tooltip = "Brush" },
-            .{ .tool = .pencil, .icon_data = Assets.pencil_png, .tooltip = "Pencil" },
-            .{ .tool = .airbrush, .icon_data = Assets.airbrush_png, .tooltip = "Airbrush" },
-        };
-        const paint_group_btn = try self.createToolGroup(&self.active_paint_tool, &paint_entries, null);
+        // Paint Group
+        const paint_tools = [_]Tool{ .brush, .pencil, .airbrush };
+        const paint_group_btn = try self.createToolGroup(&self.active_paint_tool, &paint_tools, null);
         self.appendTool(tools_container, paint_group_btn, &tools_row_box, &tools_in_row);
         self.default_tool_btn = paint_group_btn;
 
-        const eraser_btn = self.createToolButton(&self.eraser_tool, Assets.eraser_png, null, "Eraser", @ptrCast(paint_group_btn));
+        // Eraser
+        const eraser_btn = self.createToolButton(&self.eraser_tool, @ptrCast(paint_group_btn));
         self.appendTool(tools_container, eraser_btn, &tools_row_box, &tools_in_row);
 
-        const fill_btn = self.createToolButton(&self.bucket_fill_tool, Assets.bucket_png, null, "Bucket Fill", @ptrCast(paint_group_btn));
+        // Bucket Fill
+        const fill_btn = self.createToolButton(&self.bucket_fill_tool, @ptrCast(paint_group_btn));
         self.appendTool(tools_container, fill_btn, &tools_row_box, &tools_in_row);
 
-        const select_entries = [_]ToolEntry{
-            .{ .tool = .rect_select, .icon_data = Assets.rect_select_svg, .tooltip = "Rectangle Select" },
-            .{ .tool = .ellipse_select, .icon_data = Assets.ellipse_select_svg, .tooltip = "Ellipse Select" },
-            .{ .tool = .lasso, .icon_data = Assets.lasso_select_svg, .tooltip = "Lasso Select" },
-        };
-        const select_group_btn = try self.createToolGroup(&self.active_selection_tool, &select_entries, @ptrCast(paint_group_btn));
+        // Selection Group
+        const select_tools = [_]Tool{ .rect_select, .ellipse_select, .lasso };
+        const select_group_btn = try self.createToolGroup(&self.active_selection_tool, &select_tools, @ptrCast(paint_group_btn));
         self.appendTool(tools_container, select_group_btn, &tools_row_box, &tools_in_row);
 
-        const text_btn = self.createToolButton(&self.text_tool, Assets.text_svg, null, "Text Tool", @ptrCast(paint_group_btn));
+        // Text Tool
+        const text_btn = self.createToolButton(&self.text_tool, @ptrCast(paint_group_btn));
         self.appendTool(tools_container, text_btn, &tools_row_box, &tools_in_row);
 
-        const shape_entries = [_]ToolEntry{
-            .{ .tool = .rect_shape, .icon_data = Assets.rect_shape_svg, .tooltip = "Rectangle Tool" },
-            .{ .tool = .ellipse_shape, .icon_data = Assets.ellipse_shape_svg, .tooltip = "Ellipse Tool" },
-            .{ .tool = .rounded_rect_shape, .icon_data = Assets.rounded_rect_shape_svg, .tooltip = "Rounded Rectangle Tool" },
-            .{ .tool = .polygon, .icon_data = Assets.polygon_svg, .tooltip = "Polygon Tool" },
-        };
-        const shape_group_btn = try self.createToolGroup(&self.active_shape_tool, &shape_entries, @ptrCast(paint_group_btn));
+        // Shapes Group
+        const shape_tools = [_]Tool{ .rect_shape, .ellipse_shape, .rounded_rect_shape, .polygon };
+        const shape_group_btn = try self.createToolGroup(&self.active_shape_tool, &shape_tools, @ptrCast(paint_group_btn));
         self.appendTool(tools_container, shape_group_btn, &tools_row_box, &tools_in_row);
 
-        const transform_btn = self.createToolButton(&self.unified_transform_tool, Assets.transform_svg, null, "Unified Transform", @ptrCast(paint_group_btn));
+        // Unified Transform
+        const transform_btn = self.createToolButton(&self.unified_transform_tool, @ptrCast(paint_group_btn));
         self.appendTool(tools_container, transform_btn, &tools_row_box, &tools_in_row);
 
-        const picker_btn = self.createToolButton(&self.color_picker_tool, Assets.color_picker_svg, null, "Color Picker", @ptrCast(paint_group_btn));
+        // Color Picker
+        const picker_btn = self.createToolButton(&self.color_picker_tool, @ptrCast(paint_group_btn));
         self.appendTool(tools_container, picker_btn, &tools_row_box, &tools_in_row);
 
-        const gradient_btn = self.createToolButton(&self.gradient_tool, Assets.gradient_svg, null, "Gradient Tool", @ptrCast(paint_group_btn));
+        // Gradient Tool
+        const gradient_btn = self.createToolButton(&self.gradient_tool, @ptrCast(paint_group_btn));
         self.appendTool(tools_container, gradient_btn, &tools_row_box, &tools_in_row);
 
-        const line_entries = [_]ToolEntry{
-            .{ .tool = .line, .icon_data = Assets.line_svg, .tooltip = "Line Tool (Shift to snap)" },
-            .{ .tool = .curve, .icon_data = Assets.curve_svg, .tooltip = "Curve Tool (Drag Line -> Bend 1 -> Bend 2)" },
-        };
-        const line_group_btn = try self.createToolGroup(&self.active_line_tool, &line_entries, @ptrCast(paint_group_btn));
+        // Lines Group
+        const line_tools = [_]Tool{ .line, .curve };
+        const line_group_btn = try self.createToolGroup(&self.active_line_tool, &line_tools, @ptrCast(paint_group_btn));
         self.appendTool(tools_container, line_group_btn, &tools_row_box, &tools_in_row);
 
         c.gtk_box_append(@ptrCast(sidebar), c.gtk_separator_new(c.GTK_ORIENTATION_HORIZONTAL));
 
+        // Color Palette
         const palette = ColorPalette.create(engine, callbacks.palette_color_changed);
         c.gtk_box_append(@ptrCast(sidebar), palette);
 
@@ -305,54 +292,52 @@ pub const Sidebar = struct {
         count_ref.* += 1;
     }
 
-    fn createToolButton(self: *Sidebar, tool_val: *Tool, icon_data: ?[]const u8, icon_name: ?[:0]const u8, tooltip: [:0]const u8, group: ?*c.GtkToggleButton) *c.GtkWidget {
+    fn createToolButton(self: *Sidebar, tool_val: *Tool, group: ?*c.GtkToggleButton) *c.GtkWidget {
         const btn = if (group) |_| c.gtk_toggle_button_new() else c.gtk_toggle_button_new();
         if (group) |g| c.gtk_toggle_button_set_group(@ptrCast(btn), g);
 
         var img: *c.GtkWidget = undefined;
-        if (icon_data) |data| {
+        if (ToolFactory.getToolIconData(tool_val.*)) |data| {
             img = Assets.getIconWidget(data, 24);
-        } else if (icon_name) |name| {
-            img = c.gtk_image_new_from_icon_name(name);
-            c.gtk_widget_set_size_request(img, 24, 24);
         } else {
             img = c.gtk_image_new_from_icon_name("image-missing-symbolic");
             c.gtk_widget_set_size_request(img, 24, 24);
         }
 
         c.gtk_button_set_child(@ptrCast(btn), img);
-        c.gtk_widget_set_tooltip_text(btn, tooltip);
+
+        const tooltip = ToolFactory.getToolTooltip(tool_val.*);
+        c.gtk_widget_set_tooltip_text(btn, tooltip.ptr);
 
         _ = c.g_signal_connect_data(btn, "toggled", self.callbacks.tool_toggled, tool_val, null, 0);
         return btn;
     }
 
-    fn createToolGroup(self: *Sidebar, active_tool_ref: *Tool, entries: []const ToolEntry, group: ?*c.GtkToggleButton) !*c.GtkWidget {
+    fn createToolGroup(self: *Sidebar, active_tool_ref: *Tool, tools: []const Tool, group: ?*c.GtkToggleButton) !*c.GtkWidget {
         const btn = if (group) |_| c.gtk_toggle_button_new() else c.gtk_toggle_button_new();
         if (group) |g| c.gtk_toggle_button_set_group(@ptrCast(btn), g);
 
-        var current_entry: ?ToolEntry = null;
-        for (entries) |e| {
-            if (e.tool == active_tool_ref.*) {
-                current_entry = e;
+        // Set initial state
+        var current_tool: Tool = tools[0];
+        for (tools) |t| {
+            if (t == active_tool_ref.*) {
+                current_tool = t;
                 break;
             }
         }
-        if (current_entry == null) current_entry = entries[0];
 
         var img: *c.GtkWidget = undefined;
-        if (current_entry.?.icon_data) |data| {
+        if (ToolFactory.getToolIconData(current_tool)) |data| {
             img = Assets.getIconWidget(data, 24);
-        } else if (current_entry.?.icon_name) |name| {
-            img = c.gtk_image_new_from_icon_name(name);
-            c.gtk_widget_set_size_request(img, 24, 24);
         } else {
             img = c.gtk_image_new_from_icon_name("image-missing-symbolic");
             c.gtk_widget_set_size_request(img, 24, 24);
         }
 
         c.gtk_button_set_child(@ptrCast(btn), img);
-        c.gtk_widget_set_tooltip_text(btn, current_entry.?.tooltip);
+
+        const tooltip = ToolFactory.getToolTooltip(current_tool);
+        c.gtk_widget_set_tooltip_text(btn, tooltip.ptr);
 
         _ = c.g_signal_connect_data(btn, "toggled", self.callbacks.tool_toggled, active_tool_ref, null, 0);
 
@@ -366,21 +351,20 @@ pub const Sidebar = struct {
         c.gtk_widget_set_margin_end(grid, 5);
         c.gtk_popover_set_child(@ptrCast(popover), grid);
 
-        for (entries, 0..) |entry, i| {
+        for (tools, 0..) |t, i| {
             const item_btn = c.gtk_button_new();
             var item_img: *c.GtkWidget = undefined;
-            if (entry.icon_data) |data| {
+            if (ToolFactory.getToolIconData(t)) |data| {
                 item_img = Assets.getIconWidget(data, 24);
-            } else if (entry.icon_name) |name| {
-                item_img = c.gtk_image_new_from_icon_name(name);
-                c.gtk_widget_set_size_request(item_img, 24, 24);
             } else {
                 item_img = c.gtk_image_new_from_icon_name("image-missing-symbolic");
                 c.gtk_widget_set_size_request(item_img, 24, 24);
             }
 
             c.gtk_button_set_child(@ptrCast(item_btn), item_img);
-            c.gtk_widget_set_tooltip_text(item_btn, entry.tooltip);
+
+            const item_tooltip = ToolFactory.getToolTooltip(t);
+            c.gtk_widget_set_tooltip_text(item_btn, item_tooltip.ptr);
 
             const col = @as(c_int, @intCast(i % 3));
             const row = @as(c_int, @intCast(i / 3));
@@ -390,10 +374,7 @@ pub const Sidebar = struct {
             ctx.* = .{
                 .main_btn = btn,
                 .active_tool_ref = active_tool_ref,
-                .tool = entry.tool,
-                .icon_data = entry.icon_data,
-                .icon_name = entry.icon_name,
-                .tooltip = entry.tooltip,
+                .tool = t,
                 .popover = @ptrCast(popover),
                 .callback = self.callbacks.tool_toggled,
             };
