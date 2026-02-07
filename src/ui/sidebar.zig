@@ -16,16 +16,8 @@ pub const ToolEntry = struct {
 
 pub const SidebarCallbacks = struct {
     tool_toggled: c.GCallback,
-    color_changed: c.GCallback,
-    edit_colors_clicked: c.GCallback,
-    layer_selected: c.GCallback,
-    layer_add: c.GCallback,
-    layer_remove: c.GCallback,
-    layer_up: c.GCallback,
-    layer_down: c.GCallback,
-    queue_draw_fn: *const fn () void,
+    request_update: *const fn () void,
     palette_color_changed: *const fn () void,
-    rebuild_recent_colors: ?*const fn (?*anyopaque) callconv(.c) c.gboolean,
 };
 
 const ToolGroupItemContext = struct {
@@ -36,7 +28,7 @@ const ToolGroupItemContext = struct {
     icon_name: ?[:0]const u8,
     tooltip: [:0]const u8,
     popover: *c.GtkPopover,
-    callback: c.GCallback, // We need to store the callback to call it manually
+    callback: c.GCallback,
 };
 
 fn destroy_tool_group_item_context(data: ?*anyopaque, _: ?*c.GClosure) callconv(std.builtin.CallingConvention.c) void {
@@ -49,10 +41,8 @@ fn destroy_tool_group_item_context(data: ?*anyopaque, _: ?*c.GClosure) callconv(
 fn on_group_item_clicked(_: *c.GtkButton, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     const ctx: *ToolGroupItemContext = @ptrCast(@alignCast(user_data));
 
-    // 1. Update active tool ref
     ctx.active_tool_ref.* = ctx.tool;
 
-    // 2. Update Main Button Icon/Tooltip
     var img: *c.GtkWidget = undefined;
     if (ctx.icon_data) |data| {
         img = Assets.getIconWidget(data, 24);
@@ -67,20 +57,15 @@ fn on_group_item_clicked(_: *c.GtkButton, user_data: ?*anyopaque) callconv(std.b
     c.gtk_button_set_child(@ptrCast(ctx.main_btn), img);
     c.gtk_widget_set_tooltip_text(ctx.main_btn, ctx.tooltip);
 
-    // 3. Activate Main Button
     const is_active = c.gtk_toggle_button_get_active(@ptrCast(ctx.main_btn)) != 0;
     if (!is_active) {
         c.gtk_toggle_button_set_active(@ptrCast(ctx.main_btn), 1);
     } else {
-        // Force update by calling the callback manually
-        // The callback signature is (button, user_data)
-        // We cast it to the correct function pointer type
         const FuncType = *const fn (*c.GtkToggleButton, ?*anyopaque) callconv(.c) void;
         const func: FuncType = @ptrCast(ctx.callback);
         func(@ptrCast(ctx.main_btn), ctx.active_tool_ref);
     }
 
-    // 4. Hide Popover
     c.gtk_popover_popdown(ctx.popover);
 }
 
@@ -116,6 +101,7 @@ pub const Sidebar = struct {
     tool_options_panel: ?*ToolOptionsPanel = null,
     color_btn: ?*c.GtkWidget = null,
     default_tool_btn: ?*c.GtkWidget = null,
+    window: *c.GtkWindow,
 
     // Tool state
     active_selection_tool: Tool = .rect_select,
@@ -123,7 +109,7 @@ pub const Sidebar = struct {
     active_paint_tool: Tool = .brush,
     active_line_tool: Tool = .line,
 
-    // Tool constants (pointers used as user_data)
+    // Tool constants
     brush_tool: Tool = .brush,
     pencil_tool: Tool = .pencil,
     airbrush_tool: Tool = .airbrush,
@@ -143,12 +129,9 @@ pub const Sidebar = struct {
     line_tool: Tool = .line,
     curve_tool: Tool = .curve,
 
-    // Context references
     engine: *Engine,
     recent_colors_manager: *RecentColorsManager,
     callbacks: SidebarCallbacks,
-
-    // We need to store allocator to destroy if needed, though Sidebar usually lives for app duration
     allocator: std.mem.Allocator,
 
     pub fn create(allocator: std.mem.Allocator, engine: *Engine, recent_colors_manager: *RecentColorsManager, callbacks: SidebarCallbacks, window: *c.GtkWindow) !*Sidebar {
@@ -159,19 +142,17 @@ pub const Sidebar = struct {
             .recent_colors_manager = recent_colors_manager,
             .callbacks = callbacks,
             .allocator = allocator,
+            .window = window,
         };
 
-        // Sidebar (Left / Sidebar Pane)
         const sidebar = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 10);
         c.gtk_widget_set_size_request(sidebar, 160, -1);
         c.gtk_widget_add_css_class(sidebar, "sidebar");
         self.widget = sidebar;
 
-        // Tools Header
         const tools_label = c.gtk_label_new("Tools");
         c.gtk_box_append(@ptrCast(sidebar), tools_label);
 
-        // Tools Container
         const tools_container = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 5);
         c.gtk_widget_set_halign(tools_container, c.GTK_ALIGN_CENTER);
         c.gtk_box_append(@ptrCast(sidebar), tools_container);
@@ -179,7 +160,6 @@ pub const Sidebar = struct {
         var tools_row_box: ?*c.GtkWidget = null;
         var tools_in_row: usize = 0;
 
-        // Paint Group
         const paint_entries = [_]ToolEntry{
             .{ .tool = .brush, .icon_data = Assets.brush_png, .tooltip = "Brush" },
             .{ .tool = .pencil, .icon_data = Assets.pencil_png, .tooltip = "Pencil" },
@@ -189,15 +169,12 @@ pub const Sidebar = struct {
         self.appendTool(tools_container, paint_group_btn, &tools_row_box, &tools_in_row);
         self.default_tool_btn = paint_group_btn;
 
-        // Eraser
         const eraser_btn = self.createToolButton(&self.eraser_tool, Assets.eraser_png, null, "Eraser", @ptrCast(paint_group_btn));
         self.appendTool(tools_container, eraser_btn, &tools_row_box, &tools_in_row);
 
-        // Bucket Fill
         const fill_btn = self.createToolButton(&self.bucket_fill_tool, Assets.bucket_png, null, "Bucket Fill", @ptrCast(paint_group_btn));
         self.appendTool(tools_container, fill_btn, &tools_row_box, &tools_in_row);
 
-        // Selection Group
         const select_entries = [_]ToolEntry{
             .{ .tool = .rect_select, .icon_data = Assets.rect_select_svg, .tooltip = "Rectangle Select" },
             .{ .tool = .ellipse_select, .icon_data = Assets.ellipse_select_svg, .tooltip = "Ellipse Select" },
@@ -206,11 +183,9 @@ pub const Sidebar = struct {
         const select_group_btn = try self.createToolGroup(&self.active_selection_tool, &select_entries, @ptrCast(paint_group_btn));
         self.appendTool(tools_container, select_group_btn, &tools_row_box, &tools_in_row);
 
-        // Text Tool
         const text_btn = self.createToolButton(&self.text_tool, Assets.text_svg, null, "Text Tool", @ptrCast(paint_group_btn));
         self.appendTool(tools_container, text_btn, &tools_row_box, &tools_in_row);
 
-        // Shapes Group
         const shape_entries = [_]ToolEntry{
             .{ .tool = .rect_shape, .icon_data = Assets.rect_shape_svg, .tooltip = "Rectangle Tool" },
             .{ .tool = .ellipse_shape, .icon_data = Assets.ellipse_shape_svg, .tooltip = "Ellipse Tool" },
@@ -220,19 +195,15 @@ pub const Sidebar = struct {
         const shape_group_btn = try self.createToolGroup(&self.active_shape_tool, &shape_entries, @ptrCast(paint_group_btn));
         self.appendTool(tools_container, shape_group_btn, &tools_row_box, &tools_in_row);
 
-        // Unified Transform
         const transform_btn = self.createToolButton(&self.unified_transform_tool, Assets.transform_svg, null, "Unified Transform", @ptrCast(paint_group_btn));
         self.appendTool(tools_container, transform_btn, &tools_row_box, &tools_in_row);
 
-        // Color Picker
         const picker_btn = self.createToolButton(&self.color_picker_tool, Assets.color_picker_svg, null, "Color Picker", @ptrCast(paint_group_btn));
         self.appendTool(tools_container, picker_btn, &tools_row_box, &tools_in_row);
 
-        // Gradient Tool
         const gradient_btn = self.createToolButton(&self.gradient_tool, Assets.gradient_svg, null, "Gradient Tool", @ptrCast(paint_group_btn));
         self.appendTool(tools_container, gradient_btn, &tools_row_box, &tools_in_row);
 
-        // Lines Group
         const line_entries = [_]ToolEntry{
             .{ .tool = .line, .icon_data = Assets.line_svg, .tooltip = "Line Tool (Shift to snap)" },
             .{ .tool = .curve, .icon_data = Assets.curve_svg, .tooltip = "Curve Tool (Drag Line -> Bend 1 -> Bend 2)" },
@@ -240,20 +211,11 @@ pub const Sidebar = struct {
         const line_group_btn = try self.createToolGroup(&self.active_line_tool, &line_entries, @ptrCast(paint_group_btn));
         self.appendTool(tools_container, line_group_btn, &tools_row_box, &tools_in_row);
 
-        // Separator
         c.gtk_box_append(@ptrCast(sidebar), c.gtk_separator_new(c.GTK_ORIENTATION_HORIZONTAL));
 
-        // Color Palette
-        // We need a wrapper callback for update_color_btn_visual.
-        // Actually ColorPalette expects `*const fn () void`.
-        // We can pass a wrapper that calls self.updateColorButton() but we need a closure or global.
-        // Since we are moving `update_color_btn_visual` to Sidebar, ColorPalette needs to be updated or we provide a static wrapper.
-        // But ColorPalette interface is simple function pointer.
-        // For now, let's pass the one from callbacks.
         const palette = ColorPalette.create(engine, callbacks.palette_color_changed);
         c.gtk_box_append(@ptrCast(sidebar), palette);
 
-        // Color Selection & Edit
         const color_box = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 5);
         c.gtk_widget_set_halign(color_box, c.GTK_ALIGN_CENTER);
         c.gtk_box_append(@ptrCast(sidebar), color_box);
@@ -263,24 +225,21 @@ pub const Sidebar = struct {
         c.gtk_box_append(@ptrCast(color_box), color_btn);
 
         const edit_colors_btn = c.gtk_button_new_with_mnemonic("_Edit Colors");
-        _ = c.g_signal_connect_data(edit_colors_btn, "clicked", callbacks.edit_colors_clicked, window, null, 0);
+        _ = c.g_signal_connect_data(edit_colors_btn, "clicked", @ptrCast(&on_edit_colors_clicked), self, null, 0);
         c.gtk_box_append(@ptrCast(color_box), edit_colors_btn);
 
-        // Tool Options Panel
-        const tool_options_panel = ToolOptionsPanel.create(engine, callbacks.queue_draw_fn);
+        const tool_options_panel = ToolOptionsPanel.create(engine, callbacks.request_update);
         self.tool_options_panel = tool_options_panel;
         c.gtk_box_append(@ptrCast(sidebar), tool_options_panel.widget());
-        // Initialize with default tool (Brush)
         tool_options_panel.update(.brush);
 
-        // Layers Section
         c.gtk_box_append(@ptrCast(sidebar), c.gtk_separator_new(c.GTK_ORIENTATION_HORIZONTAL));
         c.gtk_box_append(@ptrCast(sidebar), c.gtk_label_new("Layers"));
 
         const layers_list = c.gtk_list_box_new();
         c.gtk_widget_set_vexpand(layers_list, 1);
         c.gtk_list_box_set_selection_mode(@ptrCast(layers_list), c.GTK_SELECTION_SINGLE);
-        _ = c.g_signal_connect_data(layers_list, "row-selected", callbacks.layer_selected, null, null, 0);
+        _ = c.g_signal_connect_data(layers_list, "row-selected", @ptrCast(&on_layer_selected), self, null, 0);
 
         const scrolled = c.gtk_scrolled_window_new();
         c.gtk_scrolled_window_set_child(@ptrCast(scrolled), layers_list);
@@ -295,24 +254,23 @@ pub const Sidebar = struct {
         const add_layer_btn = c.gtk_button_new_from_icon_name("list-add-symbolic");
         c.gtk_widget_set_tooltip_text(add_layer_btn, "Add Layer");
         c.gtk_box_append(@ptrCast(layers_btns), add_layer_btn);
-        _ = c.g_signal_connect_data(add_layer_btn, "clicked", callbacks.layer_add, null, null, 0);
+        _ = c.g_signal_connect_data(add_layer_btn, "clicked", @ptrCast(&on_layer_add), self, null, 0);
 
         const remove_layer_btn = c.gtk_button_new_from_icon_name("list-remove-symbolic");
         c.gtk_widget_set_tooltip_text(remove_layer_btn, "Remove Layer");
         c.gtk_box_append(@ptrCast(layers_btns), remove_layer_btn);
-        _ = c.g_signal_connect_data(remove_layer_btn, "clicked", callbacks.layer_remove, null, null, 0);
+        _ = c.g_signal_connect_data(remove_layer_btn, "clicked", @ptrCast(&on_layer_remove), self, null, 0);
 
         const up_layer_btn = c.gtk_button_new_from_icon_name("go-up-symbolic");
         c.gtk_widget_set_tooltip_text(up_layer_btn, "Move Up");
         c.gtk_box_append(@ptrCast(layers_btns), up_layer_btn);
-        _ = c.g_signal_connect_data(up_layer_btn, "clicked", callbacks.layer_up, null, null, 0);
+        _ = c.g_signal_connect_data(up_layer_btn, "clicked", @ptrCast(&on_layer_up), self, null, 0);
 
         const down_layer_btn = c.gtk_button_new_from_icon_name("go-down-symbolic");
         c.gtk_widget_set_tooltip_text(down_layer_btn, "Move Down");
         c.gtk_box_append(@ptrCast(layers_btns), down_layer_btn);
-        _ = c.g_signal_connect_data(down_layer_btn, "clicked", callbacks.layer_down, null, null, 0);
+        _ = c.g_signal_connect_data(down_layer_btn, "clicked", @ptrCast(&on_layer_down), self, null, 0);
 
-        // Undo History Section
         c.gtk_box_append(@ptrCast(sidebar), c.gtk_separator_new(c.GTK_ORIENTATION_HORIZONTAL));
         c.gtk_box_append(@ptrCast(sidebar), c.gtk_label_new("Undo History"));
 
@@ -373,7 +331,6 @@ pub const Sidebar = struct {
         const btn = if (group) |_| c.gtk_toggle_button_new() else c.gtk_toggle_button_new();
         if (group) |g| c.gtk_toggle_button_set_group(@ptrCast(btn), g);
 
-        // Set initial state
         var current_entry: ?ToolEntry = null;
         for (entries) |e| {
             if (e.tool == active_tool_ref.*) {
@@ -399,7 +356,6 @@ pub const Sidebar = struct {
 
         _ = c.g_signal_connect_data(btn, "toggled", self.callbacks.tool_toggled, active_tool_ref, null, 0);
 
-        // Popover
         const popover = c.gtk_popover_new();
         const grid = c.gtk_grid_new();
         c.gtk_grid_set_row_spacing(@ptrCast(grid), 5);
@@ -462,7 +418,7 @@ pub const Sidebar = struct {
             c.gtk_color_chooser_add_palette(
                 chooser,
                 c.GTK_ORIENTATION_HORIZONTAL,
-                5, // colors per line
+                5,
                 @intCast(self.recent_colors_manager.colors.items.len),
                 self.recent_colors_manager.colors.items.ptr,
             );
@@ -474,7 +430,7 @@ pub const Sidebar = struct {
         c.gtk_widget_set_valign(btn, c.GTK_ALIGN_START);
         c.gtk_widget_set_halign(btn, c.GTK_ALIGN_CENTER);
 
-        _ = c.g_signal_connect_data(btn, "color-set", self.callbacks.color_changed, null, null, 0);
+        _ = c.g_signal_connect_data(btn, "color-set", @ptrCast(&on_color_changed), self, null, 0);
 
         self.populateRecentColors(@ptrCast(btn));
         return btn;
@@ -488,10 +444,8 @@ pub const Sidebar = struct {
 
         c.gtk_box_remove(@ptrCast(parent), self.color_btn.?);
 
-        // Recreate button
         self.color_btn = self.createColorButton();
 
-        // Restore color from engine
         const fg = self.engine.fg_color;
         const rgba = c.GdkRGBA{
             .red = @as(f32, @floatFromInt(fg[0])) / 255.0,
@@ -503,7 +457,6 @@ pub const Sidebar = struct {
 
         c.gtk_box_prepend(@ptrCast(parent), self.color_btn.?);
 
-        // Restore focus
         _ = c.gtk_widget_grab_focus(self.color_btn.?);
     }
 
@@ -519,4 +472,217 @@ pub const Sidebar = struct {
             c.gtk_color_chooser_set_rgba(@ptrCast(btn), &rgba);
         }
     }
+
+    // --- Logic previously in main.zig ---
+
+    pub fn refreshLayers(self: *Sidebar) void {
+        if (self.layers_list_box) |box| {
+            var child = c.gtk_widget_get_first_child(@ptrCast(box));
+            while (child != null) {
+                const next = c.gtk_widget_get_next_sibling(child);
+                c.gtk_list_box_remove(@ptrCast(box), child);
+                child = next;
+            }
+
+            var i: usize = self.engine.layers.list.items.len;
+            while (i > 0) {
+                i -= 1;
+                const idx = i;
+                const layer = &self.engine.layers.list.items[idx];
+
+                const row = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 5);
+
+                const vis_check = c.gtk_check_button_new();
+                c.gtk_check_button_set_active(@ptrCast(vis_check), if (layer.visible) 1 else 0);
+                c.gtk_widget_set_tooltip_text(vis_check, "Visible");
+                c.g_object_set_data(@ptrCast(vis_check), "layer-index", @ptrFromInt(idx));
+                _ = c.g_signal_connect_data(vis_check, "toggled", @ptrCast(&on_layer_visibility_toggled), self, null, 0);
+                c.gtk_box_append(@ptrCast(row), vis_check);
+
+                const lock_check = c.gtk_check_button_new();
+                c.gtk_check_button_set_active(@ptrCast(lock_check), if (layer.locked) 1 else 0);
+                c.gtk_widget_set_tooltip_text(lock_check, "Lock");
+                c.g_object_set_data(@ptrCast(lock_check), "layer-index", @ptrFromInt(idx));
+                _ = c.g_signal_connect_data(lock_check, "toggled", @ptrCast(&on_layer_lock_toggled), self, null, 0);
+                c.gtk_box_append(@ptrCast(row), lock_check);
+
+                const name_span = std.mem.span(@as([*:0]const u8, @ptrCast(&layer.name)));
+                const label = c.gtk_label_new(name_span.ptr);
+                c.gtk_widget_set_hexpand(label, 1);
+                c.gtk_widget_set_halign(label, c.GTK_ALIGN_START);
+                c.gtk_box_append(@ptrCast(row), label);
+
+                c.gtk_list_box_insert(@ptrCast(box), row, -1);
+                if (idx == self.engine.layers.active_index) {
+                     const list_row = c.gtk_widget_get_parent(row);
+                     if (list_row) |lr| {
+                         c.gtk_list_box_select_row(@ptrCast(box), @ptrCast(lr));
+                     }
+                }
+            }
+        }
+    }
+
+    pub fn refreshUndo(self: *Sidebar) void {
+        if (self.undo_list_box) |box| {
+            var child = c.gtk_widget_get_first_child(@ptrCast(box));
+            while (child != null) {
+                const next = c.gtk_widget_get_next_sibling(child);
+                c.gtk_list_box_remove(@ptrCast(box), child);
+                child = next;
+            }
+
+            for (self.engine.history.undo_stack.items) |cmd| {
+                const desc = cmd.description();
+                const label = c.gtk_label_new(desc);
+                c.gtk_widget_set_halign(label, c.GTK_ALIGN_START);
+                c.gtk_widget_set_margin_start(label, 5);
+                c.gtk_list_box_insert(@ptrCast(box), label, -1);
+            }
+        }
+    }
+
+    fn rebuild_recent_colors_wrapper(_: ?*anyopaque) callconv(std.builtin.CallingConvention.c) c.gboolean {
+         // We cannot easily get self here unless we pass it.
+         // But g_idle_add takes user_data.
+         return 0; // Handled in specific functions
+    }
 };
+
+fn rebuild_recent_colors_idle(user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) c.gboolean {
+    const self: *Sidebar = @ptrCast(@alignCast(user_data));
+    self.rebuildRecentColors();
+    return 0;
+}
+
+fn on_color_changed(button: *c.GtkColorButton, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const self: *Sidebar = @ptrCast(@alignCast(user_data));
+    var rgba: c.GdkRGBA = undefined;
+    c.gtk_color_chooser_get_rgba(@ptrCast(button), &rgba);
+
+    const r: u8 = @intFromFloat(rgba.red * 255.0);
+    const g: u8 = @intFromFloat(rgba.green * 255.0);
+    const b: u8 = @intFromFloat(rgba.blue * 255.0);
+    const a: u8 = @intFromFloat(rgba.alpha * 255.0);
+
+    self.engine.setFgColor(r, g, b, a);
+    self.recent_colors_manager.add(rgba) catch {};
+    _ = c.g_idle_add(@ptrCast(&rebuild_recent_colors_idle), self);
+}
+
+fn on_edit_colors_response(dialog: *c.GtkDialog, response_id: c_int, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const self: *Sidebar = @ptrCast(@alignCast(user_data));
+    if (response_id == c.GTK_RESPONSE_OK) {
+        var rgba: c.GdkRGBA = undefined;
+        c.gtk_color_chooser_get_rgba(@ptrCast(dialog), &rgba);
+
+        const r: u8 = @intFromFloat(rgba.red * 255.0);
+        const g: u8 = @intFromFloat(rgba.green * 255.0);
+        const b: u8 = @intFromFloat(rgba.blue * 255.0);
+        const a: u8 = @intFromFloat(rgba.alpha * 255.0);
+
+        self.engine.setFgColor(r, g, b, a);
+        self.recent_colors_manager.add(rgba) catch {};
+        _ = c.g_idle_add(@ptrCast(&rebuild_recent_colors_idle), self);
+    }
+    c.gtk_window_destroy(@ptrCast(dialog));
+}
+
+fn on_edit_colors_clicked(_: *c.GtkButton, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const self: *Sidebar = @ptrCast(@alignCast(user_data));
+    const dialog = c.gtk_color_chooser_dialog_new("Edit Colors", self.window);
+    if (self.recent_colors_manager.colors.items.len > 0) {
+        c.gtk_color_chooser_add_palette(
+            @ptrCast(dialog),
+            c.GTK_ORIENTATION_HORIZONTAL,
+            5,
+            @intCast(self.recent_colors_manager.colors.items.len),
+            self.recent_colors_manager.colors.items.ptr,
+        );
+    }
+    c.gtk_color_chooser_set_use_alpha(@ptrCast(dialog), 1);
+
+    const fg = self.engine.fg_color;
+    const rgba = c.GdkRGBA{
+        .red = @as(f32, @floatFromInt(fg[0])) / 255.0,
+        .green = @as(f32, @floatFromInt(fg[1])) / 255.0,
+        .blue = @as(f32, @floatFromInt(fg[2])) / 255.0,
+        .alpha = @as(f32, @floatFromInt(fg[3])) / 255.0,
+    };
+    c.gtk_color_chooser_set_rgba(@ptrCast(dialog), &rgba);
+
+    _ = c.g_signal_connect_data(dialog, "response", @ptrCast(&on_edit_colors_response), self, null, 0);
+    c.gtk_window_present(@ptrCast(dialog));
+}
+
+fn on_layer_selected(_: *c.GtkListBox, row: ?*c.GtkListBoxRow, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const self: *Sidebar = @ptrCast(@alignCast(user_data));
+    if (row) |r| {
+        const index_in_list = c.gtk_list_box_row_get_index(r);
+        if (index_in_list >= 0) {
+            const k: usize = @intCast(index_in_list);
+            if (k < self.engine.layers.list.items.len) {
+                // List is reversed (top layer first)
+                const layer_idx = self.engine.layers.list.items.len - 1 - k;
+                self.engine.setActiveLayer(layer_idx);
+            }
+        }
+    }
+}
+
+fn on_layer_add(_: *c.GtkButton, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const self: *Sidebar = @ptrCast(@alignCast(user_data));
+    self.engine.addLayer("New Layer") catch return;
+    self.refreshLayers();
+    self.refreshUndo();
+    self.callbacks.request_update();
+}
+
+fn on_layer_remove(_: *c.GtkButton, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const self: *Sidebar = @ptrCast(@alignCast(user_data));
+    if (self.engine.layers.list.items.len > 0) {
+        self.engine.removeLayer(self.engine.layers.active_index);
+        self.refreshLayers();
+        self.refreshUndo();
+        self.callbacks.request_update();
+    }
+}
+
+fn on_layer_up(_: *c.GtkButton, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const self: *Sidebar = @ptrCast(@alignCast(user_data));
+    const idx = self.engine.layers.active_index;
+    if (idx + 1 < self.engine.layers.list.items.len) {
+        self.engine.reorderLayer(idx, idx + 1);
+        self.refreshLayers();
+        self.refreshUndo();
+        self.callbacks.request_update();
+    }
+}
+
+fn on_layer_down(_: *c.GtkButton, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const self: *Sidebar = @ptrCast(@alignCast(user_data));
+    const idx = self.engine.layers.active_index;
+    if (idx > 0) {
+        self.engine.reorderLayer(idx, idx - 1);
+        self.refreshLayers();
+        self.refreshUndo();
+        self.callbacks.request_update();
+    }
+}
+
+fn on_layer_visibility_toggled(btn: *c.GtkCheckButton, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const self: *Sidebar = @ptrCast(@alignCast(user_data));
+    const idx_ptr = c.g_object_get_data(@ptrCast(btn), "layer-index");
+    const idx: usize = @intFromPtr(idx_ptr);
+    self.engine.toggleLayerVisibility(idx);
+    self.callbacks.request_update();
+    self.refreshUndo();
+}
+
+fn on_layer_lock_toggled(btn: *c.GtkCheckButton, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const self: *Sidebar = @ptrCast(@alignCast(user_data));
+    const idx_ptr = c.g_object_get_data(@ptrCast(btn), "layer-index");
+    const idx: usize = @intFromPtr(idx_ptr);
+    self.engine.toggleLayerLock(idx);
+    self.refreshUndo();
+}
