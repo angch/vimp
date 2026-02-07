@@ -34,6 +34,7 @@
 - [x] **Refactor UI - Split Main:** Decompose `src/main.zig` UI construction.
     - [x] Extract Sidebar construction to `src/ui/sidebar.zig`.
     - [x] Extract Header construction to `src/ui/header.zig`.
+    - [x] Encapsulate Sidebar internal logic (Layers/Undo list management) within `src/ui/sidebar.zig`.
 
 ## File Format Support (Priority: Medium)
 - [x] **XCF:** Full layer/channel/path support (Layers, Channels, and Paths implemented).
@@ -62,7 +63,7 @@
 - [x] **Implement Visual Regression Testing:**
     - Capture canvas output (via `gegl:save` or `gdk_texture_download`) and compare against baseline images.
     - Essential for verifying rendering correctness of GEGL graph operations.
-- [ ] **UI Analysis & Feedback Tools:**
-    - Integrate `GtkInspector` (accessible via Ctrl+Shift+I or `GTK_DEBUG=interactive`) for runtime widget analysis.
-    - Use `Accerciser` to audit the accessibility tree and verify `ATK_RELATION_LABEL_FOR` properties.
+- [x] **UI Analysis & Feedback Tools:**
+    - Integrate `GtkInspector` (accessible via Ctrl+Shift+I or `GTK_DEBUG=interactive`, and `--inspector` CLI flag).
+    - Use `Accerciser` to audit the accessibility tree and verify `ATK_RELATION_LABEL_FOR` properties (Evaluated - usage requires GUI environment).
 - [x] **Evaluate Visual Feedback Guidelines:** Documented in `doc/testing_visual_feedback.md`.

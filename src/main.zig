@@ -57,6 +57,9 @@ fn handle_local_options(
     if (c.g_variant_dict_lookup(options, "page", "i", &page) != 0) {
         cli_page_number = page;
     }
+    if (c.g_variant_dict_contains(options, "inspector") != 0) {
+        c.gtk_window_set_interactive_debugging(1);
+    }
     return -1; // Continue default processing
 }
 
@@ -105,6 +108,15 @@ pub fn main() !void {
             .arg_data = null,
             .description = "Page number to open (PDF)",
             .arg_description = "PAGE",
+        },
+        .{
+            .long_name = "inspector",
+            .short_name = 'i',
+            .flags = 0,
+            .arg = c.G_OPTION_ARG_NONE,
+            .arg_data = null,
+            .description = "Launch with GtkInspector enabled",
+            .arg_description = null,
         },
         .{
             .long_name = null,
@@ -162,25 +174,8 @@ fn update_view_mode() void {
     }
 }
 
-fn refresh_undo_ui() void {
-    if (sidebar_ui.undo_list_box) |box| {
-        // Clear children
-        var child = c.gtk_widget_get_first_child(@ptrCast(box));
-        while (child != null) {
-            const next = c.gtk_widget_get_next_sibling(child);
-            c.gtk_list_box_remove(@ptrCast(box), child);
-            child = next;
-        }
-
-        // Add undo commands
-        for (engine.history.undo_stack.items) |cmd| {
-            const desc = cmd.description();
-            const label = c.gtk_label_new(desc);
-            c.gtk_widget_set_halign(label, c.GTK_ALIGN_START);
-            c.gtk_widget_set_margin_start(label, 5);
-            c.gtk_list_box_insert(@ptrCast(box), label, -1);
-        }
-    }
+fn refresh_undo_ui_wrapper() void {
+    sidebar_ui.refreshUndo();
 }
 
 fn reset_transform_ui_wrapper() void {
@@ -193,8 +188,8 @@ fn new_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(
         show_toast("Failed to add layer: {}", .{err});
         return;
     };
-    refresh_layers_ui();
-    refresh_undo_ui();
+    sidebar_ui.refreshLayers();
+    sidebar_ui.refreshUndo();
     update_view_mode();
     if (canvas_ui) |ui| ui.canvas_dirty = true;
     queue_draw();
@@ -445,8 +440,8 @@ fn finish_file_open(path: [:0]const u8, as_layers: bool, success: bool, add_to_r
     }
 
     // Refresh UI
-    refresh_layers_ui();
-    refresh_undo_ui();
+    sidebar_ui.refreshLayers();
+    sidebar_ui.refreshUndo();
     update_view_mode();
     if (canvas_ui) |ui| ui.canvas_dirty = true;
     queue_draw();
@@ -899,8 +894,8 @@ fn salvage_activated(_: *c.GSimpleAction, parameter: ?*c.GVariant, _: ?*anyopaqu
             return;
         };
 
-        refresh_layers_ui();
-        refresh_undo_ui();
+        sidebar_ui.refreshLayers();
+        sidebar_ui.refreshUndo();
         update_view_mode();
         if (canvas_ui) |ui| ui.canvas_dirty = true;
         queue_draw();
@@ -911,20 +906,20 @@ fn salvage_activated(_: *c.GSimpleAction, parameter: ?*c.GVariant, _: ?*anyopaqu
 
 fn undo_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     engine.undo();
-    refresh_layers_ui(); // Layers might change
+    sidebar_ui.refreshLayers(); // Layers might change
     update_view_mode();
     if (canvas_ui) |ui| ui.canvas_dirty = true;
     queue_draw();
-    refresh_undo_ui();
+    sidebar_ui.refreshUndo();
 }
 
 fn redo_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     engine.redo();
-    refresh_layers_ui(); // Layers might change
+    sidebar_ui.refreshLayers(); // Layers might change
     update_view_mode();
     if (canvas_ui) |ui| ui.canvas_dirty = true;
     queue_draw();
-    refresh_undo_ui();
+    sidebar_ui.refreshUndo();
 }
 
 fn refresh_header_ui() void {
@@ -955,447 +950,9 @@ fn blur_large_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) ca
 
 fn refresh_ui_callback() void {
     refresh_header_ui();
-    refresh_undo_ui();
+    sidebar_ui.refreshUndo();
     if (canvas_ui) |ui| ui.canvas_dirty = true;
     queue_draw();
-}
-
-fn pixelize_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
-    FilterDialog.showPixelizeDialog(window, &engine, &refresh_ui_callback);
-}
-
-fn motion_blur_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
-    FilterDialog.showMotionBlurDialog(window, &engine, &refresh_ui_callback);
-}
-
-fn unsharp_mask_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
-    FilterDialog.showUnsharpMaskDialog(window, &engine, &refresh_ui_callback);
-}
-
-fn noise_reduction_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
-    FilterDialog.showNoiseReductionDialog(window, &engine, &refresh_ui_callback);
-}
-
-fn oilify_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
-    FilterDialog.showOilifyDialog(window, &engine, &refresh_ui_callback);
-}
-
-fn drop_shadow_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
-    FilterDialog.showDropShadowDialog(window, &engine, &refresh_ui_callback);
-}
-
-fn red_eye_removal_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
-    FilterDialog.showRedEyeRemovalDialog(window, &engine, &refresh_ui_callback);
-}
-
-fn waves_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
-    FilterDialog.showWavesDialog(window, &engine, &refresh_ui_callback);
-}
-
-fn supernova_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
-    FilterDialog.showSupernovaDialog(window, &engine, &refresh_ui_callback);
-}
-
-fn lighting_effects_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
-    FilterDialog.showLightingDialog(window, &engine, &refresh_ui_callback);
-}
-
-fn stretch_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
-    FilterDialog.showStretchSkewDialog(window, &engine, &refresh_ui_callback);
-}
-
-fn apply_preview_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    engine.commitPreview() catch |err| {
-        show_toast("Commit preview failed: {}", .{err});
-    };
-    refresh_header_ui();
-    if (canvas_ui) |ui| ui.canvas_dirty = true;
-    queue_draw();
-    refresh_undo_ui();
-}
-
-fn discard_preview_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    engine.cancelPreview();
-    refresh_header_ui();
-    if (canvas_ui) |ui| ui.canvas_dirty = true;
-    queue_draw();
-}
-
-fn invert_colors_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    engine.invertColors() catch |err| {
-        show_toast("Invert colors failed: {}", .{err});
-        return;
-    };
-    refresh_undo_ui();
-    if (canvas_ui) |ui| ui.canvas_dirty = true;
-    queue_draw();
-}
-
-fn clear_image_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    engine.clearActiveLayer() catch |err| {
-        show_toast("Clear image failed: {}", .{err});
-        return;
-    };
-    refresh_undo_ui();
-    if (canvas_ui) |ui| ui.canvas_dirty = true;
-    queue_draw();
-}
-
-fn flip_horizontal_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    engine.flipHorizontal() catch |err| {
-        show_toast("Flip horizontal failed: {}", .{err});
-        return;
-    };
-    refresh_undo_ui();
-    if (canvas_ui) |ui| ui.canvas_dirty = true;
-    queue_draw();
-}
-
-fn flip_vertical_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    engine.flipVertical() catch |err| {
-        show_toast("Flip vertical failed: {}", .{err});
-        return;
-    };
-    refresh_undo_ui();
-    if (canvas_ui) |ui| ui.canvas_dirty = true;
-    queue_draw();
-}
-
-fn rotate_90_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    engine.rotate90() catch |err| {
-        show_toast("Rotate 90 failed: {}", .{err});
-        return;
-    };
-    refresh_undo_ui();
-    if (canvas_ui) |ui| ui.canvas_dirty = true;
-    queue_draw();
-}
-
-fn rotate_180_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    engine.rotate180() catch |err| {
-        show_toast("Rotate 180 failed: {}", .{err});
-        return;
-    };
-    refresh_undo_ui();
-    if (canvas_ui) |ui| ui.canvas_dirty = true;
-    queue_draw();
-}
-
-fn rotate_270_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    engine.rotate270() catch |err| {
-        show_toast("Rotate 270 failed: {}", .{err});
-        return;
-    };
-    refresh_undo_ui();
-    if (canvas_ui) |ui| ui.canvas_dirty = true;
-    queue_draw();
-}
-
-fn canvas_size_callback(width: c_int, height: c_int, user_data: ?*anyopaque) void {
-    _ = user_data;
-    engine.setCanvasSize(width, height);
-    refresh_undo_ui();
-    if (canvas_ui) |ui| ui.canvas_dirty = true;
-    queue_draw();
-}
-
-fn canvas_size_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
-    CanvasDialog.showCanvasSizeDialog(window, engine.canvas_width, engine.canvas_height, @ptrCast(&canvas_size_callback), null);
-}
-
-fn view_bitmap_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
-    if (window) |w| {
-        FullscreenPreview.showFullscreenPreview(w, &engine);
-    }
-}
-
-fn view_thumbnail_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
-    if (window) |w| {
-        ThumbnailWindow.show(w, &thumbnail_ctx);
-    }
-}
-
-fn command_palette_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
-    // We need the app pointer, which we can get from the window or pass it?
-    // user_data is currently the window.
-    if (window) |w| {
-        const app = c.gtk_window_get_application(w);
-        if (app) |a| {
-            CommandPalette.showCommandPalette(w, a);
-        }
-    }
-}
-
-fn show_grid_change_state(action: *c.GSimpleAction, value: *c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    const enabled = c.g_variant_get_boolean(value) != 0;
-    if (canvas_ui) |ui| ui.setShowGrid(enabled);
-    c.g_simple_action_set_state(action, value);
-}
-
-fn split_view_change_state(action: *c.GSimpleAction, value: *c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    const enabled = c.g_variant_get_boolean(value) != 0;
-    if (canvas_ui) |ui| ui.setSplitView(enabled);
-    c.g_simple_action_set_state(action, value);
-}
-
-fn queue_draw() void {
-    if (canvas_ui) |ui| {
-        ui.queueDraw();
-    }
-}
-
-fn refresh_layers_ui() void {
-    if (sidebar_ui.layers_list_box) |box| {
-        // Clear children
-        var child = c.gtk_widget_get_first_child(@ptrCast(box));
-        while (child != null) {
-            const next = c.gtk_widget_get_next_sibling(child);
-            c.gtk_list_box_remove(@ptrCast(box), child);
-            child = next;
-        }
-
-        // Add layers (reversed: Top layer first)
-        var i: usize = engine.layers.list.items.len;
-        while (i > 0) {
-            i -= 1;
-            const idx = i;
-            const layer = &engine.layers.list.items[idx];
-            const user_data: ?*anyopaque = if (idx == 0) null else @ptrFromInt(idx);
-
-            const row = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 5);
-
-            // Visible Check
-            const vis_check = c.gtk_check_button_new();
-            c.gtk_check_button_set_active(@ptrCast(vis_check), if (layer.visible) 1 else 0);
-            c.gtk_widget_set_tooltip_text(vis_check, "Visible");
-            _ = c.g_signal_connect_data(vis_check, "toggled", @ptrCast(&layer_visibility_toggled), user_data, null, 0);
-            c.gtk_box_append(@ptrCast(row), vis_check);
-
-            // Lock Check
-            const lock_check = c.gtk_check_button_new();
-            c.gtk_check_button_set_active(@ptrCast(lock_check), if (layer.locked) 1 else 0);
-            c.gtk_widget_set_tooltip_text(lock_check, "Lock");
-            _ = c.g_signal_connect_data(lock_check, "toggled", @ptrCast(&layer_lock_toggled), user_data, null, 0);
-            c.gtk_box_append(@ptrCast(row), lock_check);
-
-            // Name Label
-            const name_span = std.mem.span(@as([*:0]const u8, @ptrCast(&layer.name)));
-            const label = c.gtk_label_new(name_span.ptr);
-            c.gtk_widget_set_hexpand(label, 1);
-            c.gtk_widget_set_halign(label, c.GTK_ALIGN_START);
-            c.gtk_box_append(@ptrCast(row), label);
-
-            c.gtk_list_box_insert(@ptrCast(box), row, -1);
-        }
-    }
-}
-
-fn layer_visibility_toggled(_: *c.GtkCheckButton, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    const idx = @intFromPtr(user_data);
-    engine.toggleLayerVisibility(idx);
-    if (canvas_ui) |ui| ui.canvas_dirty = true;
-    queue_draw();
-    refresh_undo_ui();
-}
-
-fn layer_lock_toggled(_: *c.GtkCheckButton, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    const idx = @intFromPtr(user_data);
-    engine.toggleLayerLock(idx);
-    refresh_undo_ui();
-}
-
-fn layer_add_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    engine.addLayer("New Layer") catch return;
-    refresh_layers_ui();
-    refresh_undo_ui();
-    if (canvas_ui) |ui| ui.canvas_dirty = true;
-    queue_draw();
-}
-
-fn layer_remove_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    engine.removeLayer(engine.layers.active_index);
-    refresh_layers_ui();
-    refresh_undo_ui();
-    update_view_mode();
-    if (canvas_ui) |ui| ui.canvas_dirty = true;
-    queue_draw();
-}
-
-fn layer_up_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    const idx = engine.layers.active_index;
-    if (idx + 1 < engine.layers.list.items.len) {
-        engine.reorderLayer(idx, idx + 1);
-        refresh_layers_ui();
-        refresh_undo_ui();
-        if (canvas_ui) |ui| ui.canvas_dirty = true;
-        queue_draw();
-    }
-}
-
-fn layer_down_clicked(_: *c.GtkButton, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    const idx = engine.layers.active_index;
-    if (idx > 0) {
-        engine.reorderLayer(idx, idx - 1);
-        refresh_layers_ui();
-        refresh_undo_ui();
-        if (canvas_ui) |ui| ui.canvas_dirty = true;
-        queue_draw();
-    }
-}
-
-fn layer_selected(_: *c.GtkListBox, row: ?*c.GtkListBoxRow, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
-    if (row) |r| {
-        const index_in_list = c.gtk_list_box_row_get_index(r);
-        if (index_in_list >= 0) {
-            const k: usize = @intCast(index_in_list);
-            if (k < engine.layers.list.items.len) {
-                const layer_idx = engine.layers.list.items.len - 1 - k;
-                engine.setActiveLayer(layer_idx);
-            }
-        }
-    }
-}
-
-
-const DropConfirmContext = struct {
-    path: [:0]u8,
-};
-
-const DropContext = struct {
-    window: ?*c.GtkWindow,
-    canvas: *CanvasUI.Canvas,
-};
-
-fn drop_enter(
-    _: *c.GtkDropTarget,
-    _: f64,
-    _: f64,
-    user_data: ?*anyopaque,
-) callconv(std.builtin.CallingConvention.c) c.GdkDragAction {
-    const ctx: *DropContext = @ptrCast(@alignCast(user_data));
-    if (engine.layers.list.items.len > 0) {
-        ctx.canvas.showDropOverlay("Drop to Add Layer or Open New");
-    } else {
-        ctx.canvas.showDropOverlay("Drop to Open Image");
-    }
-    return c.GDK_ACTION_COPY;
-}
-
-fn drop_leave(
-    _: *c.GtkDropTarget,
-    user_data: ?*anyopaque,
-) callconv(std.builtin.CallingConvention.c) void {
-    const ctx: *DropContext = @ptrCast(@alignCast(user_data));
-    ctx.canvas.hideDropOverlay();
-}
-
-fn drop_response(
-    dialog: *c.AdwMessageDialog,
-    response: [*c]const u8,
-    user_data: ?*anyopaque,
-) callconv(std.builtin.CallingConvention.c) void {
-    const ctx: *DropConfirmContext = @ptrCast(@alignCast(user_data));
-    // We must clean up context and path regardless of choice
-    const allocator = std.heap.c_allocator;
-    defer allocator.destroy(ctx);
-    defer allocator.free(ctx.path);
-
-    const resp_span = std.mem.span(response);
-
-    if (std.mem.eql(u8, resp_span, "new")) {
-        openFileFromPath(ctx.path, false, true, null);
-    } else if (std.mem.eql(u8, resp_span, "layer")) {
-        openFileFromPath(ctx.path, true, true, null);
-    }
-    // "cancel" or others do nothing but cleanup
-
-    // Destroy the dialog
-    c.gtk_window_destroy(@ptrCast(dialog));
-}
-
-fn drop_func(
-    target: *c.GtkDropTarget,
-    value: *const c.GValue,
-    x: f64,
-    y: f64,
-    user_data: ?*anyopaque,
-) callconv(std.builtin.CallingConvention.c) c.gboolean {
-    _ = target;
-    _ = x;
-    _ = y;
-
-    const ctx: *DropContext = @ptrCast(@alignCast(user_data));
-    ctx.canvas.hideDropOverlay();
-
-    // Check if we have a window handle
-    const window = ctx.window;
-
-    const file_obj = c.g_value_get_object(value);
-    if (file_obj) |obj| {
-        // Safe cast as we requested G_TYPE_FILE
-        const file: *c.GFile = @ptrCast(obj);
-        const path = c.g_file_get_path(file);
-        if (path) |p| {
-            const span = std.mem.span(@as([*:0]const u8, @ptrCast(p)));
-
-            // Logic: If layers exist AND we have a window to show dialog on -> Ask User
-            if (engine.layers.list.items.len > 0 and window != null) {
-                const allocator = std.heap.c_allocator;
-                // Copy path
-                const path_copy = allocator.dupeZ(u8, span) catch {
-                    c.g_free(p);
-                    return 0;
-                };
-
-                const ctx_confirm = allocator.create(DropConfirmContext) catch {
-                    allocator.free(path_copy);
-                    c.g_free(p);
-                    return 0;
-                };
-                ctx_confirm.* = .{ .path = path_copy };
-
-                const dialog = c.adw_message_dialog_new(
-                    window.?,
-                    "Import Image",
-                    "How would you like to open this image?",
-                );
-
-                c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "_Cancel");
-                c.adw_message_dialog_add_response(@ptrCast(dialog), "new", "_Open as New Image");
-                c.adw_message_dialog_add_response(@ptrCast(dialog), "layer", "_Add as Layer");
-
-                c.adw_message_dialog_set_default_response(@ptrCast(dialog), "layer");
-                c.adw_message_dialog_set_close_response(@ptrCast(dialog), "cancel");
-
-                _ = c.g_signal_connect_data(dialog, "response", @ptrCast(&drop_response), ctx_confirm, null, 0);
-
-                c.gtk_window_present(@ptrCast(dialog));
-            } else {
-                const as_layers = (engine.layers.list.items.len > 0);
-                openFileFromPath(span, as_layers, true, null);
-            }
-
-            c.g_free(p);
-            return 1;
-        }
-    }
-
-    return 0;
 }
 
 fn on_recent_child_activated(_: *c.GtkFlowBox, child: *c.GtkFlowBoxChild, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
@@ -1523,8 +1080,8 @@ fn recovery_response(
         EngineIO.loadProject(&engine, ctx.path) catch |err| {
             show_toast("Failed to recover project: {}", .{err});
         };
-        refresh_layers_ui();
-        refresh_undo_ui();
+        sidebar_ui.refreshLayers();
+        sidebar_ui.refreshUndo();
         update_view_mode();
         if (canvas_ui) |ui| ui.canvas_dirty = true;
         queue_draw();
@@ -1585,6 +1142,132 @@ fn check_autosave(window: *c.GtkWindow) void {
     }
 }
 
+const DropConfirmContext = struct {
+    path: [:0]u8,
+};
+
+const DropContext = struct {
+    window: ?*c.GtkWindow,
+    canvas: *CanvasUI.Canvas,
+};
+
+fn drop_enter(
+    _: *c.GtkDropTarget,
+    _: f64,
+    _: f64,
+    user_data: ?*anyopaque,
+) callconv(std.builtin.CallingConvention.c) c.GdkDragAction {
+    const ctx: *DropContext = @ptrCast(@alignCast(user_data));
+    if (engine.layers.list.items.len > 0) {
+        ctx.canvas.showDropOverlay("Drop to Add Layer or Open New");
+    } else {
+        ctx.canvas.showDropOverlay("Drop to Open Image");
+    }
+    return c.GDK_ACTION_COPY;
+}
+
+fn drop_leave(
+    _: *c.GtkDropTarget,
+    user_data: ?*anyopaque,
+) callconv(std.builtin.CallingConvention.c) void {
+    const ctx: *DropContext = @ptrCast(@alignCast(user_data));
+    ctx.canvas.hideDropOverlay();
+}
+
+fn drop_response(
+    dialog: *c.AdwMessageDialog,
+    response: [*c]const u8,
+    user_data: ?*anyopaque,
+) callconv(std.builtin.CallingConvention.c) void {
+    const ctx: *DropConfirmContext = @ptrCast(@alignCast(user_data));
+    // We must clean up context and path regardless of choice
+    const allocator = std.heap.c_allocator;
+    defer allocator.destroy(ctx);
+    defer allocator.free(ctx.path);
+
+    const resp_span = std.mem.span(response);
+
+    if (std.mem.eql(u8, resp_span, "new")) {
+        openFileFromPath(ctx.path, false, true, null);
+    } else if (std.mem.eql(u8, resp_span, "layer")) {
+        openFileFromPath(ctx.path, true, true, null);
+    }
+    // "cancel" or others do nothing but cleanup
+
+    // Destroy the dialog
+    c.gtk_window_destroy(@ptrCast(dialog));
+}
+
+fn drop_func(
+    target: *c.GtkDropTarget,
+    value: *const c.GValue,
+    x: f64,
+    y: f64,
+    user_data: ?*anyopaque,
+) callconv(std.builtin.CallingConvention.c) c.gboolean {
+    _ = target;
+    _ = x;
+    _ = y;
+
+    const ctx: *DropContext = @ptrCast(@alignCast(user_data));
+    ctx.canvas.hideDropOverlay();
+
+    // Check if we have a window handle
+    const window = ctx.window;
+
+    const file_obj = c.g_value_get_object(value);
+    if (file_obj) |obj| {
+        // Safe cast as we requested G_TYPE_FILE
+        const file: *c.GFile = @ptrCast(obj);
+        const path = c.g_file_get_path(file);
+        if (path) |p| {
+            const span = std.mem.span(@as([*:0]const u8, @ptrCast(p)));
+
+            // Logic: If layers exist AND we have a window to show dialog on -> Ask User
+            if (engine.layers.list.items.len > 0 and window != null) {
+                const allocator = std.heap.c_allocator;
+                // Copy path
+                const path_copy = allocator.dupeZ(u8, span) catch {
+                    c.g_free(p);
+                    return 0;
+                };
+
+                const ctx_confirm = allocator.create(DropConfirmContext) catch {
+                    allocator.free(path_copy);
+                    c.g_free(p);
+                    return 0;
+                };
+                ctx_confirm.* = .{ .path = path_copy };
+
+                const dialog = c.adw_message_dialog_new(
+                    window.?,
+                    "Import Image",
+                    "How would you like to open this image?",
+                );
+
+                c.adw_message_dialog_add_response(@ptrCast(dialog), "cancel", "_Cancel");
+                c.adw_message_dialog_add_response(@ptrCast(dialog), "new", "_Open as New Image");
+                c.adw_message_dialog_add_response(@ptrCast(dialog), "layer", "_Add as Layer");
+
+                c.adw_message_dialog_set_default_response(@ptrCast(dialog), "layer");
+                c.adw_message_dialog_set_close_response(@ptrCast(dialog), "cancel");
+
+                _ = c.g_signal_connect_data(dialog, "response", @ptrCast(&drop_response), ctx_confirm, null, 0);
+
+                c.gtk_window_present(@ptrCast(dialog));
+            } else {
+                const as_layers = (engine.layers.list.items.len > 0);
+                openFileFromPath(span, as_layers, true, null);
+            }
+
+            c.g_free(p);
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
 fn zoom_in_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
     if (canvas_ui) |ui| ui.zoomIn();
 }
@@ -1593,89 +1276,219 @@ fn zoom_out_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) call
     if (canvas_ui) |ui| ui.zoomOut();
 }
 
-fn rebuild_recent_colors_wrapper(_: ?*anyopaque) callconv(std.builtin.CallingConvention.c) c.gboolean {
-    if (sidebar_ui.color_btn) |_| {
-        sidebar_ui.rebuildRecentColors();
-    }
-    return 0; // G_SOURCE_REMOVE
+fn pixelize_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
+    FilterDialog.showPixelizeDialog(window, &engine, &refresh_ui_callback);
 }
 
-fn color_changed(
-    button: *c.GtkColorButton,
-    user_data: ?*anyopaque,
-) callconv(std.builtin.CallingConvention.c) void {
-    _ = user_data;
-    var rgba: c.GdkRGBA = undefined;
-    c.gtk_color_chooser_get_rgba(@ptrCast(button), &rgba);
-
-    const r: u8 = @intFromFloat(rgba.red * 255.0);
-    const g: u8 = @intFromFloat(rgba.green * 255.0);
-    const b: u8 = @intFromFloat(rgba.blue * 255.0);
-    const a: u8 = @intFromFloat(rgba.alpha * 255.0);
-
-    engine.setFgColor(r, g, b, a);
-
-    recent_colors_manager.add(rgba) catch {};
-
-    _ = c.g_idle_add(@ptrCast(&rebuild_recent_colors_wrapper), null);
+fn motion_blur_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
+    FilterDialog.showMotionBlurDialog(window, &engine, &refresh_ui_callback);
 }
 
-fn on_edit_colors_response(
-    dialog: *c.GtkDialog,
-    response_id: c_int,
-    user_data: ?*anyopaque,
-) callconv(std.builtin.CallingConvention.c) void {
-    _ = user_data;
-    if (response_id == c.GTK_RESPONSE_OK) {
-        var rgba: c.GdkRGBA = undefined;
-        c.gtk_color_chooser_get_rgba(@ptrCast(dialog), &rgba);
-
-        const r: u8 = @intFromFloat(rgba.red * 255.0);
-        const g: u8 = @intFromFloat(rgba.green * 255.0);
-        const b: u8 = @intFromFloat(rgba.blue * 255.0);
-        const a: u8 = @intFromFloat(rgba.alpha * 255.0);
-
-        engine.setFgColor(r, g, b, a);
-        recent_colors_manager.add(rgba) catch {};
-        _ = c.g_idle_add(@ptrCast(&rebuild_recent_colors_wrapper), null);
-    }
-    c.gtk_window_destroy(@ptrCast(dialog));
+fn unsharp_mask_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
+    FilterDialog.showUnsharpMaskDialog(window, &engine, &refresh_ui_callback);
 }
 
-fn on_edit_colors_clicked(
-    _: *c.GtkButton,
-    user_data: ?*anyopaque,
-) callconv(std.builtin.CallingConvention.c) void {
-    const parent: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
-    const dialog = c.gtk_color_chooser_dialog_new("Edit Colors", parent);
-    if (recent_colors_manager.colors.items.len > 0) {
-        c.gtk_color_chooser_add_palette(
-            @ptrCast(dialog),
-            c.GTK_ORIENTATION_HORIZONTAL,
-            5,
-            @intCast(recent_colors_manager.colors.items.len),
-            recent_colors_manager.colors.items.ptr,
-        );
-    }
-    c.gtk_color_chooser_set_use_alpha(@ptrCast(dialog), 1);
+fn noise_reduction_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
+    FilterDialog.showNoiseReductionDialog(window, &engine, &refresh_ui_callback);
+}
 
-    const fg = engine.fg_color;
-    const rgba = c.GdkRGBA{
-        .red = @as(f32, @floatFromInt(fg[0])) / 255.0,
-        .green = @as(f32, @floatFromInt(fg[1])) / 255.0,
-        .blue = @as(f32, @floatFromInt(fg[2])) / 255.0,
-        .alpha = @as(f32, @floatFromInt(fg[3])) / 255.0,
+fn oilify_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
+    FilterDialog.showOilifyDialog(window, &engine, &refresh_ui_callback);
+}
+
+fn drop_shadow_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
+    FilterDialog.showDropShadowDialog(window, &engine, &refresh_ui_callback);
+}
+
+fn red_eye_removal_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
+    FilterDialog.showRedEyeRemovalDialog(window, &engine, &refresh_ui_callback);
+}
+
+fn waves_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
+    FilterDialog.showWavesDialog(window, &engine, &refresh_ui_callback);
+}
+
+fn supernova_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
+    FilterDialog.showSupernovaDialog(window, &engine, &refresh_ui_callback);
+}
+
+fn lighting_effects_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
+    FilterDialog.showLightingDialog(window, &engine, &refresh_ui_callback);
+}
+
+fn stretch_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
+    FilterDialog.showStretchSkewDialog(window, &engine, &refresh_ui_callback);
+}
+
+fn apply_preview_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    engine.commitPreview() catch |err| {
+        show_toast("Commit preview failed: {}", .{err});
     };
-    c.gtk_color_chooser_set_rgba(@ptrCast(dialog), &rgba);
-
-    _ = c.g_signal_connect_data(dialog, "response", @ptrCast(&on_edit_colors_response), null, null, 0);
-    c.gtk_window_present(@ptrCast(dialog));
+    refresh_header_ui();
+    if (canvas_ui) |ui| ui.canvas_dirty = true;
+    queue_draw();
+    sidebar_ui.refreshUndo();
 }
 
+fn discard_preview_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    engine.cancelPreview();
+    refresh_header_ui();
+    if (canvas_ui) |ui| ui.canvas_dirty = true;
+    queue_draw();
+}
+
+fn invert_colors_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    engine.invertColors() catch |err| {
+        show_toast("Invert colors failed: {}", .{err});
+        return;
+    };
+    sidebar_ui.refreshUndo();
+    if (canvas_ui) |ui| ui.canvas_dirty = true;
+    queue_draw();
+}
+
+fn clear_image_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    engine.clearActiveLayer() catch |err| {
+        show_toast("Clear image failed: {}", .{err});
+        return;
+    };
+    sidebar_ui.refreshUndo();
+    if (canvas_ui) |ui| ui.canvas_dirty = true;
+    queue_draw();
+}
+
+fn flip_horizontal_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    engine.flipHorizontal() catch |err| {
+        show_toast("Flip horizontal failed: {}", .{err});
+        return;
+    };
+    sidebar_ui.refreshUndo();
+    if (canvas_ui) |ui| ui.canvas_dirty = true;
+    queue_draw();
+}
+
+fn flip_vertical_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    engine.flipVertical() catch |err| {
+        show_toast("Flip vertical failed: {}", .{err});
+        return;
+    };
+    sidebar_ui.refreshUndo();
+    if (canvas_ui) |ui| ui.canvas_dirty = true;
+    queue_draw();
+}
+
+fn rotate_90_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    engine.rotate90() catch |err| {
+        show_toast("Rotate 90 failed: {}", .{err});
+        return;
+    };
+    sidebar_ui.refreshUndo();
+    if (canvas_ui) |ui| ui.canvas_dirty = true;
+    queue_draw();
+}
+
+fn rotate_180_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    engine.rotate180() catch |err| {
+        show_toast("Rotate 180 failed: {}", .{err});
+        return;
+    };
+    sidebar_ui.refreshUndo();
+    if (canvas_ui) |ui| ui.canvas_dirty = true;
+    queue_draw();
+}
+
+fn rotate_270_activated(_: *c.GSimpleAction, _: ?*c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    engine.rotate270() catch |err| {
+        show_toast("Rotate 270 failed: {}", .{err});
+        return;
+    };
+    sidebar_ui.refreshUndo();
+    if (canvas_ui) |ui| ui.canvas_dirty = true;
+    queue_draw();
+}
+
+fn canvas_size_callback(width: c_int, height: c_int, user_data: ?*anyopaque) void {
+    _ = user_data;
+    engine.setCanvasSize(width, height);
+    sidebar_ui.refreshUndo();
+    if (canvas_ui) |ui| ui.canvas_dirty = true;
+    queue_draw();
+}
+
+fn canvas_size_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
+    CanvasDialog.showCanvasSizeDialog(window, engine.canvas_width, engine.canvas_height, @ptrCast(&canvas_size_callback), null);
+}
+
+fn view_bitmap_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
+    if (window) |w| {
+        FullscreenPreview.showFullscreenPreview(w, &engine);
+    }
+}
+
+fn view_thumbnail_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
+    if (window) |w| {
+        ThumbnailWindow.show(w, &thumbnail_ctx);
+    }
+}
+
+fn command_palette_activated(_: *c.GSimpleAction, _: ?*c.GVariant, user_data: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
+    // We need the app pointer, which we can get from the window or pass it?
+    // user_data is currently the window.
+    if (window) |w| {
+        const app = c.gtk_window_get_application(w);
+        if (app) |a| {
+            CommandPalette.showCommandPalette(w, a);
+        }
+    }
+}
+
+fn show_grid_change_state(action: *c.GSimpleAction, value: *c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const enabled = c.g_variant_get_boolean(value) != 0;
+    if (canvas_ui) |ui| ui.setShowGrid(enabled);
+    c.g_simple_action_set_state(action, value);
+}
+
+fn split_view_change_state(action: *c.GSimpleAction, value: *c.GVariant, _: ?*anyopaque) callconv(std.builtin.CallingConvention.c) void {
+    const enabled = c.g_variant_get_boolean(value) != 0;
+    if (canvas_ui) |ui| ui.setSplitView(enabled);
+    c.g_simple_action_set_state(action, value);
+}
+
+fn queue_draw() void {
+    if (canvas_ui) |ui| {
+        ui.queueDraw();
+    }
+}
+
+fn on_sidebar_content_change() void {
+    update_view_mode();
+    if (canvas_ui) |ui| ui.canvas_dirty = true;
+    queue_draw();
+}
+
+fn on_palette_color_changed() void {
+    sidebar_ui.updateColorButton();
+    queue_draw();
+}
 
 fn on_text_tool_complete() void {
-    refresh_layers_ui();
-    refresh_undo_ui();
+    sidebar_ui.refreshLayers();
+    sidebar_ui.refreshUndo();
     update_view_mode();
     if (canvas_ui) |ui| ui.canvas_dirty = true;
     queue_draw();
@@ -1684,11 +1497,6 @@ fn on_text_tool_complete() void {
 fn on_color_picked(color: [4]u8) void {
     _ = color;
     sidebar_ui.updateColorButton();
-}
-
-fn on_palette_color_changed() void {
-    sidebar_ui.updateColorButton();
-    queue_draw();
 }
 
 fn tool_toggled(
@@ -1934,16 +1742,8 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
 
     const callbacks = SidebarCallbacks{
         .tool_toggled = @ptrCast(&tool_toggled),
-        .color_changed = @ptrCast(&color_changed),
-        .edit_colors_clicked = @ptrCast(&on_edit_colors_clicked),
-        .layer_selected = @ptrCast(&layer_selected),
-        .layer_add = @ptrCast(&layer_add_clicked),
-        .layer_remove = @ptrCast(&layer_remove_clicked),
-        .layer_up = @ptrCast(&layer_up_clicked),
-        .layer_down = @ptrCast(&layer_down_clicked),
-        .queue_draw_fn = &queue_draw,
+        .request_update = &on_sidebar_content_change,
         .palette_color_changed = &on_palette_color_changed,
-        .rebuild_recent_colors = @ptrCast(&rebuild_recent_colors_wrapper),
     };
 
     sidebar_ui = Sidebar.create(std.heap.c_allocator, &engine, &recent_colors_manager, callbacks, @ptrCast(window)) catch |err| {
@@ -2037,7 +1837,7 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     _ = c.gtk_stack_add_named(@ptrCast(stack), welcome_page, "welcome");
 
     const canvas_callbacks = CanvasUI.CanvasCallbacks{
-        .refresh_undo_ui = &refresh_undo_ui,
+        .refresh_undo_ui = &refresh_undo_ui_wrapper,
         .reset_transform_ui = &reset_transform_ui_wrapper,
     };
 
@@ -2071,8 +1871,8 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     c.gtk_widget_add_controller(canvas_ui.?.drawing_area, @ptrCast(drop_target));
 
     // Refresh Layers UI initially
-    refresh_layers_ui();
-    refresh_undo_ui();
+    sidebar_ui.refreshLayers();
+    sidebar_ui.refreshUndo();
     update_view_mode();
 
     // CSS Styling
