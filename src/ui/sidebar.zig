@@ -47,9 +47,6 @@ fn on_group_item_clicked(_: *c.GtkButton, user_data: ?*anyopaque) callconv(std.b
     const tooltip = ToolFactory.getToolTooltip(ctx.tool);
     c.gtk_widget_set_tooltip_text(ctx.main_btn, tooltip.ptr);
 
-    const tooltip = ToolFactory.getToolTooltip(ctx.tool);
-    c.gtk_widget_set_tooltip_text(ctx.main_btn, tooltip.ptr);
-
     const is_active = c.gtk_toggle_button_get_active(@ptrCast(ctx.main_btn)) != 0;
     if (!is_active) {
         c.gtk_toggle_button_set_active(@ptrCast(ctx.main_btn), 1);
