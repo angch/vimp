@@ -1276,6 +1276,34 @@ const DropConfirmContext = struct {
     path: [:0]u8,
 };
 
+const DropContext = struct {
+    window: ?*c.GtkWindow,
+    canvas: *CanvasUI.Canvas,
+};
+
+fn drop_enter(
+    _: *c.GtkDropTarget,
+    _: f64,
+    _: f64,
+    user_data: ?*anyopaque,
+) callconv(std.builtin.CallingConvention.c) c.GdkDragAction {
+    const ctx: *DropContext = @ptrCast(@alignCast(user_data));
+    if (engine.layers.list.items.len > 0) {
+        ctx.canvas.showDropOverlay("Drop to Add Layer or Open New");
+    } else {
+        ctx.canvas.showDropOverlay("Drop to Open Image");
+    }
+    return c.GDK_ACTION_COPY;
+}
+
+fn drop_leave(
+    _: *c.GtkDropTarget,
+    user_data: ?*anyopaque,
+) callconv(std.builtin.CallingConvention.c) void {
+    const ctx: *DropContext = @ptrCast(@alignCast(user_data));
+    ctx.canvas.hideDropOverlay();
+}
+
 fn drop_response(
     dialog: *c.AdwMessageDialog,
     response: [*c]const u8,
@@ -1311,8 +1339,11 @@ fn drop_func(
     _ = x;
     _ = y;
 
+    const ctx: *DropContext = @ptrCast(@alignCast(user_data));
+    ctx.canvas.hideDropOverlay();
+
     // Check if we have a window handle
-    const window: ?*c.GtkWindow = if (user_data) |ud| @ptrCast(@alignCast(ud)) else null;
+    const window = ctx.window;
 
     const file_obj = c.g_value_get_object(value);
     if (file_obj) |obj| {
@@ -1331,12 +1362,12 @@ fn drop_func(
                     return 0;
                 };
 
-                const ctx = allocator.create(DropConfirmContext) catch {
+                const ctx_confirm = allocator.create(DropConfirmContext) catch {
                     allocator.free(path_copy);
                     c.g_free(p);
                     return 0;
                 };
-                ctx.* = .{ .path = path_copy };
+                ctx_confirm.* = .{ .path = path_copy };
 
                 const dialog = c.adw_message_dialog_new(
                     window.?,
@@ -1351,7 +1382,7 @@ fn drop_func(
                 c.adw_message_dialog_set_default_response(@ptrCast(dialog), "layer");
                 c.adw_message_dialog_set_close_response(@ptrCast(dialog), "cancel");
 
-                _ = c.g_signal_connect_data(dialog, "response", @ptrCast(&drop_response), ctx, null, 0);
+                _ = c.g_signal_connect_data(dialog, "response", @ptrCast(&drop_response), ctx_confirm, null, 0);
 
                 c.gtk_window_present(@ptrCast(dialog));
             } else {
@@ -2027,8 +2058,16 @@ fn activate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(std.builtin
     };
 
     // Drop Target (Attach to canvas drawing area)
+    const drop_ctx = std.heap.c_allocator.create(DropContext) catch return;
+    drop_ctx.* = .{
+        .window = @ptrCast(window),
+        .canvas = canvas_ui.?,
+    };
+
     const drop_target = c.gtk_drop_target_new(c.g_file_get_type(), c.GDK_ACTION_COPY);
-    _ = c.g_signal_connect_data(drop_target, "drop", @ptrCast(&drop_func), window, null, 0);
+    _ = c.g_signal_connect_data(drop_target, "enter", @ptrCast(&drop_enter), drop_ctx, null, 0);
+    _ = c.g_signal_connect_data(drop_target, "leave", @ptrCast(&drop_leave), drop_ctx, null, 0);
+    _ = c.g_signal_connect_data(drop_target, "drop", @ptrCast(&drop_func), drop_ctx, null, 0);
     c.gtk_widget_add_controller(canvas_ui.?.drawing_area, @ptrCast(drop_target));
 
     // Refresh Layers UI initially
