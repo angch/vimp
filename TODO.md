@@ -30,6 +30,7 @@
     - [x] Move remaining tools (Lasso, Shapes, Lines, Text, Gradient, Picker) to `src/tools/`.
     - [x] Update `src/main.zig` to delegate events to the active `Tool` instance.
     - [x] Refactor tool creation to `src/tools/factory.zig`.
+    - [x] Centralize Tool Metadata (Icon/Tooltip) in `src/tools/factory.zig` and cleanup `src/ui/sidebar.zig`.
 - [x] **Refactor UI - Split Main:** Decompose `src/main.zig` UI construction.
     - [x] Extract Sidebar construction to `src/ui/sidebar.zig`.
     - [x] Extract Header construction to `src/ui/header.zig`.
