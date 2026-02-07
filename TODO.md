@@ -35,6 +35,7 @@
     - [x] Extract Sidebar construction to `src/ui/sidebar.zig`.
     - [x] Extract Header construction to `src/ui/header.zig`.
     - [x] Encapsulate Sidebar internal logic (Layers/Undo list management) within `src/ui/sidebar.zig`.
+    - [x] Extract Welcome Screen to `src/ui/welcome.zig`.
 
 ## File Format Support (Priority: Medium)
 - [x] **XCF:** Full layer/channel/path support (Layers, Channels, and Paths implemented).
