@@ -120,11 +120,17 @@ pub const Engine = struct {
     // GEGL is not thread-safe for init/exit, and tests run in parallel.
     // We must serialize access to the GEGL global state.
     var gegl_mutex = std.Thread.Mutex{};
+    var gegl_ref_count: usize = 0;
 
     pub fn init(self: *Engine) void {
         gegl_mutex.lock();
-        // Accept null args for generic initialization
-        c.gegl_init(null, null);
+        if (gegl_ref_count == 0) {
+            // Accept null args for generic initialization
+            c.gegl_init(null, null);
+        }
+        gegl_ref_count += 1;
+        gegl_mutex.unlock();
+
         self.initData();
     }
 
@@ -154,7 +160,15 @@ pub const Engine = struct {
 
     pub fn deinit(self: *Engine) void {
         self.cleanupData();
-        // c.gegl_exit();
+
+        gegl_mutex.lock();
+        if (gegl_ref_count > 0) {
+            gegl_ref_count -= 1;
+            // Never call gegl_exit() to avoid re-init crashes
+            // if (gegl_ref_count == 0) {
+            //    c.gegl_exit();
+            // }
+        }
         gegl_mutex.unlock();
     }
 
@@ -3398,4 +3412,23 @@ test "Engine draw rectangle outline overlap" {
     // Expect Equal for PASSING test (after fix).
     // But currently should fail.
     try std.testing.expectEqual(corner_pixel[3], side_pixel[3]);
+}
+
+test "Multiple Engines Instantiation" {
+    // This test ensures that multiple Engine instances can be initialized sequentially
+    // (and concurrently, though tested sequentially here for simplicity)
+    // without deadlocking due to global mutexes.
+
+    var e1 = Engine{};
+    e1.init();
+
+    var e2 = Engine{};
+    e2.init(); // This point would deadlock if mutex is held globally
+
+    // Do some work with both
+    try std.testing.expectEqual(@as(c_int, 800), e1.canvas_width);
+    try std.testing.expectEqual(@as(c_int, 800), e2.canvas_width);
+
+    e2.deinit();
+    e1.deinit();
 }
