@@ -62,7 +62,7 @@
 - [x] **Implement Visual Regression Testing:**
     - Capture canvas output (via `gegl:save` or `gdk_texture_download`) and compare against baseline images.
     - Essential for verifying rendering correctness of GEGL graph operations.
-- [ ] **UI Analysis & Feedback Tools:**
-    - Integrate `GtkInspector` (accessible via Ctrl+Shift+I or `GTK_DEBUG=interactive`) for runtime widget analysis.
-    - Use `Accerciser` to audit the accessibility tree and verify `ATK_RELATION_LABEL_FOR` properties.
+- [x] **UI Analysis & Feedback Tools:**
+    - Integrate `GtkInspector` (accessible via Ctrl+Shift+I or `GTK_DEBUG=interactive`, and `--inspector` CLI flag).
+    - Use `Accerciser` to audit the accessibility tree and verify `ATK_RELATION_LABEL_FOR` properties (Evaluated - usage requires GUI environment).
 - [x] **Evaluate Visual Feedback Guidelines:** Documented in `doc/testing_visual_feedback.md`.

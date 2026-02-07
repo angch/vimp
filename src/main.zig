@@ -57,6 +57,9 @@ fn handle_local_options(
     if (c.g_variant_dict_lookup(options, "page", "i", &page) != 0) {
         cli_page_number = page;
     }
+    if (c.g_variant_dict_contains(options, "inspector") != 0) {
+        c.gtk_window_set_interactive_debugging(1);
+    }
     return -1; // Continue default processing
 }
 
@@ -105,6 +108,15 @@ pub fn main() !void {
             .arg_data = null,
             .description = "Page number to open (PDF)",
             .arg_description = "PAGE",
+        },
+        .{
+            .long_name = "inspector",
+            .short_name = 'i',
+            .flags = 0,
+            .arg = c.G_OPTION_ARG_NONE,
+            .arg_data = null,
+            .description = "Launch with GtkInspector enabled",
+            .arg_description = null,
         },
         .{
             .long_name = null,
