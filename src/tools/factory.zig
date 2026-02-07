@@ -2,6 +2,7 @@ const std = @import("std");
 const c = @import("../c.zig").c;
 const Tool = @import("types.zig").Tool;
 const ToolInterface = @import("interface.zig").ToolInterface;
+const Assets = @import("../assets.zig");
 
 const BrushTool = @import("brush.zig").BrushTool;
 const PencilTool = @import("pencil.zig").PencilTool;
@@ -128,6 +129,52 @@ pub const ToolFactory = struct {
             .curve => "Curve Tool",
         };
     }
+
+    pub fn getToolIconData(tool_type: Tool) ?[]const u8 {
+        return switch (tool_type) {
+            .brush => Assets.brush_png,
+            .pencil => Assets.pencil_png,
+            .airbrush => Assets.airbrush_png,
+            .eraser => Assets.eraser_png,
+            .bucket_fill => Assets.bucket_png,
+            .rect_select => Assets.rect_select_svg,
+            .ellipse_select => Assets.ellipse_select_svg,
+            .lasso => Assets.lasso_select_svg,
+            .rect_shape => Assets.rect_shape_svg,
+            .ellipse_shape => Assets.ellipse_shape_svg,
+            .rounded_rect_shape => Assets.rounded_rect_shape_svg,
+            .polygon => Assets.polygon_svg,
+            .text => Assets.text_svg,
+            .unified_transform => Assets.transform_svg,
+            .color_picker => Assets.color_picker_svg,
+            .gradient => Assets.gradient_svg,
+            .line => Assets.line_svg,
+            .curve => Assets.curve_svg,
+        };
+    }
+
+    pub fn getToolTooltip(tool_type: Tool) [:0]const u8 {
+        return switch (tool_type) {
+            .brush => "Brush",
+            .pencil => "Pencil",
+            .airbrush => "Airbrush",
+            .eraser => "Eraser",
+            .bucket_fill => "Bucket Fill",
+            .rect_select => "Rectangle Select",
+            .ellipse_select => "Ellipse Select",
+            .lasso => "Lasso Select",
+            .rect_shape => "Rectangle Tool",
+            .ellipse_shape => "Ellipse Tool",
+            .rounded_rect_shape => "Rounded Rectangle Tool",
+            .polygon => "Polygon Tool",
+            .text => "Text Tool",
+            .unified_transform => "Unified Transform",
+            .color_picker => "Color Picker",
+            .gradient => "Gradient Tool",
+            .line => "Line Tool (Shift to snap)",
+            .curve => "Curve Tool (Drag Line -> Bend 1 -> Bend 2)",
+        };
+    }
 };
 
 test "ToolFactory instantiation" {
@@ -146,15 +193,18 @@ test "ToolFactory instantiation" {
     // Try creating every tool type
     inline for (std.meta.fields(Tool)) |field| {
         const tool_enum = @field(Tool, field.name);
-        // Skip text/window dependent tools if they crash without window?
-        // TextTool accepts optional window.
 
-        var tool = try ToolFactory.createTool(std.testing.allocator, tool_enum, ctx);
-        // Verify name matches
+        // Verify metadata
         const name = ToolFactory.getToolName(tool_enum);
-        _ = name;
+        const icon = ToolFactory.getToolIconData(tool_enum);
+        const tooltip = ToolFactory.getToolTooltip(tool_enum);
 
-        // Clean up
+        try std.testing.expect(name.len > 0);
+        try std.testing.expect(tooltip.len > 0);
+        try std.testing.expect(icon != null);
+
+        // Verify creation
+        var tool = try ToolFactory.createTool(std.testing.allocator, tool_enum, ctx);
         tool.destroy(std.testing.allocator);
     }
 }
